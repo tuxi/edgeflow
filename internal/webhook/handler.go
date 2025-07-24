@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"edgeflow/internal/config"
+	"edgeflow/internal/strategy"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -58,6 +59,18 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Webhook] Received signal: %v+\n", payload)
 
 	// TODO: 分发给策略执行器
+	executor, err := strategy.Get(payload.Strategy)
+	if err != nil {
+		http.Error(w, "Unkonw strategy", http.StatusBadRequest)
+		return
+	}
+	params := strategy.ExecutionParams{
+		Symbol:  payload.Symbol,
+		Side:    payload.Side,
+		Comment: payload.Comment,
+	}
+
+	go executor.Execute(r.Context(), params)
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Signal received")

@@ -1,3 +1,28 @@
 package strategy
 
-// 支持多策略注册
+import (
+	"errors"
+	"sync"
+)
+
+var (
+	// 策略注册表， 支持多策略注册
+	registry = make(map[string]StrategyExecutor)
+	mu       sync.RWMutex
+)
+
+func Register(s StrategyExecutor) {
+	mu.Lock()
+	defer mu.Unlock()
+	registry[s.Name()] = s
+}
+
+func Get(name string) (StrategyExecutor, error) {
+	mu.RLock()
+	defer mu.RUnlock()
+	s, ok := registry[name]
+	if !ok {
+		return nil, errors.New("Strategy not found: " + name)
+	}
+	return s, nil
+}

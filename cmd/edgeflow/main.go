@@ -2,6 +2,7 @@ package main
 
 import (
 	"edgeflow/internal/config"
+	"edgeflow/internal/strategy"
 	"edgeflow/internal/webhook"
 	"log"
 	"net/http"
@@ -18,6 +19,9 @@ func main() {
 	}
 
 	log.Println("WEBHOOK_SECRET = ", config.AppConfig.Webhook.Secret)
+
+	// 注册策略
+	strategy.Register(&strategy.TVBreakoutV1{})
 
 	http.HandleFunc("/webhook", webhook.HandleWebhook)
 
