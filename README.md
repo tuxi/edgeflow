@@ -61,6 +61,15 @@ go mod tidy
 go run main.go
 ```
 
+```
+
+Webhook secret（密钥），只保存在你自己的服务器。
+TradingView 的 Webhook 在发送请求时，必须附带一个签名 Header，例如 X-Signature。
+后端收到请求后，根据 payload 和密钥重新计算签名，验证是否一致。
+
+使用终端生成随机密钥
+```
+openssl rand -hex 32
 ---
 
 ## 🔐 安全建议
