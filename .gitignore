@@ -50,3 +50,5 @@ conf/
 pkg/stabilityai/out
 
 config.yaml
+
+logs/

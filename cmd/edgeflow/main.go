@@ -2,13 +2,29 @@ package main
 
 import (
 	"edgeflow/internal/config"
+	"edgeflow/internal/exchange"
 	"edgeflow/internal/strategy"
 	"edgeflow/internal/webhook"
+	"edgeflow/pkg/recorder"
 	"log"
 	"net/http"
 )
 
 // 启动服务（监听webhook）
+
+/*
+测试
+
+BODY='{"strategy":"tv-breakout-v2","symbol":"BTC/USDT","side":"buy","price":0,"quantity":0.01}'
+SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
+SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
+
+curl -X POST http://localhost:8090/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-Signature: $SIGNATURE" \
+  -d "$BODY"
+
+*/
 
 func main() {
 
@@ -20,8 +36,15 @@ func main() {
 
 	log.Println("WEBHOOK_SECRET = ", config.AppConfig.Webhook.Secret)
 
+	se := exchange.NewSimulatedOrderExecutor()
+	record := recorder.JSONFileRecorder{
+		Path: "logs/strategy-log.json",
+	}
+
 	// 注册策略
 	strategy.Register(&strategy.TVBreakoutV1{})
+
+	strategy.Register(strategy.NewTVBreakoutV2(se, &record))
 
 	http.HandleFunc("/webhook", webhook.HandleWebhook)
 

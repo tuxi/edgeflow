@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"edgeflow/internal/config"
+	"edgeflow/internal/model"
 	"edgeflow/internal/strategy"
 	"encoding/hex"
 	"encoding/json"
@@ -14,13 +15,6 @@ import (
 )
 
 // TradingView Webhook 的接收器
-
-type SignalPayload struct {
-	Symbol   string `json:"symbol"`
-	Side     string `json:"side"`     // buy / sell
-	Strategy string `json:"strategy"` // 策略名
-	Comment  string `json:"comment"`  // 可选策略说明
-}
 
 // HandleWebhook 接收POST 请求并解析为策略信号
 func HandleWebhook(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +44,7 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload SignalPayload
+	var payload model.WebhookRequest
 	if err := json.Unmarshal(body, &payload); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -64,13 +58,8 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unkonw strategy", http.StatusBadRequest)
 		return
 	}
-	params := strategy.ExecutionParams{
-		Symbol:  payload.Symbol,
-		Side:    payload.Side,
-		Comment: payload.Comment,
-	}
 
-	go executor.Execute(r.Context(), params)
+	go executor.Execute(r.Context(), payload)
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Signal received")

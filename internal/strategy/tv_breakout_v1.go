@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"edgeflow/internal/model"
 	"fmt"
 )
 
@@ -12,8 +13,8 @@ func (s *TVBreakoutV1) Name() string {
 	return "tv-breakout-v1"
 }
 
-func (s *TVBreakoutV1) Execute(ctx context.Context, params ExecutionParams) error {
+func (s *TVBreakoutV1) Execute(ctx context.Context, req model.WebhookRequest) error {
 	// 实际策略逻辑，这里先打印
-	fmt.Printf("执行策略 %s：%s %s - %s\n", s.Name(), params.Side, params.Symbol, params.Comment)
+	fmt.Printf("执行策略 %s：%s %s - %s\n", s.Name(), req.Side, req.Symbol, req.Price)
 	return nil
 }
