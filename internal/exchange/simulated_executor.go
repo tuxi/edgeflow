@@ -33,7 +33,7 @@ func (s *SimulatedOrderExecutor) SetInitialPrice(symbol string, price float64) {
 	s.prices[symbol] = price
 }
 
-func (s *SimulatedOrderExecutor) PlaceOrder(ctx context.Context, req model.Order) (model.OrderResponse, error) {
+func (s *SimulatedOrderExecutor) PlaceOrder(ctx context.Context, req model.Order) (*model.OrderResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -48,14 +48,14 @@ func (s *SimulatedOrderExecutor) PlaceOrder(ctx context.Context, req model.Order
 
 	s.orders[orderID] = status
 
-	return model.OrderResponse{
+	return &model.OrderResponse{
 		OrderId: orderID,
-		Success: false,
+		Status:  1,
 		Message: "Simulated order filled",
 	}, nil
 }
 
-func (s *SimulatedOrderExecutor) CancelOrder(orderID string) error {
+func (s *SimulatedOrderExecutor) CancelOrder(orderID string, symbol string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

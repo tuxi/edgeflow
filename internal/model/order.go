@@ -18,8 +18,7 @@ const (
 
 type OrderResponse struct {
 	OrderId string
-	//Status  string
-	Success bool
+	Status  int
 	Message string
 }
 

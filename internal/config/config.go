@@ -12,8 +12,15 @@ type WebhookConfig struct {
 	Secret string `yaml:"secret"`
 }
 
+type Okx struct {
+	ApiKey    string `yaml:"apiKey"`
+	SecretKey string `yaml:"secretKey"`
+	Password  string `yaml:"password"`
+}
+
 type Config struct {
 	Webhook WebhookConfig `yaml:"webhook"`
+	Okx
 }
 
 var AppConfig Config
