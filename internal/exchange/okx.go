@@ -16,12 +16,15 @@ type OkxExchange struct {
 	prvApi goexv2.IPrvRest
 }
 
-func (e *OkxExchange) GetOrderStatus(orderID string) (model2.OrderStatus, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
 func NewOkxExchange(apiKey, apiSecret, passphrase string) (*OkxExchange, error) {
+	/*
+		| 类型      | 是否持有实币 | 是否有交割日 | 支持杠杆   | 适合人群     |
+		| ------- | ------ | ------ | ------ | -------- |
+		| Spot 现货    | ✅ 持有实币 | ❌ 无交割  | 🚫 无杠杆 | 投资者/初学者  |
+		| Futures 交割合约 | ❌ 不持币  | ✅ 有交割  | ✅ 高杠杆  | 专业交易者    |
+		| Swap  永续合约  | ❌ 不持币  | ❌ 无交割  | ✅ 高杠杆  | 高频/策略交易者 |
+
+	*/
 	pubApi := goexv2.OKx.Spot
 	// okxv5 api 如果要使用模拟交易，需要切到到模拟交易下创建apikey
 	prvApi := pubApi.NewPrvApi(
@@ -109,4 +112,23 @@ func (e *OkxExchange) CancelOrder(orderID, symbol string) error {
 	}
 	_, err = e.prvApi.CancelOrder(pair, orderID)
 	return err
+}
+
+func (e *OkxExchange) GetOrderStatus(orderID string, symbol string) (*model2.OrderStatus, error) {
+	pari, err := e.toCurrencyPair(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	info, body, err := e.prvApi.GetOrderInfo(pari, orderID)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("GetOrderStatus : %v", body)
+	return &model2.OrderStatus{
+		OrderID:   info.Id,
+		Status:    info.Status.String(),
+		Filled:    info.ExecutedQty,
+		Remaining: info.Qty - info.Qty,
+	}, nil
 }

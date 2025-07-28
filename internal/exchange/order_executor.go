@@ -13,7 +13,7 @@ type Exchange interface {
 	// 撤销订单
 	CancelOrder(orderID string, symbol string) error
 	// 获取订单状态
-	GetOrderStatus(orderID string) (model.OrderStatus, error)
+	GetOrderStatus(orderID string, symbol string) (*model.OrderStatus, error)
 }
 
 // Account 账号结构接口

@@ -41,7 +41,7 @@ func (s *SimulatedOrderExecutor) PlaceOrder(ctx context.Context, req model.Order
 	orderID := uuid.NewString()
 	status := &model.OrderStatus{
 		OrderID:   orderID,
-		Status:    "filled", // 模拟立即成交
+		Status:    "pendding", // 模拟立即成交
 		Filled:    req.Price,
 		Remaining: 0,
 	}
@@ -67,15 +67,15 @@ func (s *SimulatedOrderExecutor) CancelOrder(orderID string, symbol string) erro
 	return nil
 }
 
-func (s *SimulatedOrderExecutor) GetOrderStatus(orderID string) (model.OrderStatus, error) {
+func (s *SimulatedOrderExecutor) GetOrderStatus(orderID string, symbol string) (*model.OrderStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	status, ok := s.orders[orderID]
 	if !ok {
-		return *status, fmt.Errorf("Order not found")
+		return status, fmt.Errorf("Order not found")
 	}
-	return *status, nil
+	return status, nil
 }
 
 // 模拟版，返回本地价格并做小幅浮动， 适合本地联调

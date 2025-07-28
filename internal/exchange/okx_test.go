@@ -54,9 +54,9 @@ func TestOkxExchange_PlaceOrder(t *testing.T) {
 	order := model.Order{
 		Symbol:    "SOL/USDT",
 		Side:      model.Buy,
-		Price:     193.5,
+		Price:     100,
 		Quantity:  1,
-		OrderType: model.Market,
+		OrderType: model.Limit,
 		TPPrice:   0,
 		SLPrice:   0,
 		Strategy:  "Stragety1",
@@ -69,5 +69,19 @@ func TestOkxExchange_PlaceOrder(t *testing.T) {
 		t.Errorf("Expected non-empty order ID")
 	} else {
 		t.Logf("Order ID: %s", resp.OrderId)
+
+		// 获取订单状态
+		status, err := okxEx.GetOrderStatus(resp.OrderId, order.Symbol)
+		if err != nil {
+			t.Logf("Order status: %v", status.Status)
+		}
+
+		// 如果没有完成，测试撤单
+		if status.Status == "pending" {
+			err := okxEx.CancelOrder(resp.OrderId, order.Symbol)
+			if err == nil {
+				t.Log("取消订单完成")
+			}
+		}
 	}
 }
