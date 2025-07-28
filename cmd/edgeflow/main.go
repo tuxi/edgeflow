@@ -6,6 +6,7 @@ import (
 	"edgeflow/internal/strategy"
 	"edgeflow/internal/webhook"
 	"edgeflow/pkg/recorder"
+	"github.com/nntaoli-project/goex/v2"
 	"log"
 	"net/http"
 )
@@ -27,6 +28,8 @@ curl -X POST http://localhost:8090/webhook \
 */
 
 func main() {
+
+	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
 
 	// 加载配置文件
 	err := config.LoadConfig("config.yaml")

@@ -30,7 +30,7 @@ func NewOkxExchange(apiKey, apiSecret, passphrase string) (*OkxExchange, error) 
 		options.WithPassphrase(passphrase),
 	)
 
-	// 测试连接
+	// 测试连接，创建订单时需要调用GetExchangeInfo获取pair
 	info, _, err := pubApi.GetExchangeInfo()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get exchange info: %w", err)
@@ -64,6 +64,8 @@ func (e *OkxExchange) GetLastPrice(symbol string) (float64, error) {
 	return ticker.Last, nil
 }
 
+// 下单购买
+// 注意限价和市价的Quantity单位不相同，当限价时Quantity的单位为币本身，当市价时Quantity的单位为USDT
 func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*model2.OrderResponse, error) {
 	pair, err := e.toCurrencyPair(order.Symbol)
 	if err != nil {
@@ -82,9 +84,9 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*mode
 
 	var orderType model.OrderType
 	switch order.OrderType {
-	case model2.OrderType(model2.Limit):
+	case model2.Limit:
 		orderType = model.OrderType_Limit
-	case model2.OrderType(model2.Market):
+	case model2.Market:
 		orderType = model.OrderType_Market
 	}
 

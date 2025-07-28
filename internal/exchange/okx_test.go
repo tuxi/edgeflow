@@ -5,6 +5,7 @@ import (
 	"edgeflow/internal/config"
 	"edgeflow/internal/model"
 	"fmt"
+	"github.com/nntaoli-project/goex/v2"
 	"log"
 	"testing"
 )
@@ -38,7 +39,7 @@ func TestOkxExchange_GetLastPrice(t *testing.T) {
 }
 
 func TestOkxExchange_PlaceOrder(t *testing.T) {
-
+	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
 	// 加载配置文件
 	okxConf, err := loadOkxConf()
 	if err != nil {
@@ -51,16 +52,17 @@ func TestOkxExchange_PlaceOrder(t *testing.T) {
 	}
 
 	order := model.Order{
-		Symbol:    "BTC/USDT",
+		Symbol:    "SOL/USDT",
 		Side:      model.Buy,
-		Price:     117980,
-		Quantity:  0.0001,
+		Price:     193.5,
+		Quantity:  1,
 		OrderType: model.Market,
 		TPPrice:   0,
 		SLPrice:   0,
 		Strategy:  "Stragety1",
 		Comment:   "测试",
 	}
+
 	resp, err := okxEx.PlaceOrder(context.Background(), order)
 
 	if resp.OrderId == "" {

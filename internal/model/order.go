@@ -13,7 +13,7 @@ const (
 	// 市价购买
 	Market OrderType = "market"
 	// 限价购买
-	Limit OrderSide = "limit"
+	Limit OrderType = "limit"
 )
 
 type OrderResponse struct {
