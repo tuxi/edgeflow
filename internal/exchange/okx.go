@@ -8,6 +8,7 @@ import (
 	goexv2 "github.com/nntaoli-project/goex/v2"
 	"github.com/nntaoli-project/goex/v2/model"
 	"github.com/nntaoli-project/goex/v2/options"
+	"strconv"
 	"strings"
 )
 
@@ -93,8 +94,35 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*mode
 		orderType = model.OrderType_Market
 	}
 
+	// 如果有止盈和止损
+	var opts []model.OptionParameter
+
+	// 如果设置了止盈
+	if order.TPPrice > 0 {
+		opts = append(opts, model.OptionParameter{
+			Key:   "tpTriggerPx",
+			Value: strconv.FormatFloat(order.TPPrice, 'f', -1, 64), // 止盈触发价
+		})
+		opts = append(opts, model.OptionParameter{
+			Key:   "tpOrdPx",
+			Value: "-1", // -1 表示市价止盈
+		})
+	}
+
+	// 如果设置了止损
+	if order.SLPrice > 0 {
+		opts = append(opts, model.OptionParameter{
+			Key:   "slTriggerPx",
+			Value: strconv.FormatFloat(order.SLPrice, 'f', -1, 64), // 止损触发价
+		})
+		opts = append(opts, model.OptionParameter{
+			Key:   "slOrdPx",
+			Value: "-1", // -1 表示市价止损
+		})
+	}
+
 	// 创建订单
-	createdOrder, _, err := e.prvApi.CreateOrder(pair, order.Quantity, order.Price, side, orderType)
+	createdOrder, _, err := e.prvApi.CreateOrder(pair, order.Quantity, order.Price, side, orderType, opts...)
 	if err != nil {
 		return nil, err
 	}
