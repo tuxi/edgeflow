@@ -28,12 +28,9 @@ func TestOkxExchange_GetLastPrice(t *testing.T) {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	okxEx, err := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
-	if err != nil {
-		panic(err)
-	}
+	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
 
-	price, err := okxEx.GetLastPrice("BTC/USDT")
+	price, err := okxEx.GetLastPrice("BTC/USDT", model.OrderTradeSpot)
 	fmt.Println("最新价格:", price, err)
 
 }
@@ -47,7 +44,7 @@ func TestOkxExchange_PlaceOrder(t *testing.T) {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	okxEx, err := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
+	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
 	if err != nil {
 		panic(err)
 	}
@@ -72,14 +69,14 @@ func TestOkxExchange_PlaceOrder(t *testing.T) {
 		t.Logf("Order ID: %s", resp.OrderId)
 
 		// 获取订单状态
-		status, err := okxEx.GetOrderStatus(resp.OrderId, order.Symbol)
+		status, err := okxEx.GetOrderStatus(resp.OrderId, order.Symbol, model.OrderTradeSpot)
 		if err != nil {
 			t.Logf("Order status: %v", status.Status)
 		}
 
 		// 如果没有完成，测试撤单
 		if status.Status == "pending" {
-			err := okxEx.CancelOrder(resp.OrderId, order.Symbol)
+			err := okxEx.CancelOrder(resp.OrderId, order.Symbol, model.OrderTradeSpot)
 			if err == nil {
 				t.Log("取消订单完成")
 			}
@@ -87,8 +84,8 @@ func TestOkxExchange_PlaceOrder(t *testing.T) {
 	}
 }
 
-// 测试市价下单，并且带有止盈止损
-func TestOkxExchange_PlaceOrder1(t *testing.T) {
+// 测试市价下单现货，并且带有止盈止损
+func TestOkxExchange_PlaceOrderSpot(t *testing.T) {
 	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
 	// 加载配置文件
 	okxConf, err := loadOkxConf()
@@ -96,10 +93,7 @@ func TestOkxExchange_PlaceOrder1(t *testing.T) {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	okxEx, err := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
-	if err != nil {
-		panic(err)
-	}
+	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
 
 	order := model.Order{
 		Symbol:    "SOL/USDT",
@@ -108,9 +102,71 @@ func TestOkxExchange_PlaceOrder1(t *testing.T) {
 		Quantity:  1, // 限价Quantity 单位是币本身 == 1SOL
 		OrderType: model.Limit,
 		TPPrice:   192.2,
-		SLPrice:   192,
+		SLPrice:   190,
 		Strategy:  "Stragety1",
 		Comment:   "测试限价购买",
+		TradeType: model.OrderTradeSpot,
+	}
+
+	// 获取市价
+	lastPrice, err := okxEx.GetLastPrice(order.Symbol, order.TradeType)
+	if err != nil {
+		order.SLPrice = 0
+		fmt.Printf("获取最新价格失败：%v", err)
+	} else {
+		// 订单的价格太偏离当前市场价，或止盈止损设置不符合规则，会触发okx的系统封控，报错"sCode": "51137",
+		order.Price = lastPrice
+		// 将止损价格设置低于最新价格一些，不然无法下单
+		if order.SLPrice > 0 {
+			order.SLPrice = lastPrice - 5
+		}
+	}
+
+	resp, err := okxEx.PlaceOrder(context.Background(), order)
+
+	if resp.OrderId == "" {
+		t.Errorf("Expected non-empty order ID")
+	} else {
+		t.Logf("Order ID: %s", resp.OrderId)
+	}
+}
+
+// 测试市价下单永续合约，并且带有止盈止损
+func TestOkxExchange_PlaceOrderSwap(t *testing.T) {
+	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
+	// 加载配置文件
+	okxConf, err := loadOkxConf()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
+
+	order := model.Order{
+		Symbol:    "SOL/USDT",
+		Side:      model.Buy,
+		Price:     192.1,
+		Quantity:  1, // 限价Quantity 单位是币本身 == 1SOL
+		OrderType: model.Limit,
+		TPPrice:   192.2,
+		SLPrice:   190,
+		Strategy:  "Stragety1",
+		Comment:   "测试限价购买",
+		TradeType: model.OrderTradeSwap,
+	}
+
+	// 获取市价
+	lastPrice, err := okxEx.GetLastPrice(order.Symbol, order.TradeType)
+	if err != nil {
+		order.SLPrice = 0
+		fmt.Printf("获取最新价格失败：%v", err)
+	} else {
+		// 订单的价格太偏离当前市场价，或止盈止损设置不符合规则，会触发okx的系统封控，报错"sCode": "51137",
+		order.Price = lastPrice
+		// 将止损价格设置低于最新价格一些，不然无法下单
+		if order.SLPrice > 0 {
+			order.SLPrice = lastPrice - 5
+		}
 	}
 
 	resp, err := okxEx.PlaceOrder(context.Background(), order)

@@ -1,6 +1,9 @@
 package exchange
 
-import "testing"
+import (
+	"edgeflow/internal/model"
+	"testing"
+)
 
 func TestSimulatedOrderExecutor_GetLastPrice(t *testing.T) {
 	exchange := NewSimulatedOrderExecutor()
@@ -11,7 +14,7 @@ func TestSimulatedOrderExecutor_GetLastPrice(t *testing.T) {
 
 	// 连续获取10次价格，确保波动范围合理
 	for i := 0; i < 10; i++ {
-		price, err := exchange.GetLastPrice(symbol)
+		price, err := exchange.GetLastPrice(symbol, model.OrderTradeSpot)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

@@ -9,11 +9,11 @@ type Exchange interface {
 	// 下单
 	PlaceOrder(ctx context.Context, order model.Order) (*model.OrderResponse, error)
 	// 获取最新价格
-	GetLastPrice(symbol string) (float64, error)
+	GetLastPrice(symbol string, tradingType model.OrderTradeTypeType) (float64, error)
 	// 撤销订单
-	CancelOrder(orderID string, symbol string) error
+	CancelOrder(orderID string, symbol string, tradingType model.OrderTradeTypeType) error
 	// 获取订单状态
-	GetOrderStatus(orderID string, symbol string) (*model.OrderStatus, error)
+	GetOrderStatus(orderID string, symbol string, tradingType model.OrderTradeTypeType) (*model.OrderStatus, error)
 }
 
 // Account 账号结构接口
