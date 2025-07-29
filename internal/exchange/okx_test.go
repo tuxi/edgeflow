@@ -177,3 +177,19 @@ func TestOkxExchange_PlaceOrderSwap(t *testing.T) {
 		t.Logf("Order ID: %s", resp.OrderId)
 	}
 }
+
+func TestOkxChange_SetLeverage(t *testing.T) {
+	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
+	// 加载配置文件
+	okxConf, err := loadOkxConf()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
+
+	err = okxEx.SetLeverage("SOL/USDT", 50, "isolated", "short")
+	if err != nil {
+		t.Errorf("SetLeverage error: %v", err)
+	}
+}

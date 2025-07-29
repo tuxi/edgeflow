@@ -244,11 +244,11 @@ func (e *OkxExchange) GetOrderStatus(orderID string, symbol string, tradingType 
 }
 
 // SetLeverage 设置合约杠杆
-// instId     例如 "BTC-USDT-SWAP"
+// instId     例如 "BTC-USDT-SWAP"，如果传入的是BTC/USDT，会通过CurrencyPair去查找对应的的instId
 // leverage   杠杆倍数，例如 20、50
 // marginMode 保证金模式：isolated（逐仓）或 cross（全仓）
 // posSide    持仓方向：long（做多）、short（做空）、""（全仓模式下可为空）
-func (e *OkxExchange) SetLeverage(instId string, leverage int, marginMode, posSide string) error {
+func (e *OkxExchange) SetLeverage(symbol string, leverage int, marginMode, posSide string) error {
 
 	// 请求设置杠杆
 	group, err := e.getApiGroup(model2.OrderTradeSwap)
@@ -257,15 +257,20 @@ func (e *OkxExchange) SetLeverage(instId string, leverage int, marginMode, posSi
 		return err
 	}
 
+	// 当传入的是BTC/USDT时，通过CurrencyPair匹配正确的instId
+	pair, err := e.toCurrencyPair(symbol, group)
+	var instId = symbol
+	if err == nil {
+		instId = pair.Symbol
+	}
 	okxPrv, ok := group.Prv.(*futures.PrvApi)
-
 	if !ok {
 		return errors.New("Prv() 不是 okex5.RestClient，无法设置杠杆")
 	}
 
 	var opts []model.OptionParameter
 	// 安全性检查
-	if marginMode != "isolated" && marginMode != "cross" {
+	if marginMode != model2.OrderTradeModeIsolated && marginMode != model2.OrderTradeModeCross {
 		return fmt.Errorf("不支持的保证金模式: %s", marginMode)
 	}
 
@@ -276,8 +281,11 @@ func (e *OkxExchange) SetLeverage(instId string, leverage int, marginMode, posSi
 	opts = append(opts, model.OptionParameter{
 		Key:   "mgnMode",
 		Value: marginMode,
+	}, model.OptionParameter{
+		Key:   "posSide",
+		Value: posSide,
 	})
-
+	// posSide
 	resp, err := okxPrv.SetLeverage(instId, strconv.Itoa(leverage), opts...)
 	if err != nil {
 		return fmt.Errorf("设置杠杆失败: %w", err)
