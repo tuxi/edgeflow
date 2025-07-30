@@ -43,8 +43,8 @@ func ConvertToExecutionParams(req model.WebhookRequest) (ExecutionParams, error)
 		Price:    req.Price,
 		Side:     side,
 		Quantity: req.Quantity,
-		Tp:       req.Tp,
-		Sl:       req.Sl,
+		Tp:       req.TpPct,
+		Sl:       req.SlPct,
 		Payload:  req,
 	}, nil
 }

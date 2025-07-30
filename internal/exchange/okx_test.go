@@ -188,7 +188,7 @@ func TestOkxChange_SetLeverage(t *testing.T) {
 
 	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
 
-	err = okxEx.SetLeverage("SOL/USDT", 50, "isolated", "short")
+	err = okxEx.SetLeverage("SOL/USDT", 50, model.OrderMgnModeIsolated, model.OrderPosSideLong)
 	if err != nil {
 		t.Errorf("SetLeverage error: %v", err)
 	}

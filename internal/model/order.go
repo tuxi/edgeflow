@@ -40,14 +40,17 @@ type Order struct {
 	Strategy  string
 	Comment   string
 	TradeType OrderTradeTypeType
-	TradeMode OrderTradeMode
+	TradeMode OrderMgnMode
 }
 
 // 交易类型
 type OrderTradeTypeType string
 
-// tdMode 是 OKX 接口中的交易模式（Trade Mode）
-type OrderTradeMode string
+// 保证金模式（cross / isolated）
+type OrderMgnMode string
+
+// posSide 持仓方向 做多long或者做空short
+type OrderPosSide string
 
 const (
 	// 使用现货 API
@@ -57,9 +60,13 @@ const (
 	// 使用交割合约 API
 	OrderTradeFutures OrderTradeTypeType = "futures"
 	// 全仓模式
-	OrderTradeModeCross = "cross"
+	OrderMgnModeCross = "cross"
 	// 逐仓模式
-	OrderTradeModeIsolated = "isolated"
+	OrderMgnModeIsolated = "isolated"
+	// 做多
+	OrderPosSideLong = "long"
+	// 做空
+	OrderPosSideShort = "short"
 )
 
 // 用于记录订单的接口

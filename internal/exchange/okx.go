@@ -176,7 +176,7 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*mode
 	if order.TradeType == model2.OrderTradeSwap {
 		tdMode := order.TradeMode
 		if tdMode == "" {
-			tdMode = model2.OrderTradeModeIsolated
+			tdMode = model2.OrderMgnModeIsolated
 		}
 		//这里统一使用逐仓模式
 		opts = append(opts, model.OptionParameter{
@@ -185,7 +185,7 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*mode
 		})
 
 		// 逐仓模式下必须设置posSide 多或空
-		if tdMode == model2.OrderTradeModeIsolated {
+		if tdMode == model2.OrderMgnModeIsolated {
 			opts = append(opts, model.OptionParameter{
 				Key:   "posSide",
 				Value: "long",
@@ -270,7 +270,7 @@ func (e *OkxExchange) SetLeverage(symbol string, leverage int, marginMode, posSi
 
 	var opts []model.OptionParameter
 	// 安全性检查
-	if marginMode != model2.OrderTradeModeIsolated && marginMode != model2.OrderTradeModeCross {
+	if marginMode != model2.OrderMgnModeIsolated && marginMode != model2.OrderMgnModeCross {
 		return fmt.Errorf("不支持的保证金模式: %s", marginMode)
 	}
 

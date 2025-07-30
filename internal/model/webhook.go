@@ -21,8 +21,8 @@ type WebhookRequest struct {
 	Price     float64 `json:"price"`    // 当前价格
 	Side      string  `json:"side"`     // buy / sell
 	Quantity  float64 `json:"quantity"` // 数量
-	Tp        float64 `json:"tp"`       // 止盈比例
-	Sl        float64 `json:"sl"`       // 止损比例
+	TpPct     float64 `json:"tp_pct"`   // 止盈比例
+	SlPct     float64 `json:"sl_pct"`   // 止损比例
 	OrderType string  `json:"order_type"`
 	Comment   string  `json:"comment"`
 }

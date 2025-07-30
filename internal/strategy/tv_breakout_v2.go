@@ -43,10 +43,10 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 	tpPrice := 0.0
 	slPrice := 0.0
 	if params.Tp > 0 {
-		tpPrice = computeTP(req.Side, price, req.Tp)
+		tpPrice = computeTP(req.Side, price, req.TpPct)
 	}
 	if params.Sl > 0 {
-		slPrice = computeSL(req.Side, price, req.Sl)
+		slPrice = computeSL(req.Side, price, req.SlPct)
 	}
 
 	order := model.Order{
