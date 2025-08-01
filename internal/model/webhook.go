@@ -16,13 +16,13 @@ package model
 	}
 */
 type WebhookRequest struct {
-	Strategy  string  `json:"strategy"` // 策略标识符
-	Symbol    string  `json:"symbol"`   // BTCUSDT
-	Price     float64 `json:"price"`    // 当前价格
-	Side      string  `json:"side"`     // buy / sell
-	Quantity  float64 `json:"quantity"` // 数量
-	TpPct     float64 `json:"tp_pct"`   // 止盈比例
-	SlPct     float64 `json:"sl_pct"`   // 止损比例
-	OrderType string  `json:"order_type"`
+	Strategy  string  `json:"strategy"`   // 策略标识符
+	Symbol    string  `json:"symbol"`     // BTCUSDT
+	Price     float64 `json:"price"`      // 当前价格
+	Side      string  `json:"side"`       // buy / sell
+	Quantity  float64 `json:"quantity"`   // 数量
+	TpPercent float64 `json:"tp_pct"`     // 止盈比例
+	SlPercent float64 `json:"sl_pct"`     // 止损比例
+	OrderType string  `json:"order_type"` // 订单类型：market、limit
 	Comment   string  `json:"comment"`
 }

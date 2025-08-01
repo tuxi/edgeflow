@@ -4,19 +4,20 @@ import (
 	"context"
 	"edgeflow/internal/exchange"
 	"edgeflow/internal/model"
-	"edgeflow/pkg/recorder"
+	"edgeflow/internal/risk"
+	"errors"
 	"fmt"
 	"log"
-	"time"
 )
 
 type TVBreakoutV2 struct {
 	Exchange exchange.Exchange
-	recorder *recorder.JSONFileRecorder
+	//recorder *recorder.JSONFileRecorder
+	Rc *risk.RiskControl
 }
 
-func NewTVBreakoutV2(ex exchange.Exchange, recorder *recorder.JSONFileRecorder) *TVBreakoutV2 {
-	return &TVBreakoutV2{Exchange: ex, recorder: recorder}
+func NewTVBreakoutV2(ex exchange.Exchange, rc *risk.RiskControl) *TVBreakoutV2 {
+	return &TVBreakoutV2{Exchange: ex, Rc: rc}
 }
 
 func (t TVBreakoutV2) Name() string {
@@ -43,10 +44,10 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 	tpPrice := 0.0
 	slPrice := 0.0
 	if params.Tp > 0 {
-		tpPrice = computeTP(req.Side, price, req.TpPct)
+		tpPrice = computeTP(req.Side, price, req.TpPercent)
 	}
 	if params.Sl > 0 {
-		slPrice = computeSL(req.Side, price, req.SlPct)
+		slPrice = computeSL(req.Side, price, req.SlPercent)
 	}
 
 	order := model.Order{
@@ -61,21 +62,20 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 		Comment:   req.Comment,
 	}
 
+	// 风控检查，是否允许下单
+	isAllow := t.Rc.Allow(ctx, order)
+	if isAllow == false {
+		return errors.New("触发风控，无法下单，稍后再试")
+	}
+
 	log.Printf("[TVBreakoutV2] placing order: %+v", order)
 	// 调用交易所api下单
 	resp, err := t.Exchange.PlaceOrder(ctx, order)
 	fmt.Println(resp.Message)
 
-	// 记录执行日志
-	if t.recorder != nil {
-		t.recorder.Record(model.ExecutionLog{
-			Timestamp: time.Now(),
-			Strategy:  "TVBreakoutV1",
-			Symbol:    params.Symbol,
-			Side:      string(params.Side),
-			Price:     params.Price,
-			Note:      params.Comment,
-		})
+	// 下单成功，保存订单
+	if err != nil {
+		_ = t.Rc.OrderCreateNew(ctx, order, resp.OrderId)
 	}
 
 	return err

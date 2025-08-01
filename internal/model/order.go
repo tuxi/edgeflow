@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 type OrderSide string
 
 const (
@@ -40,7 +42,7 @@ type Order struct {
 	Strategy  string
 	Comment   string
 	TradeType OrderTradeTypeType
-	TradeMode OrderMgnMode
+	MgnMode   OrderMgnMode
 }
 
 // 交易类型
@@ -72,4 +74,26 @@ const (
 // 用于记录订单的接口
 type OrderRecorder interface {
 	RrcordOrder(result *Order) error
+}
+
+type OrderRecord struct {
+	ID        uint      `gorm:"column:id;primary_key;" json:"id"` // 主键id，自增长，不用设置
+	OrderId   string    `gorm:"column:order_id;" json:"order_id"` // 订单id
+	Symbol    string    `gorm:"column:symbol" json:"symbol"`
+	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
+
+	Side      OrderSide          `gorm:"column:side" json:"side"`
+	Price     float64            `gorm:"column:price" json:"price"`
+	Quantity  float64            `gorm:"column:quantity" json:"quantity"`
+	OrderType OrderType          `gorm:"column:order_type" json:"order_type"`
+	TP        float64            `gorm:"column:tp" json:"tp"`
+	SL        float64            `gorm:"column:sl" json:"sl"`
+	Strategy  string             `gorm:"column:strategy" json:"strategy"`
+	Comment   string             `gorm:"column:comment" json:"comment"`
+	TradeType OrderTradeTypeType `gorm:"column:trade_type" json:"trade_type"`
+	MgnMode   OrderMgnMode       `gorm:"column:mgn_mode" json:"mgn_mode"`
+}
+
+func (OrderRecord) TableName() string {
+	return "order_record"
 }

@@ -2,10 +2,12 @@ package main
 
 import (
 	"edgeflow/internal/config"
+	"edgeflow/internal/dao"
 	"edgeflow/internal/exchange"
+	"edgeflow/internal/risk"
 	"edgeflow/internal/strategy"
 	"edgeflow/internal/webhook"
-	"edgeflow/pkg/recorder"
+	"edgeflow/pkg/db"
 	"github.com/nntaoli-project/goex/v2"
 	"log"
 	"net/http"
@@ -29,6 +31,19 @@ curl -X POST http://localhost:8090/webhook \
 
 func main() {
 
+	// 初始化数据库
+	// main.go or app bootstrap
+	datasource := db.Init(db.Config{
+		User:      "root",
+		Password:  "root",
+		Host:      "127.0.0.1",
+		Port:      "3306",
+		DBName:    "strategy_db",
+		ParseTime: true,
+	})
+
+	rc := risk.NewRiskControl(dao.NewOrderDao(datasource))
+
 	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
 
 	// 加载配置文件
@@ -39,15 +54,20 @@ func main() {
 
 	log.Println("WEBHOOK_SECRET = ", config.AppConfig.Webhook.Secret)
 
-	se := exchange.NewSimulatedOrderExecutor()
-	record := recorder.JSONFileRecorder{
-		Path: "logs/strategy-log.json",
-	}
+	//se := exchange.NewSimulatedOrderExecutor()
+	//record := recorder.JSONFileRecorder{
+	//	Path: "logs/strategy-log.json",
+	//}
 
 	// 注册策略
 	strategy.Register(&strategy.TVBreakoutV1{})
 
-	strategy.Register(strategy.NewTVBreakoutV2(se, &record))
+	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
+
+	okxCf := config.AppConfig.Okx
+	okxEx := exchange.NewOkxExchange(okxCf.ApiKey, okxCf.SecretKey, okxCf.Password)
+
+	strategy.Register(strategy.NewTVBreakoutV2(okxEx, rc))
 
 	http.HandleFunc("/webhook", webhook.HandleWebhook)
 

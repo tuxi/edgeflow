@@ -174,7 +174,7 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*mode
 		| `isolated` | 逐仓模式 |
 	*/
 	if order.TradeType == model2.OrderTradeSwap {
-		tdMode := order.TradeMode
+		tdMode := order.MgnMode
 		if tdMode == "" {
 			tdMode = model2.OrderMgnModeIsolated
 		}
