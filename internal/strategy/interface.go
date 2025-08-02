@@ -3,9 +3,7 @@ package strategy
 import (
 	"context"
 	"edgeflow/internal/model"
-	"fmt"
 	"math"
-	"strings"
 )
 
 // 策略执行器接口定义
@@ -25,28 +23,6 @@ type ExecutionParams struct {
 type StrategyExecutor interface {
 	Name() string
 	Execute(ctx context.Context, req model.WebhookRequest) error
-}
-
-func ConvertToExecutionParams(req model.WebhookRequest) (ExecutionParams, error) {
-	var side model.OrderSide
-	switch strings.ToLower(req.Side) {
-	case "buy":
-		side = model.Buy
-	case "sell":
-		side = model.Sell
-	default:
-		return ExecutionParams{}, fmt.Errorf("invalid side: %s", req.Side)
-	}
-
-	return ExecutionParams{
-		Symbol:    req.Symbol,
-		Price:     req.Price,
-		Side:      side,
-		Quantity:  req.Quantity,
-		TpPercent: req.TpPercent,
-		SlPercent: req.SlPercent,
-		Payload:   req,
-	}, nil
 }
 
 // 计算止盈价

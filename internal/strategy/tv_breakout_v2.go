@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 )
 
 type TVBreakoutV2 struct {
@@ -25,15 +26,20 @@ func (t TVBreakoutV2) Name() string {
 }
 
 func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) error {
-	params, err := ConvertToExecutionParams(req)
-	if err != nil {
-		return err
+	var side model.OrderSide
+	switch strings.ToLower(req.Side) {
+	case "buy":
+		side = model.Buy
+	case "sell":
+		side = model.Sell
+	default:
+		return fmt.Errorf("invalid side: %s", req.Side)
 	}
 
-	price := params.Price
+	price := req.Price
 	//if price == 0 {
 	//	// 可考虑调用市场价格作为 fallback
-	//	price = s.Exchange.GetLastPrice(req.Symbol)
+	//	price, err := t.Exchange.GetLastPrice(req.Symbol)
 	//}
 
 	quantity := req.Quantity
@@ -44,22 +50,23 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 	// 计算止盈止损
 	tpPrice := 0.0
 	slPrice := 0.0
-	if params.TpPercent > 0 {
+	if req.TpPercent > 0 {
 		tpPrice = computeTP(req.Side, price, req.TpPercent)
 	}
-	if params.SlPercent > 0 {
+	if req.SlPercent > 0 {
 		slPrice = computeSL(req.Side, price, req.SlPercent)
 	}
 
 	order := model.Order{
 		Symbol:    req.Symbol,
-		Side:      model.OrderSide(req.Side),
+		Side:      side,
 		Price:     price,
 		Quantity:  quantity,
 		OrderType: model.OrderType(req.OrderType), // "market" / "limit"
 		Strategy:  req.Strategy,
 		TPPrice:   tpPrice,
 		SLPrice:   slPrice,
+		TradeType: model.OrderTradeTypeType(req.TradeType),
 		Comment:   req.Comment,
 	}
 
@@ -72,11 +79,16 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 	log.Printf("[TVBreakoutV2] placing order: %+v", order)
 	// 调用交易所api下单
 	resp, err := t.Exchange.PlaceOrder(ctx, order)
-	fmt.Println(resp.Message)
+	if err == nil {
+		fmt.Println(resp.Message)
+	}
 
 	// 下单成功，保存订单
-	if err != nil {
-		_ = t.Rc.OrderCreateNew(ctx, order, resp.OrderId)
+	if err == nil {
+		err = t.Rc.OrderCreateNew(ctx, order, resp.OrderId)
+		if err != nil {
+			log.Fatalf("创建订单失败:%v", err)
+		}
 	}
 
 	return err

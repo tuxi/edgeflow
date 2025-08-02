@@ -120,13 +120,15 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*mode
 	if err != nil {
 		return nil, err
 	}
-
+	var posSide model2.OrderPosSide
 	var side model.OrderSide
 	switch strings.ToLower(string(order.Side)) {
 	case "buy":
 		side = model.Spot_Buy
+		posSide = model2.OrderPosSideLong
 	case "sell":
 		side = model.Spot_Sell
+		posSide = model2.OrderPosSideShort
 	default:
 		return nil, errors.New("invalid order side")
 	}
@@ -184,13 +186,18 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*mode
 			Value: string(tdMode),
 		})
 
+		opts = append(opts, model.OptionParameter{
+			Key:   "posSide",
+			Value: string(posSide),
+		})
+
 		// 逐仓模式下必须设置posSide 多或空
-		if tdMode == model2.OrderMgnModeIsolated {
-			opts = append(opts, model.OptionParameter{
-				Key:   "posSide",
-				Value: "long",
-			})
-		}
+		//if tdMode == model2.OrderMgnModeIsolated {
+		//	opts = append(opts, model.OptionParameter{
+		//		Key:   "posSide",
+		//		Value: "long",
+		//	})
+		//}
 		//e.SetLeverage(order.Symbol, 20, )
 	}
 

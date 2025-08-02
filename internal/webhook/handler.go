@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"edgeflow/internal/config"
@@ -12,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"time"
 )
 
 // TradingView Webhook 的接收器
@@ -59,7 +61,11 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go executor.Execute(r.Context(), payload)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	go func() {
+		defer cancel()
+		executor.Execute(ctx, payload)
+	}()
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Signal received")

@@ -18,7 +18,7 @@ import (
 /*
 测试
 
-BODY='{"strategy":"tv-breakout-v2","symbol":"BTC/USDT","side":"buy","price":0,"quantity":0.01}'
+BODY='{"strategy":"tv-breakout-v2","symbol":"BTC/USDT","side":"buy","price":113590,"quantity":0.01,"order_type":"market","trade_type":"swap"}'
 SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
 SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
 
@@ -59,9 +59,7 @@ func main() {
 	//}
 
 	// 注册策略
-	strategy.Register(&strategy.TVBreakoutV1{})
-
-	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
+	//strategy.Register(&strategy.TVBreakoutV1{})
 
 	okxCf := config.AppConfig.Okx
 	okxEx := exchange.NewOkxExchange(okxCf.ApiKey, okxCf.SecretKey, okxCf.Password)

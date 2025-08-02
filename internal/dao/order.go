@@ -32,7 +32,7 @@ func (d *OrderDao) OrderGetLast(ctx context.Context, strategy string, symbol str
 		Where("strategy = ?", strategy).
 		Where("symbol = ?", symbol).
 		Where("side = ?", side).
-		Where("trade_mode = ?", td).
+		Where("trade_type = ?", td).
 		Order("created_at DESC").
 		Limit(1).
 		Find(&or).Error
