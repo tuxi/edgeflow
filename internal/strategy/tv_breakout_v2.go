@@ -41,12 +41,13 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 		quantity = 0.01 // 默认值
 	}
 
+	// 计算止盈止损
 	tpPrice := 0.0
 	slPrice := 0.0
-	if params.Tp > 0 {
+	if params.TpPercent > 0 {
 		tpPrice = computeTP(req.Side, price, req.TpPercent)
 	}
-	if params.Sl > 0 {
+	if params.SlPercent > 0 {
 		slPrice = computeSL(req.Side, price, req.SlPercent)
 	}
 

@@ -12,14 +12,14 @@ import (
 
 // 系统“内部”处理用的通用格式
 type ExecutionParams struct {
-	Symbol   string
-	Price    float64
-	Side     model.OrderSide
-	Comment  string
-	Quantity float64
-	Tp       float64 `json:"tp"` // 止盈
-	Sl       float64 `json:"sl"` // 止损
-	Payload  any     // 保留原始数据（如WebHook JSON，方便策略回溯）
+	Symbol    string
+	Price     float64
+	Side      model.OrderSide
+	Comment   string
+	Quantity  float64
+	TpPercent float64 // 止盈
+	SlPercent float64 // 止损
+	Payload   any     // 保留原始数据（如WebHook JSON，方便策略回溯）
 }
 
 type StrategyExecutor interface {
@@ -39,13 +39,13 @@ func ConvertToExecutionParams(req model.WebhookRequest) (ExecutionParams, error)
 	}
 
 	return ExecutionParams{
-		Symbol:   req.Symbol,
-		Price:    req.Price,
-		Side:     side,
-		Quantity: req.Quantity,
-		Tp:       req.TpPercent,
-		Sl:       req.SlPercent,
-		Payload:  req,
+		Symbol:    req.Symbol,
+		Price:     req.Price,
+		Side:      side,
+		Quantity:  req.Quantity,
+		TpPercent: req.TpPercent,
+		SlPercent: req.SlPercent,
+		Payload:   req,
 	}, nil
 }
 

@@ -18,9 +18,18 @@ type Okx struct {
 	Password  string `yaml:"password"`
 }
 
+type Db struct {
+	DbName   string `yaml:"dbname"`
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+}
+
 type Config struct {
 	Webhook WebhookConfig `yaml:"webhook"`
-	Okx
+	Okx     `yaml:"okx"`
+	Db      `yaml:"database"`
 }
 
 var AppConfig Config

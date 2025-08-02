@@ -31,19 +31,6 @@ curl -X POST http://localhost:8090/webhook \
 
 func main() {
 
-	// 初始化数据库
-	// main.go or app bootstrap
-	datasource := db.Init(db.Config{
-		User:      "root",
-		Password:  "root",
-		Host:      "127.0.0.1",
-		Port:      "3306",
-		DBName:    "strategy_db",
-		ParseTime: true,
-	})
-
-	rc := risk.NewRiskControl(dao.NewOrderDao(datasource))
-
 	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
 
 	// 加载配置文件
@@ -51,6 +38,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// 初始化数据库
+	// main.go or app bootstrap
+	datasource := db.Init(db.Config{
+		User:      config.AppConfig.Username,
+		Password:  config.AppConfig.Db.Password,
+		Host:      config.AppConfig.Host,
+		Port:      config.AppConfig.Port,
+		DBName:    config.AppConfig.DbName,
+		ParseTime: true,
+	})
+	rc := risk.NewRiskControl(dao.NewOrderDao(datasource))
 
 	log.Println("WEBHOOK_SECRET = ", config.AppConfig.Webhook.Secret)
 
