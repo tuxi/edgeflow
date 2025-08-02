@@ -18,7 +18,7 @@ import (
 /*
 测试
 
-BODY='{"strategy":"tv-breakout-v2","symbol":"BTC/USDT","side":"buy","price":113590,"quantity":0.01,"order_type":"market","trade_type":"swap"}'
+BODY='{"strategy":"tv-breakout-v2","symbol":"BTC/USDT","side":"buy","price":113590,"quantity":0.01,"order_type":"market","trade_type":"swap","tp_pct":0.35,"sl_pct":0.3}'
 SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
 SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
 

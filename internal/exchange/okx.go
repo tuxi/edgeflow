@@ -110,7 +110,7 @@ func (e *OkxExchange) GetLastPrice(symbol string, tradingType model2.OrderTradeT
 
 // 下单购买
 // 注意限价和市价的Quantity单位不相同，当限价时Quantity的单位为币本身，当市价时Quantity的单位为USDT
-func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*model2.OrderResponse, error) {
+func (e *OkxExchange) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.OrderResponse, error) {
 
 	group, err := e.getApiGroup(order.TradeType)
 	if err != nil {
@@ -175,15 +175,15 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*mode
 		| `cross`    | 全仓模式 |
 		| `isolated` | 逐仓模式 |
 	*/
+	mgnMode := order.MgnMode
 	if order.TradeType == model2.OrderTradeSwap {
-		tdMode := order.MgnMode
-		if tdMode == "" {
-			tdMode = model2.OrderMgnModeIsolated
+		if mgnMode == "" {
+			mgnMode = model2.OrderMgnModeIsolated
 		}
 		//这里统一使用逐仓模式
 		opts = append(opts, model.OptionParameter{
 			Key:   "tdMode",
-			Value: string(tdMode),
+			Value: string(mgnMode),
 		})
 
 		opts = append(opts, model.OptionParameter{
@@ -200,7 +200,7 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order model2.Order) (*mode
 		//}
 		//e.SetLeverage(order.Symbol, 20, )
 	}
-
+	order.MgnMode = mgnMode
 	// 创建订单
 	createdOrder, resp, err := group.Prv.CreateOrder(pair, order.Quantity, order.Price, side, orderType, opts...)
 	if err != nil {

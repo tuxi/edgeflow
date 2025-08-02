@@ -41,8 +41,8 @@ type Order struct {
 	SLPrice   float64
 	Strategy  string
 	Comment   string
-	TradeType OrderTradeTypeType
-	MgnMode   OrderMgnMode
+	TradeType OrderTradeTypeType // 交易模式
+	MgnMode   OrderMgnMode       // 保证金模式（cross/isolate）
 }
 
 // 交易类型

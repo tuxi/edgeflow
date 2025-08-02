@@ -7,7 +7,7 @@ import (
 
 type Exchange interface {
 	// 下单
-	PlaceOrder(ctx context.Context, order model.Order) (*model.OrderResponse, error)
+	PlaceOrder(ctx context.Context, order *model.Order) (*model.OrderResponse, error)
 	// 获取最新价格
 	GetLastPrice(symbol string, tradingType model.OrderTradeTypeType) (float64, error)
 	// 撤销订单

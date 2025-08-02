@@ -78,7 +78,7 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 
 	log.Printf("[TVBreakoutV2] placing order: %+v", order)
 	// 调用交易所api下单
-	resp, err := t.Exchange.PlaceOrder(ctx, order)
+	resp, err := t.Exchange.PlaceOrder(ctx, &order)
 	if err == nil {
 		fmt.Println(resp.Message)
 	}

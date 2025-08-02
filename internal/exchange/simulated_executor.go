@@ -33,7 +33,7 @@ func (s *SimulatedOrderExecutor) SetInitialPrice(symbol string, price float64) {
 	s.prices[symbol] = price
 }
 
-func (s *SimulatedOrderExecutor) PlaceOrder(ctx context.Context, req model.Order) (*model.OrderResponse, error) {
+func (s *SimulatedOrderExecutor) PlaceOrder(ctx context.Context, req *model.Order) (*model.OrderResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
