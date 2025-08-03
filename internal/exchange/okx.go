@@ -191,16 +191,14 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order *model2.Order) (*mod
 			Value: string(posSide),
 		})
 
-		// 逐仓模式下必须设置posSide 多或空
-		//if tdMode == model2.OrderMgnModeIsolated {
-		//	opts = append(opts, model.OptionParameter{
-		//		Key:   "posSide",
-		//		Value: "long",
-		//	})
-		//}
-		//e.SetLeverage(order.Symbol, 20, )
+		// 设置杠杆倍数
+		err = e.SetLeverage(order.Symbol, 20, string(mgnMode), string(posSide))
+		if err != nil {
+			return nil, err
+		}
 	}
 	order.MgnMode = mgnMode
+
 	// 创建订单
 	createdOrder, resp, err := group.Prv.CreateOrder(pair, order.Quantity, order.Price, side, orderType, opts...)
 	if err != nil {
