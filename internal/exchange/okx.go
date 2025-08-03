@@ -2,6 +2,7 @@ package exchange
 
 import (
 	"context"
+	"edgeflow/internal/account"
 	model2 "edgeflow/internal/model"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ type OkxApiGroup struct {
 type OkxExchange struct {
 	apiCache map[model2.OrderTradeTypeType]OkxApiGroup
 	apiConf  []options.ApiOption
+	account  Account
 }
 
 // 构造函数只存储配置，不初始化接口
@@ -45,7 +47,12 @@ func NewOkxExchange(apiKey, apiSecret, passphrase string) *OkxExchange {
 	return &OkxExchange{
 		apiCache: make(map[model2.OrderTradeTypeType]OkxApiGroup),
 		apiConf:  opts,
+		account:  account.NewAccountService(goexv2.OKx.Swap.NewPrvApi(opts...)),
 	}
+}
+
+func (e *OkxExchange) Account() (acc Account) {
+	return e.account
 }
 
 func (e *OkxExchange) getApiGroup(marketType model2.OrderTradeTypeType) (OkxApiGroup, error) {
@@ -90,6 +97,15 @@ func (e *OkxExchange) toCurrencyPair(symbol string, apiGroup OkxApiGroup) (model
 		return model.CurrencyPair{}, errors.New("invalid symbol format, expected like BTC/USDT")
 	}
 	return apiGroup.Pub.NewCurrencyPair(string(parts[0]), string(parts[1]))
+}
+
+func (e *OkxExchange) CurrencyPairByTradingType(symbol string, tradingType model2.OrderTradeTypeType) (model.CurrencyPair, error) {
+	group, err := e.getApiGroup(tradingType)
+	if err != nil {
+		return model.CurrencyPair{}, err
+	}
+	pair, err := e.toCurrencyPair(symbol, group)
+	return pair, err
 }
 
 func (e *OkxExchange) GetLastPrice(symbol string, tradingType model2.OrderTradeTypeType) (float64, error) {
@@ -176,6 +192,7 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order *model2.Order) (*mod
 		| `isolated` | 逐仓模式 |
 	*/
 	mgnMode := order.MgnMode
+	leverage := order.Leverage
 	if order.TradeType == model2.OrderTradeSwap {
 		if mgnMode == "" {
 			mgnMode = model2.OrderMgnModeIsolated
@@ -191,10 +208,27 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order *model2.Order) (*mod
 			Value: string(posSide),
 		})
 
+		if leverage <= 0 {
+			leverage = 20
+		}
+		order.Leverage = leverage
 		// 设置杠杆倍数
-		err = e.SetLeverage(order.Symbol, 20, string(mgnMode), string(posSide))
+		err = e.SetLeverage(order.Symbol, leverage, string(mgnMode), string(posSide))
 		if err != nil {
 			return nil, err
+		}
+
+		// 根据比例计算下单金额
+		if order.QuantityPct > 0 {
+			// 获取可用余额，根据比例计算下单数量
+			acc, err := e.account.GetAccount(ctx, "USDT")
+			if err != nil {
+				return nil, err
+			}
+
+			// 根据QuantityPct计算下单张数
+			qty := CalculateOrderSz(acc.Available*order.QuantityPct, leverage, order.Price, pair.ContractVal)
+			order.Quantity = float64(qty)
 		}
 	}
 	order.MgnMode = mgnMode
@@ -298,4 +332,29 @@ func (e *OkxExchange) SetLeverage(symbol string, leverage int, marginMode, posSi
 
 	fmt.Println("杠杆设置响应:", string(resp))
 	return nil
+}
+
+// 动态计算下单数量
+func CalcOrderQty(available float64, price float64, leverage int, ratio float64) float64 {
+	// 1. 控制最大使用的保证金
+	margin := available * ratio
+
+	// 2. 使用杠杆后可持有的价值
+	orderValue := margin * float64(leverage)
+
+	// 3. 最终换算成数量（BTC张数）
+	qty := orderValue / price
+
+	return qty
+}
+
+// 计算下单张数（按成本算）
+func CalculateOrderSz(costUSDT float64, leverage int, marketPrice float64, ctVal float64) int {
+	notional := costUSDT * float64(leverage) // 名义价值（目标开仓总金额）
+	oneContractValue := marketPrice * ctVal  // 每张合约对应的价值
+	sz := int(notional / oneContractValue)   // 得到张数（取整）
+	if sz < 1 {
+		sz = 1
+	}
+	return sz
 }

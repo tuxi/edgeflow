@@ -32,17 +32,19 @@ type OrderStatus struct {
 }
 
 type Order struct {
-	Symbol    string // BTC-USDT
-	Side      OrderSide
-	Price     float64
-	Quantity  float64
-	OrderType OrderType
-	TPPrice   float64
-	SLPrice   float64
-	Strategy  string
-	Comment   string
-	TradeType OrderTradeTypeType // 交易模式
-	MgnMode   OrderMgnMode       // 保证金模式（cross/isolate）
+	Symbol      string // BTC-USDT
+	Side        OrderSide
+	Price       float64
+	Quantity    float64
+	OrderType   OrderType
+	TPPrice     float64
+	SLPrice     float64
+	Strategy    string
+	Comment     string
+	TradeType   OrderTradeTypeType // 交易模式
+	MgnMode     OrderMgnMode       // 保证金模式（cross/isolate）
+	Leverage    int                // 杠杆倍数
+	QuantityPct float64            // 下单金额相对可用金额的百分比
 }
 
 // 交易类型

@@ -25,7 +25,7 @@ func TestAccountService_GetBalance(t *testing.T) {
 
 	prv := goex.OKx.Spot.NewPrvApi(opts...)
 	as := NewAccountService(prv)
-	avail, err := as.GetBalance(context.Background(), "USDT")
+	avail, err := as.GetAccount(context.Background(), "USDT")
 	if err != nil {
 		log.Fatalf("查询余额失败: %v", err)
 	}

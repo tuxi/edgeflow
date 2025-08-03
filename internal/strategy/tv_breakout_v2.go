@@ -58,16 +58,18 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 	}
 
 	order := model.Order{
-		Symbol:    req.Symbol,
-		Side:      side,
-		Price:     price,
-		Quantity:  quantity,
-		OrderType: model.OrderType(req.OrderType), // "market" / "limit"
-		Strategy:  req.Strategy,
-		TPPrice:   tpPrice,
-		SLPrice:   slPrice,
-		TradeType: model.OrderTradeTypeType(req.TradeType),
-		Comment:   req.Comment,
+		Symbol:      req.Symbol,
+		Side:        side,
+		Price:       price,
+		Quantity:    quantity,
+		OrderType:   model.OrderType(req.OrderType), // "market" / "limit"
+		Strategy:    req.Strategy,
+		TPPrice:     tpPrice,
+		SLPrice:     slPrice,
+		TradeType:   model.OrderTradeTypeType(req.TradeType),
+		Comment:     req.Comment,
+		Leverage:    req.Leverage,
+		QuantityPct: req.QuantityPct,
 	}
 
 	// 风控检查，是否允许下单
@@ -79,17 +81,14 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 	log.Printf("[TVBreakoutV2] placing order: %+v", order)
 	// 调用交易所api下单
 	resp, err := t.Exchange.PlaceOrder(ctx, &order)
-	if err == nil {
-		fmt.Println(resp.Message)
+	if err != nil {
+		return err
 	}
 
 	// 下单成功，保存订单
-	if err == nil {
-		err = t.Rc.OrderCreateNew(ctx, order, resp.OrderId)
-		if err != nil {
-			log.Fatalf("创建订单失败:%v", err)
-		}
+	err = t.Rc.OrderCreateNew(ctx, order, resp.OrderId)
+	if err != nil {
+		log.Fatalf("创建订单失败:%v", err)
 	}
-
 	return err
 }

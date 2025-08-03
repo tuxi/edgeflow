@@ -1,6 +1,6 @@
 package account
 
-type Balance struct {
+type Account struct {
 	Currency  string  // 如 "USDT"
 	Total     float64 // 总资产
 	Available float64 // 可用资产

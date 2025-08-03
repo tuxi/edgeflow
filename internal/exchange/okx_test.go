@@ -61,7 +61,7 @@ func TestOkxExchange_PlaceOrder(t *testing.T) {
 		Comment:   "测试市价购买",
 	}
 
-	resp, err := okxEx.PlaceOrder(context.Background(), order)
+	resp, err := okxEx.PlaceOrder(context.Background(), &order)
 
 	if resp.OrderId == "" {
 		t.Errorf("Expected non-empty order ID")
@@ -122,7 +122,7 @@ func TestOkxExchange_PlaceOrderSpot(t *testing.T) {
 		}
 	}
 
-	resp, err := okxEx.PlaceOrder(context.Background(), order)
+	resp, err := okxEx.PlaceOrder(context.Background(), &order)
 
 	if resp.OrderId == "" {
 		t.Errorf("Expected non-empty order ID")
@@ -169,7 +169,7 @@ func TestOkxExchange_PlaceOrderSwap(t *testing.T) {
 		}
 	}
 
-	resp, err := okxEx.PlaceOrder(context.Background(), order)
+	resp, err := okxEx.PlaceOrder(context.Background(), &order)
 
 	if resp.OrderId == "" {
 		t.Errorf("Expected non-empty order ID")
