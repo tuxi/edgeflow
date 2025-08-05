@@ -17,7 +17,7 @@ type RiskControl struct {
 func NewRiskControl(dao *dao.OrderDao) *RiskControl {
 	return &RiskControl{
 		dao:      dao,
-		interval: time.Millisecond * 10,
+		interval: time.Millisecond * 5,
 	}
 }
 

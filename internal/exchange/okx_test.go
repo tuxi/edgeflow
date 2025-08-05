@@ -193,3 +193,32 @@ func TestOkxChange_SetLeverage(t *testing.T) {
 		t.Errorf("SetLeverage error: %v", err)
 	}
 }
+
+func TestOkxExchange_GetPosition(t *testing.T) {
+	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
+	// 加载配置文件
+	okxConf, err := loadOkxConf()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
+
+	ps, err := okxEx.GetPosition("BTC/USDT")
+	if err != nil {
+		t.Errorf("GetPosition error: %v", err)
+	} else {
+		fmt.Printf("持有仓位：%v", ps)
+
+		// 测试平仓
+		for _, position := range ps {
+			err := okxEx.ClosePosition(position.Symbol, string(position.Side), position.Amount, position.MgnMode)
+			if err != nil {
+				fmt.Printf("平仓失败：%v", err)
+			} else {
+				fmt.Println("平仓成功")
+			}
+		}
+	}
+
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"edgeflow/internal/account"
 	model2 "edgeflow/internal/model"
+	"encoding/json"
 	"errors"
 	"fmt"
 	goexv2 "github.com/nntaoli-project/goex/v2"
@@ -93,8 +94,12 @@ func (e *OkxExchange) getApiGroup(marketType model2.OrderTradeTypeType) (OkxApiG
 // symbol 格式转换: "BTC/USDT" -> goex 需要的 CurrencyPair
 func (e *OkxExchange) toCurrencyPair(symbol string, apiGroup OkxApiGroup) (model.CurrencyPair, error) {
 	parts := strings.Split(symbol, "/")
-	if len(parts) != 2 {
-		return model.CurrencyPair{}, errors.New("invalid symbol format, expected like BTC/USDT")
+	if len(parts) == 1 { // 防止BTC-USDT-SWAP
+		parts = strings.Split(symbol, "-")
+	}
+	if len(parts) > 2 { // 取前两个，防止BTC-USDT-SWAP
+		parts = parts[:2]
+		//return model.CurrencyPair{}, errors.New("invalid symbol format, expected like BTC/USDT")
 	}
 	return apiGroup.Pub.NewCurrencyPair(string(parts[0]), string(parts[1]))
 }
@@ -140,10 +145,18 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order *model2.Order) (*mod
 	var side model.OrderSide
 	switch strings.ToLower(string(order.Side)) {
 	case "buy":
-		side = model.Spot_Buy
+		if order.TradeType == model2.OrderTradeSpot {
+			side = model.Spot_Buy
+		} else {
+			side = model.Futures_OpenBuy
+		}
 		posSide = model2.OrderPosSideLong
 	case "sell":
-		side = model.Spot_Sell
+		if order.TradeType == model2.OrderTradeSpot {
+			side = model.Spot_Sell
+		} else {
+			side = model.Futures_OpenSell
+		}
 		posSide = model2.OrderPosSideShort
 	default:
 		return nil, errors.New("invalid order side")
@@ -282,6 +295,69 @@ func (e *OkxExchange) GetOrderStatus(orderID string, symbol string, tradingType 
 	}, nil
 }
 
+// 获取持仓数据
+func (e *OkxExchange) getPosition(symbol string) ([]model2.PositionInfo, error) {
+
+	group, err := e.getApiGroup(model2.OrderTradeSwap)
+	if err != nil {
+		return nil, err
+	}
+	pari, err := e.toCurrencyPair(symbol, group)
+	if err != nil {
+		return nil, err
+	}
+
+	swap, ok := group.Prv.(*futures.PrvApi)
+	if !ok {
+		return nil, errors.New("Prv() 不是 okex5.RestClient，无法获取仓位")
+	}
+
+	res, data, err := swap.GetPositions(pari)
+	if err != nil {
+		return nil, err
+	}
+	type JSONData struct {
+		Code string `json:"code"`
+		Data []struct {
+			MgnMode string `json:"mgnMode"`
+			LiqPx   string `json:"liqPx"`
+		} `json:"data"`
+		Msg string `json:"msg"`
+	}
+	var jsonData JSONData
+	err = json.Unmarshal(data, &jsonData)
+	if err != nil {
+		return nil, err
+	}
+
+	var items []model2.PositionInfo
+	for i, re := range res {
+		var item model2.PositionInfo
+		if re.Qty == 0 {
+			// 没有张数的仓位忽略
+			continue
+		}
+		var ps model2.OrderSide
+		switch re.PosSide {
+		case model.Futures_OpenBuy, model.Spot_Buy:
+			// 开多仓位
+			ps = model2.OrderPosSideLong
+		case model.Futures_OpenSell, model.Spot_Sell:
+			// 开空仓位
+			ps = model2.OrderPosSideShort
+		}
+		item.Symbol = pari.Symbol
+		item.Side = ps
+		item.Amount = re.Qty
+		item.AvgPrice = re.AvgPx
+		item.MgnMode = jsonData.Data[i].MgnMode
+		item.LiqPx = jsonData.Data[i].LiqPx
+		items = append(items, item)
+	}
+
+	return items, err
+}
+
 // SetLeverage 设置合约杠杆
 // instId     例如 "BTC-USDT-SWAP"，如果传入的是BTC/USDT，会通过CurrencyPair去查找对应的的instId
 // leverage   杠杆倍数，例如 20、50
@@ -334,18 +410,75 @@ func (e *OkxExchange) SetLeverage(symbol string, leverage int, marginMode, posSi
 	return nil
 }
 
-// 动态计算下单数量
-func CalcOrderQty(available float64, price float64, leverage int, ratio float64) float64 {
-	// 1. 控制最大使用的保证金
-	margin := available * ratio
+// 平仓函数
+func (e *OkxExchange) ClosePosition(symbol string, side string, quantity float64, tdMode string) error {
+	// 请求设置杠杆
+	group, err := e.getApiGroup(model2.OrderTradeSwap)
 
-	// 2. 使用杠杆后可持有的价值
-	orderValue := margin * float64(leverage)
+	if err != nil {
+		return err
+	}
 
-	// 3. 最终换算成数量（BTC张数）
-	qty := orderValue / price
+	// 当传入的是BTC/USDT时，通过CurrencyPair匹配正确的instId
+	pair, err := e.toCurrencyPair(symbol, group)
+	if err != nil {
+		return err
+	}
+	var orderSide model.OrderSide
 
-	return qty
+	// 如果是多仓 -> 需要做空（卖）来平仓
+	// 如果是空仓 -> 需要做多（买）来平仓
+	switch side {
+	case "long":
+		// 持有多单，平掉多单
+		orderSide = model.Futures_CloseBuy
+	case "short":
+		// 持有空单，平掉空单
+		orderSide = model.Futures_OpenSell
+	default:
+		return fmt.Errorf("unknown side: %s", side)
+	}
+
+	opts := []model.OptionParameter{
+		model.OptionParameter{
+			Key:   "tdMode",
+			Value: tdMode,
+		},
+	}
+
+	// 提交市价平仓订单
+	order, resp, err := group.Prv.CreateOrder(pair, quantity, 0, orderSide, model.OrderType_Market, opts...)
+	if err != nil {
+		fmt.Printf("CreateOrder error：%v", resp)
+		return err
+	}
+
+	fmt.Printf("平仓成功，订单ID：%s\n", order.Id)
+	return nil
+}
+
+// 查询是否有持仓
+func (e *OkxExchange) GetPosition(symbol string) (long *model2.PositionInfo, short *model2.PositionInfo, err error) {
+	positions, err := e.getPosition(symbol)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, pos := range positions {
+		// 一般方向字段为 "long" 或 "short"，也可能是 "net"（净持仓模式）
+		switch pos.Side {
+		case "long":
+			if pos.Amount > 0 {
+				long = &pos
+			}
+		case "short":
+			if pos.Amount > 0 {
+				short = &pos
+			}
+		}
+	}
+
+	return
 }
 
 // 计算下单张数（按成本算）

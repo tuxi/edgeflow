@@ -1,6 +1,8 @@
 package model
 
-import "time"
+import (
+	"time"
+)
 
 type OrderSide string
 
@@ -98,4 +100,13 @@ type OrderRecord struct {
 
 func (OrderRecord) TableName() string {
 	return "order_record"
+}
+
+type PositionInfo struct {
+	Symbol   string    // 币
+	Side     OrderSide // 方向
+	Amount   float64   // 持有张数
+	AvgPrice float64   // 开仓均价
+	MgnMode  string    // 保证金模式
+	LiqPx    string    // 强平价
 }

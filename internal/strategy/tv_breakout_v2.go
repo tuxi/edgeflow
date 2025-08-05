@@ -78,6 +78,40 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 		return errors.New("触发风控，无法下单，稍后再试")
 	}
 
+	// 检查是否有仓位
+	long, short, err := t.Exchange.GetPosition(req.Symbol)
+	if err != nil {
+		return err
+	}
+	/*
+		收到 buy 信号时：
+		如果已有多仓，可以选择加仓；
+		如果有空仓，先平空再开多。
+		收到 sell 信号时：
+		同理处理
+	*/
+	var closePs *model.PositionInfo
+	if side == model.Buy {
+		if short != nil {
+			closePs = short // 记录需要平的空单
+			// 先平空再开多
+			err = t.Exchange.ClosePosition(short.Symbol, string(short.Side), short.Amount, short.MgnMode)
+		}
+	} else if side == model.Sell {
+		if long != nil {
+			closePs = long // 记录需要平的多单
+		}
+	}
+
+	if closePs != nil {
+		// 先平掉逆向的仓位
+		err = t.Exchange.ClosePosition(closePs.Symbol, string(closePs.Side), closePs.Amount, closePs.MgnMode)
+		if err != nil {
+			return err
+		}
+	}
+
+	// 开仓or加仓
 	log.Printf("[TVBreakoutV2] placing order: %+v", order)
 	// 调用交易所api下单
 	resp, err := t.Exchange.PlaceOrder(ctx, &order)
@@ -90,5 +124,6 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 	if err != nil {
 		log.Fatalf("创建订单失败:%v", err)
 	}
+
 	return err
 }
