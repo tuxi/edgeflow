@@ -16,10 +16,10 @@ type Exchange interface {
 	// 获取订单状态
 	GetOrderStatus(orderID string, symbol string, tradingType model.OrderTradeTypeType) (*model.OrderStatus, error)
 	// 获取仓位
-	GetPosition(symbol string) (long *model.PositionInfo, short *model.PositionInfo, err error)
+	GetPosition(symbol string, tradeType model.OrderTradeTypeType) (long *model.PositionInfo, short *model.PositionInfo, err error)
 	// 平仓
-	ClosePosition(symbol string, side string, quantity float64, tdMode string) error
-	Account() (acc Account)
+	ClosePosition(symbol string, side string, quantity float64, tdMode string, tradeType model.OrderTradeTypeType) error
+	Account(tradeType model.OrderTradeTypeType) (Account, error)
 }
 
 // Account 账号结构接口

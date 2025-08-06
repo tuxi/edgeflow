@@ -59,24 +59,24 @@ func TestOkxExchange_PlaceOrder(t *testing.T) {
 		SLPrice:   0,
 		Strategy:  "Stragety1",
 		Comment:   "测试市价购买",
+		TradeType: model.OrderTradeSwap,
 	}
 
 	resp, err := okxEx.PlaceOrder(context.Background(), &order)
-
-	if resp.OrderId == "" {
+	if err != nil || resp.OrderId == "" {
 		t.Errorf("Expected non-empty order ID")
 	} else {
 		t.Logf("Order ID: %s", resp.OrderId)
 
 		// 获取订单状态
-		status, err := okxEx.GetOrderStatus(resp.OrderId, order.Symbol, model.OrderTradeSpot)
+		status, err := okxEx.GetOrderStatus(resp.OrderId, order.Symbol, order.TradeType)
 		if err != nil {
 			t.Logf("Order status: %v", status.Status)
 		}
 
 		// 如果没有完成，测试撤单
 		if status.Status == "pending" {
-			err := okxEx.CancelOrder(resp.OrderId, order.Symbol, model.OrderTradeSpot)
+			err := okxEx.CancelOrder(resp.OrderId, order.Symbol, order.TradeType)
 			if err == nil {
 				t.Log("取消订单完成")
 			}
@@ -188,7 +188,7 @@ func TestOkxChange_SetLeverage(t *testing.T) {
 
 	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
 
-	err = okxEx.SetLeverage("SOL/USDT", 50, model.OrderMgnModeIsolated, model.OrderPosSideLong)
+	err = okxEx.SetLeverage("SOL/USDT", 50, model.OrderMgnModeIsolated, model.OrderPosSideLong, model.OrderTradeSwap)
 	if err != nil {
 		t.Errorf("SetLeverage error: %v", err)
 	}
@@ -203,20 +203,26 @@ func TestOkxExchange_GetPosition(t *testing.T) {
 	}
 
 	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
+	tradeType := model.OrderTradeSwap
+	long, short, err := okxEx.GetPosition("SOL/USDT", tradeType)
 
-	ps, err := okxEx.GetPosition("BTC/USDT")
 	if err != nil {
 		t.Errorf("GetPosition error: %v", err)
 	} else {
-		fmt.Printf("持有仓位：%v", ps)
-
-		// 测试平仓
-		for _, position := range ps {
-			err := okxEx.ClosePosition(position.Symbol, string(position.Side), position.Amount, position.MgnMode)
+		if long != nil {
+			err := okxEx.ClosePosition(long.Symbol, string(long.Side), long.Amount, long.MgnMode, tradeType)
 			if err != nil {
-				fmt.Printf("平仓失败：%v", err)
+				fmt.Printf("平多失败：%v", err)
 			} else {
-				fmt.Println("平仓成功")
+				fmt.Println("平多成功")
+			}
+		}
+		if short != nil {
+			err := okxEx.ClosePosition(short.Symbol, string(short.Side), short.Amount, short.MgnMode, tradeType)
+			if err != nil {
+				fmt.Printf("平空失败：%v", err)
+			} else {
+				fmt.Println("平空成功")
 			}
 		}
 	}
