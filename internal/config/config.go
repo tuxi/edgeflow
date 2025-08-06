@@ -27,9 +27,10 @@ type Db struct {
 }
 
 type Config struct {
-	Webhook WebhookConfig `yaml:"webhook"`
-	Okx     `yaml:"okx"`
-	Db      `yaml:"database"`
+	Webhook   WebhookConfig `yaml:"webhook"`
+	Okx       `yaml:"okx"`
+	Db        `yaml:"database"`
+	Simulated bool `yaml:"simulated"`
 }
 
 var AppConfig Config

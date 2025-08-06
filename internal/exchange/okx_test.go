@@ -50,7 +50,7 @@ func TestOkxExchange_PlaceOrder(t *testing.T) {
 	}
 
 	order := model.Order{
-		Symbol:    "SOL/USDT",
+		Symbol:    "BTC/USDT",
 		Side:      model.Buy,
 		Price:     100,
 		Quantity:  1, // 市价Quantity 单位是USDT == 1USDT
@@ -86,13 +86,15 @@ func TestOkxExchange_PlaceOrder(t *testing.T) {
 
 // 测试市价下单现货，并且带有止盈止损
 func TestOkxExchange_PlaceOrderSpot(t *testing.T) {
-	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
+
 	// 加载配置文件
 	okxConf, err := loadOkxConf()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
-
+	if config.AppConfig.Simulated {
+		goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
+	}
 	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
 
 	order := model.Order{
@@ -133,11 +135,15 @@ func TestOkxExchange_PlaceOrderSpot(t *testing.T) {
 
 // 测试市价下单永续合约，并且带有止盈止损
 func TestOkxExchange_PlaceOrderSwap(t *testing.T) {
-	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
+
 	// 加载配置文件
 	okxConf, err := loadOkxConf()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	if config.AppConfig.Simulated {
+		goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
 	}
 
 	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)

@@ -31,12 +31,15 @@ curl -X POST http://localhost:8090/webhook \
 
 func main() {
 
-	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
-
 	// 加载配置文件
 	err := config.LoadConfig("config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	if config.AppConfig.Simulated {
+		// 设置为模拟环境
+		goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1")
 	}
 
 	// 初始化数据库
