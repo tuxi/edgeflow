@@ -79,7 +79,7 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 	}
 
 	// 检查是否有仓位
-	long, short, err := t.Exchange.GetPosition(req.Symbol)
+	long, short, err := t.Exchange.GetPosition(req.Symbol, order.TradeType)
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 		if short != nil {
 			closePs = short // 记录需要平的空单
 			// 先平空再开多
-			err = t.Exchange.ClosePosition(short.Symbol, string(short.Side), short.Amount, short.MgnMode)
+			err = t.Exchange.ClosePosition(short.Symbol, string(short.Side), short.Amount, short.MgnMode, order.TradeType)
 		}
 	} else if side == model.Sell {
 		if long != nil {
@@ -105,7 +105,7 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 
 	if closePs != nil {
 		// 先平掉逆向的仓位
-		err = t.Exchange.ClosePosition(closePs.Symbol, string(closePs.Side), closePs.Amount, closePs.MgnMode)
+		err = t.Exchange.ClosePosition(closePs.Symbol, string(closePs.Side), closePs.Amount, closePs.MgnMode, order.TradeType)
 		if err != nil {
 			return err
 		}
