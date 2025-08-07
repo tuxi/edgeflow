@@ -10,6 +10,7 @@ import (
 	"strconv"
 )
 
+// 合约公共结构体，为实现公共的方法
 type FuturesCommon struct {
 	Okx
 }
@@ -192,4 +193,32 @@ func CalculateOrderSz(costUSDT float64, leverage int, marketPrice float64, ctVal
 		sz = 1
 	}
 	return sz
+}
+
+// 根据信号等级Level和信号分数Score计算本次下单占仓位的百分比
+func CalculatePositionSize(level int, score int) float64 {
+	baseSize := 0.25 // 默认基础仓位（0.25 = 25%仓位）
+
+	switch level {
+	case 1:
+		return 0.5 // 50%，趋势信号，基础仓位
+	case 2:
+		return baseSize // 25%，确认用
+	case 3:
+		// 插针/反转类信号，根据强度评分调整
+		switch score {
+		case 4:
+			return 0.15
+		case 3:
+			return 0.10
+		case 2:
+			return 0.07
+		case 1:
+			return 0.05
+		default:
+			return 0.05
+		}
+	default:
+		return 0.0
+	}
 }

@@ -22,7 +22,8 @@ type ExecutionParams struct {
 
 type StrategyExecutor interface {
 	Name() string
-	Execute(ctx context.Context, req model.WebhookRequest) error
+	Execute(ctx context.Context, req model.Signal) error
+	ClosePosition(ctx context.Context, req model.Signal) error
 }
 
 // 计算止盈价

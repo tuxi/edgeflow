@@ -40,6 +40,7 @@ func (e *OkxSwap) getPub() goexv2.IPubRest {
 // 下单购买
 // 注意限价和市价的Quantity单位不相同，当限价时Quantity的单位为币本身，当市价时Quantity的单位为USDT
 func (e *OkxSwap) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.OrderResponse, error) {
+
 	pair, err := e.toCurrencyPair(order.Symbol)
 	if err != nil {
 		return nil, err
@@ -101,43 +102,40 @@ func (e *OkxSwap) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.
 	*/
 	mgnMode := order.MgnMode
 	leverage := order.Leverage
-	if order.TradeType == model2.OrderTradeSwap {
-		if mgnMode == "" {
-			mgnMode = model2.OrderMgnModeIsolated
-		}
-		//这里统一使用逐仓模式
-		opts = append(opts, model.OptionParameter{
-			Key:   "tdMode",
-			Value: string(mgnMode),
-		})
+	if mgnMode == "" {
+		mgnMode = model2.OrderMgnModeIsolated
+	}
+	//这里统一使用逐仓模式
+	opts = append(opts, model.OptionParameter{
+		Key:   "tdMode",
+		Value: string(mgnMode),
+	})
 
-		opts = append(opts, model.OptionParameter{
-			Key:   "posSide",
-			Value: string(posSide),
-		})
+	opts = append(opts, model.OptionParameter{
+		Key:   "posSide",
+		Value: string(posSide),
+	})
 
-		if leverage <= 0 {
-			leverage = 20
-		}
-		order.Leverage = leverage
-		// 设置杠杆倍数
-		err = e.SetLeverage(order.Symbol, leverage, string(mgnMode), string(posSide))
+	if leverage <= 0 {
+		leverage = 20
+	}
+	order.Leverage = leverage
+	// 设置杠杆倍数
+	err = e.SetLeverage(order.Symbol, leverage, string(mgnMode), string(posSide))
+	if err != nil {
+		return nil, err
+	}
+
+	// 根据比例计算下单金额
+	if order.QuantityPct > 0 {
+		// 获取可用余额，根据比例计算下单数量
+		acc, err := e.Account.GetAccount(ctx, "USDT")
 		if err != nil {
 			return nil, err
 		}
 
-		// 根据比例计算下单金额
-		if order.QuantityPct > 0 {
-			// 获取可用余额，根据比例计算下单数量
-			acc, err := e.Account.GetAccount(ctx, "USDT")
-			if err != nil {
-				return nil, err
-			}
-
-			// 根据QuantityPct计算下单张数
-			qty := CalculateOrderSz(acc.Available*order.QuantityPct, leverage, order.Price, pair.ContractVal)
-			order.Quantity = float64(qty)
-		}
+		qty := CalculateOrderSz(acc.Available*order.QuantityPct, leverage, order.Price, pair.ContractVal)
+		order.Quantity = float64(qty)
 	}
 	order.MgnMode = mgnMode
 

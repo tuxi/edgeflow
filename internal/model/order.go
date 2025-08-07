@@ -47,6 +47,8 @@ type Order struct {
 	MgnMode     OrderMgnMode       // 保证金模式（cross/isolate）
 	Leverage    int                // 杠杆倍数
 	QuantityPct float64            // 下单金额相对可用金额的百分比
+	Level       int
+	Score       int
 }
 
 // 交易类型

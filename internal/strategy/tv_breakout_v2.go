@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"edgeflow/internal/exchange"
+	"edgeflow/internal/exchange/okx"
 	"edgeflow/internal/model"
 	"edgeflow/internal/risk"
 	"errors"
@@ -25,7 +26,43 @@ func (t TVBreakoutV2) Name() string {
 	return "tv-breakout-v2"
 }
 
-func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) error {
+func (t TVBreakoutV2) ClosePosition(ctx context.Context, req model.Signal) error {
+	tradeType := model.OrderTradeTypeType(req.TradeType)
+	if tradeType == "" {
+		return errors.New("未知的交易类型，不支持")
+	}
+
+	// 清仓
+	// 检查是否有仓位
+	long, short, err := t.Exchange.GetPosition(req.Symbol, tradeType)
+	if err != nil {
+		return err
+	}
+	var positions []*model.PositionInfo
+	if long != nil {
+		positions = append(positions, long)
+	}
+	if short != nil {
+		positions = append(positions, short)
+	}
+
+	for _, item := range positions {
+		// 清仓
+		err = t.Exchange.ClosePosition(item.Symbol, string(item.Side), item.Amount, item.MgnMode, tradeType)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (t TVBreakoutV2) Execute(ctx context.Context, req model.Signal) error {
+	tradeType := model.OrderTradeTypeType(req.TradeType)
+	if tradeType == "" {
+		return errors.New("未知的交易类型，不支持")
+	}
+
 	var side model.OrderSide
 	switch strings.ToLower(req.Side) {
 	case "buy":
@@ -36,11 +73,14 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 		return fmt.Errorf("invalid side: %s", req.Side)
 	}
 
-	price := req.Price
-	//if price == 0 {
-	//	// 可考虑调用市场价格作为 fallback
-	//	price, err := t.Exchange.GetLastPrice(req.Symbol)
-	//}
+	if req.OrderType == "market" {
+		// 可考虑调用市场价格作为 fallback
+		price, err := t.Exchange.GetLastPrice(req.Symbol, tradeType)
+		if err != nil {
+			return err
+		}
+		req.Price = price
+	}
 
 	quantity := req.Quantity
 	if quantity <= 0 {
@@ -51,25 +91,33 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 	tpPrice := 0.0
 	slPrice := 0.0
 	if req.TpPercent > 0 {
-		tpPrice = computeTP(req.Side, price, req.TpPercent)
+		tpPrice = computeTP(req.Side, req.Price, req.TpPercent)
 	}
 	if req.SlPercent > 0 {
-		slPrice = computeSL(req.Side, price, req.SlPercent)
+		slPrice = computeSL(req.Side, req.Price, req.SlPercent)
+	}
+
+	// 根据信号级别和分数计算下单占仓位的比例
+	quantityPct := okx.CalculatePositionSize(req.Level, req.Score)
+	if quantityPct <= 0 {
+		return errors.New("当前仓位占比不足以开仓")
 	}
 
 	order := model.Order{
 		Symbol:      req.Symbol,
 		Side:        side,
-		Price:       price,
+		Price:       req.Price,
 		Quantity:    quantity,
 		OrderType:   model.OrderType(req.OrderType), // "market" / "limit"
 		Strategy:    req.Strategy,
 		TPPrice:     tpPrice,
 		SLPrice:     slPrice,
-		TradeType:   model.OrderTradeTypeType(req.TradeType),
+		TradeType:   tradeType,
 		Comment:     req.Comment,
 		Leverage:    req.Leverage,
-		QuantityPct: req.QuantityPct,
+		QuantityPct: quantityPct,
+		Level:       req.Level,
+		Score:       req.Score,
 	}
 
 	// 风控检查，是否允许下单
@@ -91,16 +139,10 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.WebhookRequest) err
 		同理处理
 	*/
 	var closePs *model.PositionInfo
-	if side == model.Buy {
-		if short != nil {
-			closePs = short // 记录需要平的空单
-			// 先平空再开多
-			err = t.Exchange.ClosePosition(short.Symbol, string(short.Side), short.Amount, short.MgnMode, order.TradeType)
-		}
-	} else if side == model.Sell {
-		if long != nil {
-			closePs = long // 记录需要平的多单
-		}
+	if side == model.Buy && short != nil {
+		closePs = short // 记录需要平的空单
+	} else if side == model.Sell && long != nil {
+		closePs = long // 记录需要平的多单
 	}
 
 	if closePs != nil {

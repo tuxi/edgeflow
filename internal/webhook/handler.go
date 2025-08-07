@@ -9,6 +9,7 @@ import (
 	"edgeflow/internal/strategy"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -46,29 +47,97 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload model.WebhookRequest
-	if err := json.Unmarshal(body, &payload); err != nil {
+	var sig model.Signal
+	if err := json.Unmarshal(body, &sig); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("[Webhook] Received signal: %v+\n", payload)
+	log.Printf("[Webhook] Received signal: %v+\n", sig)
 
-	// TODO: 分发给策略执行器
-	executor, err := strategy.Get(payload.Strategy)
+	err = handleSignal(sig)
 	if err != nil {
 		http.Error(w, "Unkonw strategy", http.StatusBadRequest)
-		return
+	} else {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "Signal received")
+	}
+}
+
+func handleSignal(sig model.Signal) error {
+
+	// STEP 1: 校验信号有效期
+	expired := sig.IsExpired()
+	if expired {
+		log.Println("❌ 信号过期，忽略:", sig)
+		return errors.New("信号过期，忽略")
+	}
+
+	// STEP 2: 获取最新缓存
+	lastSignals := model.SignalCache.Latest[sig.Symbol]
+
+	// STEP 3: 不同等级的处理逻辑
+	switch sig.Level {
+	case 1:
+		dispatch(sig, false) // 分发指标
+	case 2:
+		lvl1, hasLvl1 := lastSignals[1]
+		if hasLvl1 && lvl1.Side == sig.Side {
+			dispatch(sig, false) // 与 L1 一致，执行
+		} else if hasLvl1 && lvl1.Side != sig.Side {
+			dispatch(sig, true) // 方向冲突，清仓
+		} else {
+			log.Println("等待L1方向，L2信号延迟执行")
+		}
+	case 3:
+		lvl2, hasLvl2 := lastSignals[2]
+		lvl1, hasLvl1 := lastSignals[1]
+		lv3, hasLv3 := lastSignals[3]
+		if hasLvl2 && lvl2.Side == sig.Side {
+			if hasLvl1 && lvl1.Side == sig.Side {
+				dispatch(sig, false)
+			} else {
+				log.Println("L3 信号仅记录，不执行")
+			}
+		} else if hasLv3 && lv3.Side == sig.Side {
+			dispatch(sig, false)
+		} else {
+			log.Println("L3 信号仅记录，不执行")
+		}
+	}
+
+	cacheSignal(sig)
+
+	return nil
+}
+
+// TODO: 分发给策略执行器
+func dispatch(sig model.Signal, isClose bool) error {
+	executor, err := strategy.Get(sig.Strategy)
+	if err != nil {
+		fmt.Printf("未知指标：%v", sig.Strategy)
+		return err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	go func() {
 		defer cancel()
-		executor.Execute(ctx, payload)
-	}()
+		if isClose {
+			executor.ClosePosition(ctx, sig)
+		} else {
+			executor.Execute(ctx, sig)
+		}
 
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Signal received")
+	}()
+	return nil
+}
+
+// 缓存策略
+func cacheSignal(sig model.Signal) {
+	if _, ok := model.SignalCache.Latest[sig.Symbol]; !ok {
+		model.SignalCache.Latest[sig.Symbol] = make(map[int]model.Signal)
+	}
+	model.SignalCache.Latest[sig.Symbol][sig.Level] = sig
 }
 
 func verifySignature(body []byte, signatureHeader string) bool {
