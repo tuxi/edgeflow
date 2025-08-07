@@ -197,7 +197,7 @@ func CalculateOrderSz(costUSDT float64, leverage int, marketPrice float64, ctVal
 
 // 根据信号等级Level和信号分数Score计算本次下单占仓位的百分比
 func CalculatePositionSize(level int, score int) float64 {
-	baseSize := 0.25 // 默认基础仓位（0.25 = 25%仓位）
+	baseSize := 0.2 // 默认基础仓位（0.2 = 25%仓位）
 
 	switch level {
 	case 1:

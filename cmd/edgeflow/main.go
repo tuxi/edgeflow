@@ -18,7 +18,7 @@ import (
 /*
 测试
 
-BODY='{"strategy":"tv-breakout-v2","symbol":"BTC/USDT","side":"sell","price":113990,"quantity":0.01,"order_type":"market","trade_type":"swap","tp_pct":0.5,"sl_pct":0.3,"leverage":20,"score": 4,"level": 3,"timestamp": "2025-08-07T16:24:30+08:00"}'
+BODY='{"strategy":"tv-breakout-v3","symbol":"BTC/USDT","side":"sell","price":113990,"quantity":0.01,"order_type":"market","trade_type":"swap","tp_pct":0.5,"sl_pct":0.3,"leverage":20,"score": 4,"level": 1,"timestamp": "2025-08-07T21:54:30+08:00"}'
 SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
 SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
 
@@ -60,9 +60,6 @@ func main() {
 	//record := recorder.JSONFileRecorder{
 	//	Path: "logs/strategy-log.json",
 	//}
-
-	// 注册策略
-	//strategy.Register(&strategy.TVBreakoutV1{})
 
 	okxCf := config.AppConfig.Okx
 	okxEx := exchange.NewOkxExchange(okxCf.ApiKey, okxCf.SecretKey, okxCf.Password)

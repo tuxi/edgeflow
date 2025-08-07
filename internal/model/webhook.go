@@ -45,7 +45,9 @@ func (sig Signal) IsExpired() bool {
 // cache.Latest["BTCUSDT"][1] // 最近的1级信号
 // cache.Latest["BTCUSDT"][2] // 最近的2级信号
 type signalCache struct {
-	Latest map[string]map[int]Signal // symbol → level → latest signal
+	Latest                 map[string]map[int]Signal // symbol → level → latest signal
+	Level3Buffer           []Signal
+	Level3UpgradeThreshold int // 触发升级的最小数量
 }
 
 // 信号有效期
@@ -56,4 +58,8 @@ var signalExpiry = map[int]time.Duration{
 }
 
 // 缓存最后一个信号
-var SignalCache = signalCache{Latest: make(map[string]map[int]Signal)}
+var SignalCache = signalCache{
+	Latest:                 make(map[string]map[int]Signal),
+	Level3Buffer:           []Signal{},
+	Level3UpgradeThreshold: 3,
+}

@@ -26,3 +26,12 @@ func Get(name string) (StrategyExecutor, error) {
 	}
 	return s, nil
 }
+
+func Any() (StrategyExecutor, error) {
+	mu.RLock()
+	defer mu.RUnlock()
+	for _, value := range registry {
+		return value, nil
+	}
+	return nil, errors.New("你尚未注册任何策略")
+}
