@@ -37,6 +37,9 @@ func (r *RiskControl) OrderCreateNew(ctx context.Context, order model.Order, ord
 		Comment:   order.Comment,
 		TradeType: order.TradeType,
 		MgnMode:   order.MgnMode,
+		Timestamp: order.Timestamp,
+		Level:     order.Level,
+		Score:     order.Score,
 	}
 	return r.dao.InsertRiskRecord(ctx, record)
 }

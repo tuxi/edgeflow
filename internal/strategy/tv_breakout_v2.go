@@ -118,6 +118,7 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.Signal) error {
 		QuantityPct: quantityPct,
 		Level:       req.Level,
 		Score:       req.Score,
+		Timestamp:   req.Timestamp,
 	}
 
 	// 风控检查，是否允许下单

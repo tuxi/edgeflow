@@ -49,6 +49,7 @@ type Order struct {
 	QuantityPct float64            // 下单金额相对可用金额的百分比
 	Level       int
 	Score       int
+	Timestamp   time.Time // 信号触发时间
 }
 
 // 交易类型
@@ -86,7 +87,7 @@ type OrderRecord struct {
 	ID        uint      `gorm:"column:id;primary_key;" json:"id"` // 主键id，自增长，不用设置
 	OrderId   string    `gorm:"column:order_id;" json:"order_id"` // 订单id
 	Symbol    string    `gorm:"column:symbol" json:"symbol"`
-	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
+	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"` // 订单创建时间2025-08-07T21:54:30+08:00
 
 	Side      OrderSide          `gorm:"column:side" json:"side"`
 	Price     float64            `gorm:"column:price" json:"price"`
@@ -98,6 +99,10 @@ type OrderRecord struct {
 	Comment   string             `gorm:"column:comment" json:"comment"`
 	TradeType OrderTradeTypeType `gorm:"column:trade_type" json:"trade_type"`
 	MgnMode   OrderMgnMode       `gorm:"column:mgn_mode" json:"mgn_mode"`
+	Level     int                `gorm:"column:level" json:"level"`
+	Score     int                `gorm:"column:score" json:"score"`
+	Timestamp time.Time          `gorm:"column:timestamp" json:"timestamp"` // 信号触发时间
+
 }
 
 func (OrderRecord) TableName() string {
