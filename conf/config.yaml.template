@@ -1,0 +1,15 @@
+webhook:
+  secret: "ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
+okx:
+  apiKey: "c0c0148f-1379-415b-a076-d1cd23fcee54"
+#  apiKey: 2d9c0ffa-e08d-487c-b160-1cc5bae3cf7c
+  secretKey: "EF655B7A4E9CBCD58F2DC51D3959E41E"
+#  secretKey: 948E18BF4F1DC852D141C59FB2C91BDF
+  password: "Yang308719@#"
+database:
+  dbname: "strategy_db"
+  host: "localhost"
+  port: "3306"
+  username: "root"
+  password: "root"
+simulated: true

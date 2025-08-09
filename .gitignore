@@ -46,7 +46,6 @@ src/bin
 src/tmp
 src/data
 files/
-conf/
 pkg/stabilityai/out
 
 conf/config.yaml
