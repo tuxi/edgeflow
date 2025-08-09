@@ -75,7 +75,7 @@ func main() {
 
 	http.HandleFunc("/webhook", webhook.HandleWebhook)
 
-	addr := ":8090"
+	addr := ":12180"
 	log.Printf("EdgeFlow Webhook server listening on %s\n", addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
