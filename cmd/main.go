@@ -11,6 +11,7 @@ import (
 	"github.com/nntaoli-project/goex/v2"
 	"log"
 	"net/http"
+	"os"
 )
 
 // 启动服务（监听webhook）
@@ -42,17 +43,18 @@ func main() {
 		goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1")
 	}
 
-	//dbUser := os.Getenv("DB_USER")     // config.AppConfig.Username,
-	//dbPass := os.Getenv("DB_PASSWORD") // config.AppConfig.Db.Password,
-	//dbHost := os.Getenv("DB_HOST")     // config.AppConfig.Host,
-	//dbPort := os.Getenv("DB_PORT")     // config.AppConfig.Port,
-	//dbName := os.Getenv("DB_NAME")     // config.AppConfig.DbName,
-
-	dbUser := config.AppConfig.Username
-	dbPass := config.AppConfig.Db.Password
-	dbHost := config.AppConfig.Host
-	dbPort := config.AppConfig.Port
-	dbName := config.AppConfig.DbName
+	dbUser := os.Getenv("DB_USER")
+	dbPass := os.Getenv("DB_PASSWORD")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbName := os.Getenv("DB_NAME")
+	if dbUser == "" || dbPass == "" || dbHost == "" {
+		dbUser = config.AppConfig.Username
+		dbPass = config.AppConfig.Db.Password
+		dbHost = config.AppConfig.Host
+		dbPort = config.AppConfig.Port
+		dbName = config.AppConfig.DbName
+	}
 
 	// 初始化数据库
 	// main.go or app bootstrap
