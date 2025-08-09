@@ -137,7 +137,7 @@ func (e *FuturesCommon) ClosePosition(symbol string, side string, quantity float
 		orderSide = model.Futures_CloseBuy
 	case "short":
 		// 持有空单，平掉空单
-		orderSide = model.Futures_OpenSell
+		orderSide = model.Futures_CloseSell
 	default:
 		return fmt.Errorf("unknown side: %s", side)
 	}

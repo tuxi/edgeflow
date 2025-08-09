@@ -18,11 +18,11 @@ import (
 /*
 测试
 
-BODY='{"strategy":"tv-breakout-v3","symbol":"BTC/USDT","side":"sell","price":113990,"quantity":0.01,"order_type":"market","trade_type":"swap","tp_pct":0.5,"sl_pct":0.3,"leverage":20,"score": 4,"level": 1,"timestamp": "2025-08-09T21:54:30+08:00"}'
+BODY='{"strategy":"tv-breakout-v3","symbol":"BTC/USDT","side":"buy","price":113990,"quantity":0.01,"order_type":"market","trade_type":"swap","tp_pct":0.5,"sl_pct":0.3,"leverage":20,"score": 4,"level": 1,"timestamp": "2025-08-09T21:54:30+08:00"}'
 SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
 SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
 
-curl -X POST http://localhost:12180/webhook \
+curl -X POST http://localhost:8090/webhook \
   -H "Content-Type: application/json" \
   -H "X-Signature: $SIGNATURE" \
   -d "$BODY"
@@ -42,14 +42,26 @@ func main() {
 		goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1")
 	}
 
+	//dbUser := os.Getenv("DB_USER")     // config.AppConfig.Username,
+	//dbPass := os.Getenv("DB_PASSWORD") // config.AppConfig.Db.Password,
+	//dbHost := os.Getenv("DB_HOST")     // config.AppConfig.Host,
+	//dbPort := os.Getenv("DB_PORT")     // config.AppConfig.Port,
+	//dbName := os.Getenv("DB_NAME")     // config.AppConfig.DbName,
+
+	dbUser := config.AppConfig.Username
+	dbPass := config.AppConfig.Db.Password
+	dbHost := config.AppConfig.Host
+	dbPort := config.AppConfig.Port
+	dbName := config.AppConfig.DbName
+
 	// 初始化数据库
 	// main.go or app bootstrap
 	datasource := db.Init(db.Config{
-		User:      config.AppConfig.Username,
-		Password:  config.AppConfig.Db.Password,
-		Host:      config.AppConfig.Host,
-		Port:      config.AppConfig.Port,
-		DBName:    config.AppConfig.DbName,
+		User:      dbUser,
+		Password:  dbPass,
+		Host:      dbHost,
+		Port:      dbPort,
+		DBName:    dbName,
 		ParseTime: true,
 	})
 	rc := risk.NewRiskControl(dao.NewOrderDao(datasource))
@@ -63,7 +75,7 @@ func main() {
 
 	http.HandleFunc("/webhook", webhook.HandleWebhook)
 
-	addr := ":12180"
+	addr := ":8090"
 	log.Printf("EdgeFlow Webhook server listening on %s\n", addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)

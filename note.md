@@ -11,3 +11,4 @@ docker build -t edgeflow .
 ```shell
 sudo docker run --restart=always -d --name edgeflow -test -p 12180:12180 -v /var/www/edgeflow/conf:/app/edgeflow/conf -v /var/www/edgeflow/deploy:/app/edgeflow/deploy -v /var/www/edgeflow/logs:/app/edgeflow/logs edgeflow -test
 ```
+sudo docker run --restart=always -d --name edgeflow -test -p 12180:12180 -v /Users/xiaoyuan/Desktop/work/LearningGolang/edgeflow/conf:/app/edgeflow/conf  edgeflow -test
