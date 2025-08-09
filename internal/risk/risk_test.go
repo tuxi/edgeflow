@@ -12,7 +12,7 @@ import (
 
 func TestRiskControl_OrderCreateNew(t *testing.T) {
 	// 加载配置文件
-	err := config.LoadConfig("../../config.yaml")
+	err := config.LoadConfig("../../conf/config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}

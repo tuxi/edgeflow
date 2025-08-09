@@ -18,11 +18,11 @@ import (
 /*
 测试
 
-BODY='{"strategy":"tv-breakout-v3","symbol":"BTC/USDT","side":"sell","price":113990,"quantity":0.01,"order_type":"market","trade_type":"swap","tp_pct":0.5,"sl_pct":0.3,"leverage":20,"score": 4,"level": 1,"timestamp": "2025-08-07T21:54:30+08:00"}'
+BODY='{"strategy":"tv-breakout-v3","symbol":"BTC/USDT","side":"sell","price":113990,"quantity":0.01,"order_type":"market","trade_type":"swap","tp_pct":0.5,"sl_pct":0.3,"leverage":20,"score": 4,"level": 1,"timestamp": "2025-08-09T21:54:30+08:00"}'
 SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
 SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
 
-curl -X POST http://localhost:8090/webhook \
+curl -X POST http://localhost:12180/webhook \
   -H "Content-Type: application/json" \
   -H "X-Signature: $SIGNATURE" \
   -d "$BODY"
@@ -32,7 +32,7 @@ curl -X POST http://localhost:8090/webhook \
 func main() {
 
 	// 加载配置文件
-	err := config.LoadConfig("config.yaml")
+	err := config.LoadConfig("conf/config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -56,11 +56,6 @@ func main() {
 
 	log.Println("WEBHOOK_SECRET = ", config.AppConfig.Webhook.Secret)
 
-	//se := exchange.NewSimulatedOrderExecutor()
-	//record := recorder.JSONFileRecorder{
-	//	Path: "logs/strategy-log.json",
-	//}
-
 	okxCf := config.AppConfig.Okx
 	okxEx := exchange.NewOkxExchange(okxCf.ApiKey, okxCf.SecretKey, okxCf.Password)
 
@@ -68,7 +63,7 @@ func main() {
 
 	http.HandleFunc("/webhook", webhook.HandleWebhook)
 
-	addr := ":8090"
+	addr := ":12180"
 	log.Printf("EdgeFlow Webhook server listening on %s\n", addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)

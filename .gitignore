@@ -49,6 +49,6 @@ files/
 conf/
 pkg/stabilityai/out
 
-config.yaml
+conf/config.yaml
 
 logs/

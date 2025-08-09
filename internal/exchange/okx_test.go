@@ -12,7 +12,7 @@ import (
 
 func loadOkxConf() (*config.Okx, error) {
 	// 加载配置文件
-	err := config.LoadConfig("../../config.yaml")
+	err := config.LoadConfig("../../conf/config.yaml")
 	if err != nil {
 		return nil, err
 	}
