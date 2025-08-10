@@ -164,9 +164,5 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.Signal) error {
 
 	// 下单成功，保存订单
 	err = t.Rc.OrderCreateNew(ctx, order, resp.OrderId)
-	if err != nil {
-		log.Printf("创建订单失败:%v", err)
-	}
-
 	return err
 }

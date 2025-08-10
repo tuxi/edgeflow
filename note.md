@@ -34,3 +34,15 @@ sudo docker run --restart=always -d --name edgeflow -e DB_HOST=host.docker.inter
 ```
 sudo docker run --restart=always -d --name edgeflow -e DB_HOST=host.docker.internal -e DB_PORT=3306 -e DB_USER=root -e DB_PASSWORD=root -e DB_NAME=strategy_db -test -p 12180:12180 -v /Users/xiaoyuan/Desktop/work/LearningGolang/edgeflow/conf:/app/edgeflow/conf  edgeflow -test
 
+```shell
+BODY='{"strategy":"tv-breakout-v3","symbol":"BTC/USDT","side":"buy","price":113990,"quantity":0.01,"order_type":"market","trade_type":"swap","tp_pct":0.5,"sl_pct":0.3,"leverage":20,"score": 4,"level": 1,"timestamp": "2025-08-10T21:54:30+08:00"}'
+SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
+SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
+
+curl -X POST https://strategy.objc.com/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-Signature: $SIGNATURE" \
+  -H "User-Agent: TestClient" \
+  -d "$BODY"
+
+```

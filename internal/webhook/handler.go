@@ -166,9 +166,15 @@ func dispatch(sig model.Signal, isClose bool) error {
 	go func() {
 		defer cancel()
 		if isClose {
-			executor.ClosePosition(ctx, sig)
+			err := executor.ClosePosition(ctx, sig)
+			if err != nil {
+				log.Printf("执行平仓失败:%v", err)
+			}
 		} else {
-			executor.Execute(ctx, sig)
+			err := executor.Execute(ctx, sig)
+			if err != nil {
+				log.Printf("执行策略失败:%v", err)
+			}
 		}
 
 	}()
