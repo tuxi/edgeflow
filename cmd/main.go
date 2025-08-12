@@ -19,15 +19,23 @@ import (
 /*
 测试
 
-BODY='{"strategy":"tv-breakout-v3","symbol":"BTC/USDT","side":"buy","price":113990,"quantity":0.01,"order_type":"market","trade_type":"swap","tp_pct":0.5,"sl_pct":0.3,"leverage":20,"score": 4,"level": 1,"timestamp": "2025-08-09T21:54:30+08:00"}'
+BODY='{"strategy":"tv-breakout-v3","symbol":"BTC/USDT","side":"buy","price":113990,"quantity":0.01,"order_type":"market","trade_type":"swap","tp_pct":0.5,"sl_pct":0.3,"leverage":20,"score": 4,"level": 1,"timestamp": "2025-08-10T21:54:30+08:00"}'
 SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
 SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
 
-curl -X POST http://localhost:8090/webhook \
+curl -X POST http://localhost:12180/webhook \
   -H "Content-Type: application/json" \
   -H "X-Signature: $SIGNATURE" \
   -d "$BODY"
 
+BODY='{"comment":"空头进场信号","symbol":"ETH/USDT","timestamp":"2025-08-11T04:50:04Z","side":"sell","type":"entry","level":2,"trade_type":"swap","tp_pct":0.35,"sl_pct":0.3,"strategy":"macd-ema-v6","price":4324.7,"order_type":"market"}'
+SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
+SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
+
+curl -X POST http://localhost:12180/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-Signature: $SIGNATURE" \
+  -d "$BODY"
 */
 
 func main() {

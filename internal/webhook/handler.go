@@ -37,6 +37,7 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		fmt.Fprintln(w, "Failed to read body")
 		return
 	}
 	defer r.Body.Close()
@@ -44,6 +45,7 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	// 验签
 	if !verifySignature(body, signature) {
 		http.Error(w, "Invalid signature", http.StatusMethodNotAllowed)
+		fmt.Fprintln(w, "Invalid signature")
 		return
 	}
 
@@ -52,7 +54,10 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-
+	if sig.Strategy == "" {
+		http.Error(w, "Invalid JSON empty strategy", http.StatusBadRequest)
+		return
+	}
 	log.Printf("[Webhook] Received signal: %v+\n", sig)
 
 	err = handleSignal(sig)

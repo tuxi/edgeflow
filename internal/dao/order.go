@@ -41,3 +41,16 @@ func (d *OrderDao) OrderGetLast(ctx context.Context, strategy string, symbol str
 	//Order("created_at DESC").Limit(1).First(&order).Error
 	return
 }
+
+// 查找某个level下的最后一个订单
+func (d *OrderDao) OrderGetByLevel(ctx context.Context, symbol string, level int, td string) (or model.OrderRecord, err error) {
+	err = d.db.WithContext(ctx).Model(&model.OrderRecord{}).
+		Where("level = ?", level).
+		Where("symbol = ?", symbol).
+		Where("trade_type = ?", td).
+		Order("timestamp DESC").
+		Limit(1).
+		Find(&or).Error
+
+	return
+}
