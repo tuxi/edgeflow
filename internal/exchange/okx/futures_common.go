@@ -201,22 +201,22 @@ func CalculatePositionSize(level int, score int) float64 {
 
 	switch level {
 	case 1:
-		return 0.35 // 50%，趋势信号，基础仓位
+		return 0.30 // 30%，趋势信号，基础仓位
 	case 2:
 		return baseSize // 25%，确认用
 	case 3:
 		// 插针/反转类信号，根据强度评分调整
 		switch score {
 		case 4:
-			return 0.15
+			return 0.19
 		case 3:
-			return 0.10
+			return 0.17
 		case 2:
-			return 0.07
+			return 0.10
 		case 1:
-			return 0.05
+			return 0.1
 		default:
-			return 0.05
+			return 0.07
 		}
 	default:
 		return 0.0

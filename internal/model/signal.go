@@ -40,7 +40,7 @@ func (sig Signal) IsExpired() bool {
 
 // 信号有效期
 var signalExpiry = map[int]time.Duration{
-	1: 6 * time.Hour,    // 1级信号有效期6小时
-	2: 2 * time.Hour,    // 2级信号有效期2小时
-	3: 45 * time.Minute, // 3级信号有效期30分钟
+	1: 8 * time.Hour,    // 1级信号有效期6小时
+	2: 3 * time.Hour,    // 2级信号有效期2小时
+	3: 50 * time.Minute, // 3级信号有效期50分钟
 }

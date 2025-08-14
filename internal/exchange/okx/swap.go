@@ -133,7 +133,7 @@ func (e *OkxSwap) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.
 		if err != nil {
 			return nil, err
 		}
-
+		// 0.98 是最大仓位的容差，防止价差导致余额不足
 		qty := CalculateOrderSz(acc.Available*order.QuantityPct*0.98, leverage, order.Price, pair.ContractVal)
 		order.Quantity = float64(qty)
 	}
