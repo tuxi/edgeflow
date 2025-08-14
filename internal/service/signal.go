@@ -29,8 +29,8 @@ func NewDefaultSignalManager() SignalManager {
 
 // 保存最新信号
 func (m *defaultSignalManager) SaveSignal(sig model.Signal) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	if _, ok := m.lastSignals[sig.Symbol]; !ok {
 		m.lastSignals[sig.Symbol] = make(map[int]model.Signal)
@@ -53,8 +53,6 @@ func (m *defaultSignalManager) GetLastSignal(symbol string, level int) (model.Si
 
 // 核心逻辑：判断是否执行信号以及是否需要先平仓
 func (m *defaultSignalManager) ShouldExecute(sig model.Signal) (bool, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 
 	// STEP 2: 获取最新缓存
 	lastSignals := m.lastSignals[sig.Symbol]

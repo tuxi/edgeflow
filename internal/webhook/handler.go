@@ -81,7 +81,7 @@ func (wh *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 
 	err = wh.handleSignal(sig)
 	if err != nil {
-		http.Error(w, "Unkonw strategy", http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("%s", err), http.StatusBadRequest)
 	} else {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "Signal received")
