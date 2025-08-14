@@ -1,32 +1,31 @@
-package strategy
+package service
 
 import (
 	"context"
+	"edgeflow/internal/dao"
 	"edgeflow/internal/exchange"
 	"edgeflow/internal/exchange/okx"
 	"edgeflow/internal/model"
-	"edgeflow/internal/risk"
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"strings"
+	"time"
 )
 
-type TVBreakoutV2 struct {
+// 仓位管理，统一的下单服务
+type PositionService struct {
 	Exchange exchange.Exchange
-	//recorder *recorder.JSONFileRecorder
-	Rc *risk.RiskControl
+	d        *dao.OrderDao
 }
 
-func NewTVBreakoutV2(ex exchange.Exchange, rc *risk.RiskControl) *TVBreakoutV2 {
-	return &TVBreakoutV2{Exchange: ex, Rc: rc}
+func NewPositionService(ex exchange.Exchange, d *dao.OrderDao) *PositionService {
+	return &PositionService{ex, d}
 }
 
-func (t TVBreakoutV2) Name() string {
-	return "tv-breakout-v2"
-}
-
-func (t TVBreakoutV2) ClosePosition(ctx context.Context, req model.Signal) error {
+// 平仓
+func (ps *PositionService) Close(ctx context.Context, req model.Signal) error {
 	tradeType := model.OrderTradeTypeType(req.TradeType)
 	if tradeType == "" {
 		return errors.New("未知的交易类型，不支持")
@@ -34,21 +33,22 @@ func (t TVBreakoutV2) ClosePosition(ctx context.Context, req model.Signal) error
 
 	// 清仓
 	// 检查是否有仓位
-	long, short, err := t.Exchange.GetPosition(req.Symbol, tradeType)
+	long, short, err := ps.Exchange.GetPosition(req.Symbol, tradeType)
 	if err != nil {
 		return err
 	}
 	var positions []*model.PositionInfo
-	if long != nil {
+	if long != nil && long.Amount > 0 {
 		positions = append(positions, long)
 	}
-	if short != nil {
+	if short != nil && short.Amount > 0 {
 		positions = append(positions, short)
 	}
 
 	for _, item := range positions {
-		// 清仓
-		err = t.Exchange.ClosePosition(item.Symbol, string(item.Side), item.Amount, item.MgnMode, tradeType)
+		// 平仓
+		log.Printf("平仓: %s %s %f", item.Symbol, item.Side, item.Amount)
+		err = ps.Exchange.ClosePosition(item.Symbol, string(item.Side), item.Amount, item.MgnMode, tradeType)
 		if err != nil {
 			return err
 		}
@@ -57,11 +57,9 @@ func (t TVBreakoutV2) ClosePosition(ctx context.Context, req model.Signal) error
 	return nil
 }
 
-func (t TVBreakoutV2) Execute(ctx context.Context, req model.Signal) error {
+// 开仓或者加仓
+func (t *PositionService) Open(ctx context.Context, req model.Signal, tpPercent, slPercent float64) error {
 	tradeType := model.OrderTradeTypeType(req.TradeType)
-	if tradeType == "" {
-		return errors.New("未知的交易类型，不支持")
-	}
 
 	var side model.OrderSide
 	switch strings.ToLower(req.Side) {
@@ -82,20 +80,11 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.Signal) error {
 		req.Price = price
 	}
 
-	quantity := req.Quantity
-	if quantity <= 0 {
-		quantity = 0.01 // 默认值
-	}
-
+	// 下单总数，由内部计算
+	//quantity := 0.7
 	// 计算止盈止损
-	tpPrice := 0.0
-	slPrice := 0.0
-	if req.TpPercent > 0 {
-		tpPrice = computeTP(req.Side, req.Price, req.TpPercent)
-	}
-	if req.SlPercent > 0 {
-		slPrice = computeSL(req.Side, req.Price, req.SlPercent)
-	}
+	tpPrice := computeTP(req.Side, req.Price, tpPercent)
+	slPrice := computeSL(req.Side, req.Price, slPercent)
 
 	// 根据信号级别和分数计算下单占仓位的比例
 	quantityPct := okx.CalculatePositionSize(req.Level, req.Score)
@@ -107,7 +96,7 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.Signal) error {
 		Symbol:      req.Symbol,
 		Side:        side,
 		Price:       req.Price,
-		Quantity:    quantity,
+		Quantity:    0,                              // 开多少数量由后端计算
 		OrderType:   model.OrderType(req.OrderType), // "market" / "limit"
 		Strategy:    req.Strategy,
 		TPPrice:     tpPrice,
@@ -119,12 +108,6 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.Signal) error {
 		Level:       req.Level,
 		Score:       req.Score,
 		Timestamp:   req.Timestamp,
-	}
-
-	// 风控检查，是否允许下单
-	isAllow := t.Rc.Allow(ctx, order)
-	if isAllow == false {
-		return errors.New("触发风控，无法下单，稍后再试")
 	}
 
 	// 检查是否有仓位
@@ -155,7 +138,7 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.Signal) error {
 	}
 
 	// 开仓or加仓
-	log.Printf("[TVBreakoutV2] placing order: %+v", order)
+	log.Printf("[%v] placing order: %+v", "PositionService", order)
 	// 调用交易所api下单
 	resp, err := t.Exchange.PlaceOrder(ctx, &order)
 	if err != nil {
@@ -163,6 +146,51 @@ func (t TVBreakoutV2) Execute(ctx context.Context, req model.Signal) error {
 	}
 
 	// 下单成功，保存订单
-	err = t.Rc.OrderCreateNew(ctx, order, resp.OrderId)
+	err = t.OrderCreateNew(ctx, order, resp.OrderId)
 	return err
+}
+
+func (r *PositionService) OrderCreateNew(ctx context.Context, order model.Order, orderId string) error {
+
+	record := &model.OrderRecord{
+		OrderId:   orderId,
+		Symbol:    order.Symbol,
+		CreatedAt: time.Time{},
+		Side:      order.Side,
+		Price:     order.Price,
+		Quantity:  order.Quantity,
+		OrderType: order.OrderType,
+		TP:        order.TPPrice,
+		SL:        order.SLPrice,
+		Strategy:  order.Strategy,
+		Comment:   order.Comment,
+		TradeType: order.TradeType,
+		MgnMode:   order.MgnMode,
+		Timestamp: order.Timestamp,
+		Level:     order.Level,
+		Score:     order.Score,
+	}
+	return r.d.OrderCreateNew(ctx, record)
+}
+
+// 计算止盈价
+func computeTP(side string, price float64, tpPercent float64) float64 {
+	if side == "buy" {
+		// TP = 113990 × (1 + 0.005) ≈ 114559.95
+		return round(price * (1 + tpPercent/100))
+	}
+	// SL = 113990 × (1 - 0.003) ≈ 113648.03
+	return round(price * (1 - tpPercent/100))
+}
+
+// 计算止损价
+func computeSL(side string, price float64, slPercent float64) float64 {
+	if side == "buy" {
+		return round(price * (1 - slPercent/100))
+	}
+	return round(price * (1 + slPercent/100))
+}
+
+func round(val float64) float64 {
+	return math.Round(val*100) / 100
 }

@@ -101,6 +101,6 @@ package cache
 //		Level:     order.Level,
 //		Score:     order.Score,
 //	}
-//	return c.dao.InsertRiskRecord(context.Background(), record)
+//	return c.dao.OrderCreateNew(context.Background(), record)
 //
 //}

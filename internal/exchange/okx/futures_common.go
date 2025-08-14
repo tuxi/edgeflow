@@ -201,7 +201,7 @@ func CalculatePositionSize(level int, score int) float64 {
 
 	switch level {
 	case 1:
-		return 0.5 // 50%，趋势信号，基础仓位
+		return 0.35 // 50%，趋势信号，基础仓位
 	case 2:
 		return baseSize // 25%，确认用
 	case 3:

@@ -103,7 +103,7 @@ package strategy
 //	}
 //
 //	// 开仓or加仓
-//	log.Printf("[TVBreakoutV2] placing order: %+v", order)
+//	log.Printf("[TVScalp15M] placing order: %+v", order)
 //	// 调用交易所api下单
 //	resp, err := t.Exchange.PlaceOrder(ctx, &order)
 //	if err != nil {

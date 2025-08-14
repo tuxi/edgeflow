@@ -4,6 +4,7 @@ import (
 	"context"
 	"edgeflow/internal/dao"
 	"edgeflow/internal/model"
+	"errors"
 	"time"
 )
 
@@ -41,25 +42,32 @@ func (r *RiskControl) OrderCreateNew(ctx context.Context, order model.Order, ord
 		Level:     order.Level,
 		Score:     order.Score,
 	}
-	return r.dao.InsertRiskRecord(ctx, record)
+	return r.dao.OrderCreateNew(ctx, record)
 }
 
 // 是否允许下单
-func (r *RiskControl) Allow(ctx context.Context, order model.Order) bool {
+func (r *RiskControl) Allow(ctx context.Context, strategy, symbol, side, tradeType string) error {
+
+	if tradeType == "" ||
+		(tradeType != string(model.OrderTradeSwap) &&
+			tradeType != string(model.OrderTradeFutures) &&
+			tradeType != string(model.OrderTradeSpot)) {
+		return errors.New("未知的交易类型，不支持")
+	}
 
 	// 查找同策略的下单状况，如果在5分钟内已下单，则不允许下单
-	record, err := r.dao.OrderGetLast(ctx, order.Strategy, order.Symbol, string(order.Side), string(order.TradeType))
+	record, err := r.dao.OrderGetLast(ctx, strategy, symbol, side, tradeType)
 
 	if err != nil {
-		return false
+		return err
 	}
 
 	// 1. 从缓存中读取该 uniqueStr 上次记录时间
 	if time.Since(record.CreatedAt) < r.interval {
 		// 小于设定的时间间隔，不允许重复下单
-		return false
+		return errors.New("小于设定的时间间隔，不允许重复下单")
 	}
 
 	// 2. 可以允许下单（但此时还未记录）
-	return true
+	return nil
 }

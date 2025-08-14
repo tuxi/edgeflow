@@ -5,6 +5,7 @@ import (
 	"edgeflow/internal/dao"
 	"edgeflow/internal/exchange"
 	"edgeflow/internal/risk"
+	"edgeflow/internal/service"
 	"edgeflow/internal/strategy"
 	"edgeflow/internal/webhook"
 	"edgeflow/pkg/db"
@@ -74,16 +75,28 @@ func main() {
 		DBName:    dbName,
 		ParseTime: true,
 	})
-	rc := risk.NewRiskControl(dao.NewOrderDao(datasource))
+	d := dao.NewOrderDao(datasource)
+	rc := risk.NewRiskControl(d)
 
 	log.Println("WEBHOOK_SECRET = ", config.AppConfig.Webhook.Secret)
 
 	okxCf := config.AppConfig.Okx
 	okxEx := exchange.NewOkxExchange(okxCf.ApiKey, okxCf.SecretKey, okxCf.Password)
 
-	strategy.Register(strategy.NewTVBreakoutV2(okxEx, rc))
+	// 仓位管理服务
+	ps := service.NewPositionService(okxEx, d)
+	// 信号管理
+	sm := service.NewDefaultSignalManager()
 
-	http.HandleFunc("/webhook", webhook.HandleWebhook)
+	// 策略分发器：根据级别分发不同的策略
+	dispatcher := strategy.NewStrategyDispatcher()
+	dispatcher.Register(1, strategy.NewTVTrendH(sm, ps))
+	dispatcher.Register(2, strategy.NewTVScalp15M(sm, ps))
+	dispatcher.Register(3, strategy.NewTVScalp15M(sm, ps))
+
+	hander := webhook.NewWebhookHandler(dispatcher, rc)
+
+	http.HandleFunc("/webhook", hander.HandleWebhook)
 
 	addr := ":12180"
 	log.Printf("EdgeFlow Webhook server listening on %s\n", addr)

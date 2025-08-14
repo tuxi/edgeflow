@@ -18,13 +18,13 @@ import "time"
 	}
 */
 type Signal struct {
-	Strategy  string         `json:"strategy"`   // 指标名称标识符
-	Symbol    string         `json:"symbol"`     // BTC/USDT
-	Price     float64        `json:"price"`      // 当前价格
-	Side      string         `json:"side"`       // buy / sell
-	Quantity  float64        `json:"quantity"`   // 数量
-	TpPercent float64        `json:"tp_pct"`     // 止盈比例
-	SlPercent float64        `json:"sl_pct"`     // 止损比例
+	Strategy string  `json:"strategy"` // 指标名称标识符
+	Symbol   string  `json:"symbol"`   // BTC/USDT
+	Price    float64 `json:"price"`    // 当前价格
+	Side     string  `json:"side"`     // buy / sell
+	//Quantity  float64        `json:"quantity"`   // 数量
+	//TpPercent float64 `json:"tp_pct"`     // 止盈比例
+	//SlPercent float64 `json:"sl_pct"`     // 止损比例
 	OrderType string         `json:"order_type"` // 订单类型：market、limit
 	TradeType string         `json:"trade_type"` // 交易类型
 	Comment   string         `json:"comment"`
@@ -41,25 +41,9 @@ func (sig Signal) IsExpired() bool {
 	return isExpired
 }
 
-// 缓存状态（信号快照）
-// cache.Latest["BTCUSDT"][1] // 最近的1级信号
-// cache.Latest["BTCUSDT"][2] // 最近的2级信号
-type signalCache struct {
-	Latest                 map[string]map[int]Signal // symbol → level → latest signal
-	Level3Buffer           []Signal
-	Level3UpgradeThreshold int // 触发升级的最小数量
-}
-
 // 信号有效期
 var signalExpiry = map[int]time.Duration{
 	1: 6 * time.Hour,    // 1级信号有效期6小时
 	2: 2 * time.Hour,    // 2级信号有效期2小时
-	3: 30 * time.Minute, // 3级信号有效期30分钟
-}
-
-// 缓存最后一个信号
-var SignalCache = signalCache{
-	Latest:                 make(map[string]map[int]Signal),
-	Level3Buffer:           []Signal{},
-	Level3UpgradeThreshold: 3,
+	3: 45 * time.Minute, // 3级信号有效期30分钟
 }

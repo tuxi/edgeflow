@@ -15,7 +15,7 @@ func NewOrderDao(db *gorm.DB) *OrderDao {
 }
 
 // 插入下单记录
-func (d *OrderDao) InsertRiskRecord(ctx context.Context, record *model.OrderRecord) error {
+func (d *OrderDao) OrderCreateNew(ctx context.Context, record *model.OrderRecord) error {
 	return d.db.WithContext(ctx).Create(record).Error
 }
 

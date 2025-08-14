@@ -134,7 +134,7 @@ func (e *OkxSwap) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.
 			return nil, err
 		}
 
-		qty := CalculateOrderSz(acc.Available*order.QuantityPct, leverage, order.Price, pair.ContractVal)
+		qty := CalculateOrderSz(acc.Available*order.QuantityPct*0.98, leverage, order.Price, pair.ContractVal)
 		order.Quantity = float64(qty)
 	}
 	order.MgnMode = mgnMode
@@ -142,7 +142,7 @@ func (e *OkxSwap) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.
 	// 创建订单
 	createdOrder, resp, err := e.prv.CreateOrder(pair, order.Quantity, order.Price, side, orderType, opts...)
 	if err != nil {
-		fmt.Printf("CreateOrder error：%v", resp)
+		fmt.Printf("CreateOrder error：%v", string(resp))
 		return nil, err
 	}
 
