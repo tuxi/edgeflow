@@ -9,6 +9,8 @@ require (
 	gorm.io/gorm v1.30.1
 )
 
+replace github.com/nntaoli-project/goex/v2 => github.com/tuxi/goex/v2 v2.0.3
+
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/andybalholm/brotli v1.0.5 // indirect
