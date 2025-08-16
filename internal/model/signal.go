@@ -30,6 +30,8 @@ type Signal struct {
 	Score     int            `json:"score"`     // 信号强度，L3时有用
 	Meta      map[string]any `json:"meta"`      // 附加字段：价格、图表ID等
 	Timestamp time.Time      `json:"timestamp"` // 触发时间
+	TpPct     float64        `json:"tp"`        // 止盈比例，默认为0时使用系统的
+	SlPct     float64        `json:"sl"`        // 止损比例，默认为0时使用系统的
 }
 
 // 当前信号是否过期

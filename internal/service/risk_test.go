@@ -1,4 +1,4 @@
-package risk
+package service
 
 import (
 	"context"
@@ -27,7 +27,7 @@ func TestRiskControl_OrderCreateNew(t *testing.T) {
 		DBName:    config.AppConfig.DbName,
 		ParseTime: true,
 	})
-	rc := NewRiskControl(dao.NewOrderDao(datasource))
+	rc := NewRiskService(dao.NewOrderDao(datasource))
 
 	order := model.Order{
 		Symbol:    "BTC/USDT",

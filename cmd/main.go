@@ -4,7 +4,6 @@ import (
 	"edgeflow/internal/config"
 	"edgeflow/internal/dao"
 	"edgeflow/internal/exchange"
-	"edgeflow/internal/risk"
 	"edgeflow/internal/service"
 	"edgeflow/internal/strategy"
 	"edgeflow/internal/webhook"
@@ -76,7 +75,7 @@ func main() {
 		ParseTime: true,
 	})
 	d := dao.NewOrderDao(datasource)
-	rc := risk.NewRiskControl(d)
+	rc := service.NewRiskService(d)
 
 	log.Println("WEBHOOK_SECRET = ", config.AppConfig.Webhook.Secret)
 

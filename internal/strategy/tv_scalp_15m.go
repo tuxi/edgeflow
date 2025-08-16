@@ -47,6 +47,12 @@ func (t TVScalp15M) Execute(ctx context.Context, req model.Signal) error {
 	// 这是15分钟短线单，止盈止损低一些
 	tpPercent := 0.78
 	slPercent := 0.5
+	if req.TpPct > 0 {
+		tpPercent = req.TpPct
+	}
+	if req.SlPct > 0 {
+		slPercent = req.SlPct
+	}
 	// 执行开仓/加仓
 	return t.positionSvc.Open(ctx, req, tpPercent, slPercent)
 

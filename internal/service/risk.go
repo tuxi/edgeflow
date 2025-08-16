@@ -1,4 +1,4 @@
-package risk
+package service
 
 import (
 	"context"
@@ -9,20 +9,20 @@ import (
 )
 
 // 用于风控系统
-type RiskControl struct {
+type RiskService struct {
 	dao *dao.OrderDao
 	// 允许下单的时间间隔
 	interval time.Duration
 }
 
-func NewRiskControl(dao *dao.OrderDao) *RiskControl {
-	return &RiskControl{
+func NewRiskService(dao *dao.OrderDao) *RiskService {
+	return &RiskService{
 		dao:      dao,
 		interval: time.Millisecond * 5,
 	}
 }
 
-func (r *RiskControl) OrderCreateNew(ctx context.Context, order model.Order, orderId string) error {
+func (r *RiskService) OrderCreateNew(ctx context.Context, order model.Order, orderId string) error {
 
 	record := &model.OrderRecord{
 		OrderId:   orderId,
@@ -46,7 +46,7 @@ func (r *RiskControl) OrderCreateNew(ctx context.Context, order model.Order, ord
 }
 
 // 是否允许下单
-func (r *RiskControl) Allow(ctx context.Context, strategy, symbol, side, tradeType string) error {
+func (r *RiskService) Allow(ctx context.Context, strategy, symbol, side, tradeType string) error {
 
 	if tradeType == "" ||
 		(tradeType != string(model.OrderTradeSwap) &&

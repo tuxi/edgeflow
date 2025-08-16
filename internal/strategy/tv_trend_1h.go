@@ -47,6 +47,12 @@ func (t TVTrendH) Execute(ctx context.Context, req model.Signal) error {
 	// 这是一小时趋势单，止盈止损提高一些
 	tpPercent := 2.0
 	slPercent := 1.0
+	if req.TpPct > 0 {
+		tpPercent = req.TpPct
+	}
+	if req.SlPct > 0 {
+		slPercent = req.SlPct
+	}
 	// 执行开仓/加仓
 	return t.positionSvc.Open(ctx, req, tpPercent, slPercent)
 
