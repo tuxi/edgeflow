@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/nntaoli-project/goex/v2/model"
 	"github.com/nntaoli-project/goex/v2/okx/futures"
+	"math"
 	"strconv"
 )
 
@@ -184,15 +185,56 @@ func (e *FuturesCommon) GetPosition(symbol string) (long *model2.PositionInfo, s
 	return
 }
 
-// 计算下单张数（按成本算）
+// costUSDT: 你愿意花多少USDT保证金
+// leverage: 杠杆倍数
+// marketPrice: 标的价格
+// ctVal: 每张合约代表多少币，比如BTC=0.01
 func CalculateOrderSz(costUSDT float64, leverage int, marketPrice float64, ctVal float64) int {
-	notional := costUSDT * float64(leverage) // 名义价值（目标开仓总金额）
-	oneContractValue := marketPrice * ctVal  // 每张合约对应的价值
-	sz := int(notional / oneContractValue)   // 得到张数（取整）
+	// 名义价值 = 保证金 * 杠杆
+	notional := costUSDT * float64(leverage)
+
+	// 每张的价值 = 市价 * 合约面值
+	oneContractValue := marketPrice * ctVal
+
+	// 计算张数
+	sz := int(notional / oneContractValue)
 	if sz < 1 {
-		sz = 1
+		sz = 0 // 连1张都开不了
 	}
 	return sz
+}
+
+// costUSDT: 你愿意花多少USDT买
+// marketPrice: 市价
+func CalculateSpotQty(costUSDT float64, marketPrice float64, precision int) float64 {
+	qty := costUSDT / marketPrice
+	// 保留交易所允许的小数位
+	factor := math.Pow10(precision)
+	qty = math.Floor(qty*factor) / factor
+	return qty
+}
+
+// 合约下单计算：返回 sz(张数) 和 qty(币数量)
+func CalculateContractOrder(costUSDT float64, leverage int, marketPrice float64, ctVal float64) (sz float64, qty float64) {
+	// 名义价值 = 保证金 * 杠杆
+	notional := costUSDT * float64(leverage)
+
+	// 实际币数量
+	qty = notional / marketPrice
+
+	// 张数
+	sz = qty / ctVal
+
+	//if sz < 1 {
+	//	return 0, 0 // 连一张都下不了
+	//}
+
+	// 精确的币数量 = 张数 * ctVal
+	qty = sz * ctVal
+
+	sz = FloorFloat(sz, 2)
+	qty = FloorFloat(qty, 3)
+	return
 }
 
 // 根据信号等级Level和信号分数Score计算本次下单占仓位的百分比
@@ -221,4 +263,10 @@ func CalculatePositionSize(level int, score int) float64 {
 	default:
 		return 0.0
 	}
+}
+
+// 向下取整保留 n 位小数
+func FloorFloat(val float64, n int) float64 {
+	factor := math.Pow10(n)
+	return math.Floor(val*factor) / factor
 }

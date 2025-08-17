@@ -3,6 +3,7 @@ package exchange
 import (
 	"context"
 	"edgeflow/internal/config"
+	"edgeflow/internal/exchange/okx"
 	"edgeflow/internal/model"
 	"fmt"
 	"github.com/nntaoli-project/goex/v2"
@@ -233,4 +234,9 @@ func TestOkxExchange_GetPosition(t *testing.T) {
 		}
 	}
 
+}
+
+func TestNewOkxExchange_Cal(t *testing.T) {
+	sz, qty := okx.CalculateContractOrder(58.5, 10, 117924, 0.01)
+	fmt.Println(sz, qty)
 }

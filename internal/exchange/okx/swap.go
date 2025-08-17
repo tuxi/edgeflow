@@ -133,12 +133,13 @@ func (e *OkxSwap) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.
 			return nil, err
 		}
 		// 0.98 是最大仓位的容差，防止价差导致余额不足
-		qty := CalculateOrderSz(acc.Available*order.QuantityPct*0.98, leverage, order.Price, pair.ContractVal)
-		order.Quantity = float64(qty)
+		_, qty := CalculateContractOrder(acc.Available*order.QuantityPct*0.98, leverage, order.Price, pair.ContractVal)
+		order.Quantity = qty
 	}
 	order.MgnMode = mgnMode
 
 	// 创建订单
+	fmt.Printf("CreateOrder start: quantity:%v price:%v side:%v", order.Quantity, order.Price, order.Side)
 	createdOrder, _, err := e.prv.CreateOrder(pair, order.Quantity, order.Price, side, orderType, opts...)
 	if err != nil {
 		fmt.Printf("CreateOrder error：%v", err.Error())
