@@ -13,3 +13,12 @@ database:
   username: "root"
   password: "root"
 simulated: true
+strategy:
+  MinSpacingL2: 5m
+  MinSpacingL3: 3m
+  CooldownAfterL2Flip: 10m
+  RequireL1ConfirmForL2Open: true
+  L1ConfirmMaxDelay: 3m
+  RequireTrendFilter: true
+  L3ReduceAtRMultiple: 2.0
+  L3ReducePercent: 0.5

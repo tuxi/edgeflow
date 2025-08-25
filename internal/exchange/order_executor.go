@@ -4,6 +4,7 @@ import (
 	"context"
 	"edgeflow/internal/account"
 	"edgeflow/internal/model"
+	model2 "github.com/nntaoli-project/goex/v2/model"
 )
 
 type Exchange interface {
@@ -20,6 +21,18 @@ type Exchange interface {
 	// 平仓
 	ClosePosition(symbol string, side string, quantity float64, tdMode string, tradeType model.OrderTradeTypeType) error
 	Account(tradeType model.OrderTradeTypeType) (Account, error)
+	AmendAlgoOrder(instId string, tradeType model.OrderTradeTypeType, algoId string, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx float64) ([]byte, error)
+	/*
+		获取k线数据
+		比如取 BTC-USDT 永续合约 1小时K线
+		klines, err := okx.GetKlineRecords(
+		    model.BTC_USDT,   // 交易对
+		    model.KLINE_PERIOD_1H, // 1小时
+		    200,              // 返回200根
+		    0,                // since=0 表示最新
+		)
+	*/
+	GetKlineRecords(symbol string, period model2.KlinePeriod, size, since int, tradeType model.OrderTradeTypeType) ([]model.Kline, error)
 }
 
 // Account 账号结构接口

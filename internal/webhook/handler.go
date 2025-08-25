@@ -5,12 +5,11 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"edgeflow/internal/config"
-	"edgeflow/internal/model"
 	"edgeflow/internal/service"
+	"edgeflow/internal/signal"
 	"edgeflow/internal/strategy"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -21,12 +20,20 @@ import (
 type WebhookHandler struct {
 	dispatcher *strategy.StrategyDispatcher
 	rc         *service.RiskService
+	sm         signal.Manager
+	ps         *service.PositionService
 }
 
-func NewWebhookHandler(d *strategy.StrategyDispatcher, rc *service.RiskService) *WebhookHandler {
+func NewWebhookHandler(
+	d *strategy.StrategyDispatcher,
+	rc *service.RiskService,
+	sm signal.Manager,
+	ps *service.PositionService) *WebhookHandler {
 	return &WebhookHandler{
 		dispatcher: d,
 		rc:         rc,
+		sm:         sm,
+		ps:         ps,
 	}
 }
 
@@ -62,7 +69,7 @@ func (wh *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var sig model.Signal
+	var sig signal.Signal
 	if err := json.Unmarshal(body, &sig); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -78,10 +85,26 @@ func (wh *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 	}
 	log.Printf("[Webhook] Received signal: %v+\n", sig)
 
+	if sig.Level != 1 && sig.Level != 2 && sig.Level != 3 {
+		http.Error(w, "Invalid JSON error level", http.StatusBadRequest)
+		return
+	}
+
+	// 缓存信号
+	wh.sm.Save(sig)
+
 	// 风控检查，是否允许下单
 	err = wh.rc.Allow(context.Background(), sig.Strategy, sig.Symbol, sig.Side, sig.TradeType)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("触发风控:%v，无法下单，稍后再试", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	// STEP 1: 校验信号有效期
+	expired := sig.IsExpired()
+	if expired {
+		log.Println("❌ 信号过期，忽略:", sig)
+		http.Error(w, "信号过期，忽略", http.StatusBadRequest)
 		return
 	}
 
@@ -94,15 +117,8 @@ func (wh *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-func (wh *WebhookHandler) handleSignal(sig model.Signal) error {
-
-	// STEP 1: 校验信号有效期
-	expired := sig.IsExpired()
-	if expired {
-		log.Println("❌ 信号过期，忽略:", sig)
-		return errors.New("信号过期，忽略")
-	}
-
+func (wh *WebhookHandler) handleSignal(sig signal.Signal) error {
+	// 分发策略
 	return wh.dispatcher.Dispatch(sig)
 }
 

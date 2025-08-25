@@ -54,3 +54,19 @@ func (d *OrderDao) OrderGetByLevel(ctx context.Context, symbol string, level int
 
 	return
 }
+
+// 保存趋势历史
+//func (d *OrderDao) Persist(ctx context.Context, symbol string, trend model.TrendDirection, price float64, maValue float64, ts time.Time) error {
+//
+//	t := model.TrendHistory{
+//		Symbol:    symbol,
+//		Direction: trend,
+//		MAValue:   maValue,
+//		Price:     price,
+//		TS:        ts,
+//		CreatedAt: time.Time{},
+//		UpdatedAt: time.Time{},
+//	}
+//
+//	return d.db.WithContext(ctx).Create(t).Error
+//}

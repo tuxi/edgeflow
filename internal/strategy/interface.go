@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"edgeflow/internal/model"
+	"edgeflow/internal/signal"
 )
 
 // 策略执行器接口定义
@@ -21,5 +22,5 @@ type ExecutionParams struct {
 
 type StrategyExecutor interface {
 	Name() string
-	Execute(ctx context.Context, req model.Signal) error
+	Execute(ctx context.Context, req signal.Signal) error
 }

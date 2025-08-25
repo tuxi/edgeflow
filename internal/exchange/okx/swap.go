@@ -35,7 +35,6 @@ func NewOkxSwap(conf []options.ApiOption) *OkxSwap {
 
 func (e *OkxSwap) getPub() goexv2.IPubRest {
 	return &e.pub
-
 }
 
 // 下单购买
@@ -127,11 +126,13 @@ func (e *OkxSwap) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.
 
 	// 根据比例计算下单金额
 	if order.QuantityPct > 0 {
+
 		// 获取可用余额，根据比例计算下单数量
 		acc, err := e.Account.GetAccount(ctx, "USDT")
 		if err != nil {
 			return nil, err
 		}
+
 		// 0.98 是最大仓位的容差，防止价差导致余额不足
 		_, qty := CalculateContractOrder(acc.Available*order.QuantityPct*0.98, leverage, order.Price, pair.ContractVal)
 		order.Quantity = qty

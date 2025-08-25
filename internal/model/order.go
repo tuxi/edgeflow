@@ -116,4 +116,27 @@ type PositionInfo struct {
 	AvgPrice float64   // 开仓均价
 	MgnMode  string    // 保证金模式
 	LiqPx    string    // 强平价
+	AlgoId   string
+}
+
+// UnrealizedPnl 计算未实现盈亏
+func (ps *PositionInfo) UnrealizedPnl(lastPrice float64) float64 {
+	pnl := 0.0
+	if ps.Side == OrderPosSideLong && ps.Amount > 0 {
+		pnl += lastPrice - ps.AvgPrice*ps.Amount
+	}
+	if ps.Side == OrderPosSideShort && ps.Amount > 0 {
+		pnl += (ps.AvgPrice - lastPrice) * ps.Amount
+	}
+	return pnl
+}
+
+type Kline struct {
+	//Pair      CurrencyPair `json:"pair"`
+	Timestamp int64   `json:"t"`
+	Open      float64 `json:"o"`
+	Close     float64 `json:"s"`
+	High      float64 `json:"h"`
+	Low       float64 `json:"l"`
+	Vol       float64 `json:"v"`
 }

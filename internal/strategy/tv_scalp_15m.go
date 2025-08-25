@@ -2,8 +2,8 @@ package strategy
 
 import (
 	"context"
-	"edgeflow/internal/model"
 	"edgeflow/internal/service"
+	"edgeflow/internal/signal"
 	"errors"
 	"fmt"
 	"log"
@@ -11,11 +11,11 @@ import (
 
 // 15分钟短线反转单
 type TVScalp15M struct {
-	signalManager service.SignalManager
+	signalManager signal.Manager
 	positionSvc   *service.PositionService
 }
 
-func NewTVScalp15M(sm service.SignalManager, ps *service.PositionService) *TVScalp15M {
+func NewTVScalp15M(sm signal.Manager, ps *service.PositionService) *TVScalp15M {
 	return &TVScalp15M{signalManager: sm, positionSvc: ps}
 }
 
@@ -23,10 +23,10 @@ func (t TVScalp15M) Name() string {
 	return "tv-scalp-15m"
 }
 
-func (t TVScalp15M) Execute(ctx context.Context, req model.Signal) error {
+func (t TVScalp15M) Execute(ctx context.Context, req signal.Signal) error {
 
 	// 保存信号
-	t.signalManager.SaveSignal(req)
+	t.signalManager.Save(req)
 
 	// 判断是否执行以及是否需要先平仓
 	execute, closeFirst := t.signalManager.ShouldExecute(req)
@@ -38,7 +38,7 @@ func (t TVScalp15M) Execute(ctx context.Context, req model.Signal) error {
 
 	if closeFirst {
 		// 平掉逆向仓位
-		err := t.positionSvc.Close(ctx, req)
+		err := t.positionSvc.CloseAll(ctx, req)
 		if err != nil {
 			return err
 		}

@@ -23,3 +23,6 @@ CREATE TABLE `order_record` (
                                 PRIMARY KEY (`id`),
                                 UNIQUE KEY `uk_order_id` (`order_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单记录表';
+
+
+

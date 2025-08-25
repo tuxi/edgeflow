@@ -6,6 +6,7 @@ import (
 	model2 "edgeflow/internal/model"
 	"errors"
 	"fmt"
+	"github.com/nntaoli-project/goex/v2/model"
 	"github.com/nntaoli-project/goex/v2/options"
 )
 
@@ -191,4 +192,22 @@ func (e *OkxExchange) GetPosition(symbol string, tradeType model2.OrderTradeType
 		return nil, nil, errors.New("当前交易类型不支持获取仓位GetPosition")
 	}
 
+}
+
+func (e *OkxExchange) AmendAlgoOrder(instId string, tradeType model2.OrderTradeTypeType, algoId string, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx float64) ([]byte, error) {
+	api, err := e.getApi(tradeType)
+	if err != nil {
+		return nil, err
+	}
+
+	return api.AmendAlgoOrder(instId, algoId, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx)
+}
+
+func (e *OkxExchange) GetKlineRecords(symbol string, period model.KlinePeriod, size, since int, tradeType model2.OrderTradeTypeType) ([]model2.Kline, error) {
+	api, err := e.getApi(tradeType)
+	if err != nil {
+		return nil, err
+	}
+
+	return api.GetKlineRecords(symbol, period, size, since)
 }

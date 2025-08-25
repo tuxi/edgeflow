@@ -2,8 +2,8 @@ package strategy
 
 import (
 	"context"
-	"edgeflow/internal/model"
 	"edgeflow/internal/service"
+	"edgeflow/internal/signal"
 	"errors"
 	"fmt"
 	"log"
@@ -11,22 +11,23 @@ import (
 
 // 趋势/波段策略：基于 1H 周期，减少频繁进出，拉大止盈止损，追求稳定的中等收益率
 type TVTrendH struct {
-	signalManager service.SignalManager
+	signalManager signal.Manager
 	positionSvc   *service.PositionService
 }
 
-func NewTVTrendH(sm service.SignalManager, ps *service.PositionService) *TVTrendH {
+func NewTVTrendH(sm signal.Manager,
+	ps *service.PositionService) *TVTrendH {
 	return &TVTrendH{
 		signalManager: sm,
 		positionSvc:   ps,
 	}
 }
 
-func (t TVTrendH) Name() string {
+func (t *TVTrendH) Name() string {
 	return "tv-trend-1h"
 }
 
-func (t TVTrendH) Execute(ctx context.Context, req model.Signal) error {
+func (t *TVTrendH) Execute(ctx context.Context, req signal.Signal) error {
 
 	// 判断是否执行以及是否需要先平仓
 	execute, closeFirst := t.signalManager.ShouldExecute(req)
@@ -38,7 +39,7 @@ func (t TVTrendH) Execute(ctx context.Context, req model.Signal) error {
 
 	if closeFirst {
 		// 平掉逆向仓位
-		err := t.positionSvc.Close(ctx, req)
+		err := t.positionSvc.CloseAll(ctx, req)
 		if err != nil {
 			return err
 		}

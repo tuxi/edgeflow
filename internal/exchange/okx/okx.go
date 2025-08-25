@@ -8,6 +8,10 @@ import (
 	"fmt"
 	goexv2 "github.com/nntaoli-project/goex/v2"
 	"github.com/nntaoli-project/goex/v2/model"
+	"github.com/nntaoli-project/goex/v2/okx/common"
+	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +21,8 @@ type OkxService interface {
 	CancelOrder(orderID, symbol string) error
 	GetLastPrice(symbol string) (float64, error)
 	GetExchangeInfo() (map[string]model.CurrencyPair, []byte, error)
+	AmendAlgoOrder(instId string, algoId string, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx float64) ([]byte, error)
+	GetKlineRecords(symbol string, period model.KlinePeriod, size, since int) ([]model2.Kline, error)
 }
 
 // OKX 三种交易的基础结构：swap、future、spot
@@ -87,6 +93,47 @@ func (e *Okx) GetOrderStatus(orderID string, symbol string) (*model2.OrderStatus
 	}, nil
 }
 
+// AmendAlgoOrder 修改算法单（止盈止损/计划委托）
+// 支持更新止盈止损触发价、委托价、数量等
+func (e *Okx) AmendAlgoOrder(instId, algoId string, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx float64) ([]byte, error) {
+	prv, ok := e.prv.(*common.Prv)
+	if !ok {
+		return nil, errors.New("AmendAlgoOrder err")
+	}
+	reqUrl := fmt.Sprintf("%s%s", prv.UriOpts.Endpoint, "/api/v5/trade/amend-algo-order")
+
+	params := url.Values{}
+	params.Set("instId", instId) //pair.Symbol)
+	params.Set("algoId", algoId)
+	if newSlTriggerPx > 0 {
+		px := strconv.FormatFloat(newSlTriggerPx, 'f', -1, 64)
+		params.Set("newSlTriggerPx", px)
+	}
+	if newSlOrdPx > 0 {
+		px := strconv.FormatFloat(newSlTriggerPx, 'f', -1, 64)
+		params.Set("newSlOrdPx", px)
+	}
+	if newTpTriggerPx > 0 {
+		px := strconv.FormatFloat(newTpTriggerPx, 'f', -1, 64)
+		params.Set("newTpTriggerPx", px)
+	}
+	if newTpOrdPx > 0 {
+		px := strconv.FormatFloat(newTpOrdPx, 'f', -1, 64)
+		params.Set("newTpOrdPx", px)
+	}
+
+	//util.MergeOptionParams(&params, opts...)
+	common.AdaptOrderClientIDOptionParameter(&params)
+
+	_, resp, err := prv.DoAuthRequest(http.MethodPost, reqUrl, &params, nil)
+	if err != nil {
+		fmt.Printf("[AmendOrder] response body =%s", string(resp))
+		return resp, err
+	}
+
+	return resp, err
+}
+
 // 下单购买
 // 注意限价和市价的Quantity单位不相同，当限价时Quantity的单位为币本身，当市价时Quantity的单位为USDT
 func (e *Okx) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.OrderResponse, error) {
@@ -101,4 +148,39 @@ func (e *Okx) GetExchangeInfo() (map[string]model.CurrencyPair, []byte, error) {
 		e.exInfo = info
 	}
 	return info, data, err
+}
+
+func (e *Okx) GetKlineRecords(symbol string, period model.KlinePeriod, size, since int) ([]model2.Kline, error) {
+	pair, err := e.toCurrencyPair(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	var opts []model.OptionParameter
+	if size > 0 {
+		opts = append(opts, model.OptionParameter{
+			Key:   "limit",
+			Value: strconv.Itoa(size),
+		})
+	}
+	info, _, err := e.getPub().GetKline(pair, period, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	//fmt.Printf("[GetKlineRecords] data = %v", string(data))
+
+	var items []model2.Kline
+	for _, item := range info {
+		items = append(items, model2.Kline{
+			Timestamp: item.Timestamp,
+			Open:      item.Open,
+			Close:     item.Close,
+			High:      item.High,
+			Low:       item.Low,
+			Vol:       item.Vol,
+		})
+	}
+
+	return items, nil
 }

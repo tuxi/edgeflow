@@ -38,6 +38,7 @@ func (e *FuturesCommon) getPosition(symbol string) ([]model2.PositionInfo, error
 		Data []struct {
 			MgnMode string `json:"mgnMode"`
 			LiqPx   string `json:"liqPx"`
+			AlgoId  string `json:"algoId"`
 		} `json:"data"`
 		Msg string `json:"msg"`
 	}
@@ -69,6 +70,7 @@ func (e *FuturesCommon) getPosition(symbol string) ([]model2.PositionInfo, error
 		item.AvgPrice = re.AvgPx
 		item.MgnMode = jsonData.Data[i].MgnMode
 		item.LiqPx = jsonData.Data[i].LiqPx
+		item.AlgoId = jsonData.Data[i].AlgoId
 		items = append(items, item)
 	}
 

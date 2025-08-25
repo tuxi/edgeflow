@@ -5,10 +5,13 @@ import (
 	"edgeflow/internal/dao"
 	"edgeflow/internal/exchange"
 	"edgeflow/internal/service"
+	"edgeflow/internal/signal"
 	"edgeflow/internal/strategy"
+	"edgeflow/internal/trend"
 	"edgeflow/internal/webhook"
 	"edgeflow/pkg/db"
 	"github.com/nntaoli-project/goex/v2"
+	"github.com/nntaoli-project/goex/v2/model"
 	"log"
 	"net/http"
 	"os"
@@ -29,6 +32,15 @@ curl -X POST http://localhost:12180/webhook \
   -d "$BODY"
 
 BODY='{"comment":"空头进场信号","symbol":"ETH/USDT","timestamp":"2025-08-15T23:50:04Z","side":"sell","type":"entry","level":2,"trade_type":"swap","tp_pct":0.35,"sl_pct":0.3,"strategy":"macd-ema-v6","price":4324.7,"order_type":"market"}'
+SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
+SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
+
+curl -X POST http://localhost:12180/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-Signature: $SIGNATURE" \
+  -d "$BODY"
+
+BODY='{"comment":"空头进场信号","symbol":"ETH/USDT","timestamp":"2025-08-26T23:50:04Z","side":"sell","type":"entry","level":2,"trade_type":"swap","tp_pct":0.35,"sl_pct":0.3,"strategy":"tv-level","price":4324.7,"order_type":"market"}'
 SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
 SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
 
@@ -79,21 +91,24 @@ func main() {
 
 	log.Println("WEBHOOK_SECRET = ", config.AppConfig.Webhook.Secret)
 
-	okxCf := config.AppConfig.Okx
-	okxEx := exchange.NewOkxExchange(okxCf.ApiKey, okxCf.SecretKey, okxCf.Password)
+	appCfg := config.AppConfig
+	okxEx := exchange.NewOkxExchange(appCfg.Okx.ApiKey, appCfg.Okx.SecretKey, appCfg.Okx.Password)
 
 	// 仓位管理服务
 	ps := service.NewPositionService(okxEx, d)
 	// 信号管理
-	sm := service.NewDefaultSignalManager()
+	sm := signal.NewDefaultSignalManager(appCfg.Strategy)
+
+	tm := trend.NewTrendManager(okxEx, []string{"BTC/USDT", "ETH/USDT", "SOL/USDT"}, model.Kline_4h)
+	tm.StartUpdater()
 
 	// 策略分发器：根据级别分发不同的策略
 	dispatcher := strategy.NewStrategyDispatcher()
-	dispatcher.Register(1, strategy.NewTVTrendH(sm, ps))
-	dispatcher.Register(2, strategy.NewTVScalp15M(sm, ps))
-	dispatcher.Register(3, strategy.NewTVScalp15M(sm, ps))
+	dispatcher.Register("tv-trend-1h", strategy.NewTVTrendH(sm, ps))
+	dispatcher.Register("tv-scalp-15m", strategy.NewTVScalp15M(sm, ps))
+	dispatcher.Register("tv-level", strategy.NewTVLevelStrategy(sm, ps, tm))
 
-	hander := webhook.NewWebhookHandler(dispatcher, rc)
+	hander := webhook.NewWebhookHandler(dispatcher, rc, sm, ps)
 
 	http.HandleFunc("/webhook", hander.HandleWebhook)
 
