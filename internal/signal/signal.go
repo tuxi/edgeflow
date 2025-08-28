@@ -31,7 +31,6 @@ type Signal struct {
 	Comment   string         `json:"comment"`
 	Leverage  int            `json:"leverage"`  // 下单的杠杆倍数
 	Level     int            `json:"level"`     // 信号等级：1、2、3
-	Score     int            `json:"score"`     // 信号强度，L3时有用
 	Meta      map[string]any `json:"meta"`      // 附加字段：价格、图表ID等
 	Timestamp time.Time      `json:"timestamp"` // 触发时间
 	TpPct     float64        `json:"tp"`        // 止盈比例，默认为0时使用系统的
@@ -81,26 +80,6 @@ func (d Decision) Log(sig Signal, cfg *config.StrategyConfig) {
 		d.ReducePercent,
 	)
 }
-
-//type Config struct {
-//	// L2 反手后的冷静期，期间禁用所有 L3（防抖）
-//	CooldownAfterL2Flip time.Duration
-//
-//	// 防抖间隔：同向 L2 / L3 信号之间至少间隔多少时间
-//	MinSpacingL2 time.Duration
-//	MinSpacingL3 time.Duration
-//
-//	// L2 开仓是否需要 L1 确认（同向），以及最大确认延迟
-//	RequireL1ConfirmForL2Open bool
-//	L1ConfirmMaxDelay         time.Duration
-//
-//	// 趋势/回撤过滤器（由策略计算 trendOK/pullbackOK，再传进 Decide）
-//	RequireTrendFilter bool
-//
-//	// L3 反向时的分批止盈触发
-//	L3ReduceAtRMultiple float64 // 达到多少 R 才允许减仓
-//	L3ReducePercent     float64 // 减仓比例
-//}
 
 // 信号状态
 type State struct {

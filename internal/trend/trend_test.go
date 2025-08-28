@@ -28,7 +28,7 @@ func TestTrend(t *testing.T) {
 
 	okx := exchange.NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
 
-	symbols := []string{"BTC/USDT", "ETH/USDT", "AAVE/USDT"}
+	symbols := []string{"BTC/USDT", "ETH/USDT", "PUMP/USDT"}
 	tm := NewManager(okx, symbols)
 	tm.StartUpdater()
 
@@ -43,7 +43,7 @@ func TestTrend(t *testing.T) {
 		if ok {
 			log.Println(state1.Description)
 		}
-		state2, ok := tm.Get("AAVE/USDT")
+		state2, ok := tm.Get("PUMP/USDT")
 		if ok {
 			log.Println(state2.Description)
 		}

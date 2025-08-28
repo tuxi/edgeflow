@@ -7,6 +7,7 @@ import (
 	"edgeflow/internal/signal"
 	"edgeflow/internal/trend"
 	"log"
+	"time"
 )
 
 // 趋势/波段策略：基于 1H 周期，减少频繁进出，拉大止盈止损，追求稳定的中等收益率
@@ -36,6 +37,24 @@ func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error 
 		return err
 	}
 	metaL2 := t.positionSvc.GetPositionByLevel(sig.Symbol, 2)
+	if metaL2 != nil {
+		_, ok := t.signalManager.GetLastSignal(sig.Symbol, 2)
+		if !ok {
+			// 当服务端有l2仓位，本地没有信号缓存时，应该是服务重启了，数据丢失了，此时我们补全即可
+			t.signalManager.Save(signal.Signal{
+				Strategy:  sig.Strategy,
+				Symbol:    sig.Symbol,
+				Price:     sig.Price,
+				Side:      metaL2.Side,
+				OrderType: sig.OrderType,
+				TradeType: sig.TradeType,
+				Comment:   "后补的信号",
+				Leverage:  20,
+				Level:     2,
+				Timestamp: time.Now(),
+			})
+		}
+	}
 	upnl := 0.0
 	if state != nil {
 		upnl = state.UnrealizedPnl(sig.Price)

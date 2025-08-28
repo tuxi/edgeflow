@@ -240,28 +240,16 @@ func CalculateContractOrder(costUSDT float64, leverage int, marketPrice float64,
 }
 
 // 根据信号等级Level和信号分数Score计算本次下单占仓位的百分比
-func CalculatePositionSize(level int, score int) float64 {
+func CalculatePositionSize(level int) float64 {
 	baseSize := 0.2 // 默认基础仓位（0.2 = 25%仓位）
 
 	switch level {
 	case 1:
 		return 0.30 // 30%，趋势信号，基础仓位
 	case 2:
-		return baseSize // 25%，确认用
+		return baseSize // 20%，确认用
 	case 3:
-		// 插针/反转类信号，根据强度评分调整
-		switch score {
-		case 4:
-			return 0.19
-		case 3:
-			return 0.17
-		case 2:
-			return 0.10
-		case 1:
-			return 0.1
-		default:
-			return 0.07
-		}
+		return 0.15
 	default:
 		return 0.0
 	}

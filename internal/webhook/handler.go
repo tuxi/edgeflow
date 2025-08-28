@@ -86,7 +86,7 @@ func (wh *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 	}
 	log.Printf("[Webhook] Received signal: %v+\n", sig)
 
-	if sig.Level != 1 && sig.Level != 2 && sig.Level != 3 {
+	if sig.Level > 3 || sig.Level < 1 {
 		http.Error(w, "Invalid JSON error level", http.StatusBadRequest)
 		return
 	}

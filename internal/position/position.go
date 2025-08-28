@@ -31,7 +31,7 @@ type PositionService struct {
 	Exchange exchange.Exchange
 	d        *dao.OrderDao
 	mu       sync.Mutex
-	//metas    map[string]*LocalPositionMeta // 本地仓位信息
+	//metas    map[string]*LocalPositionMeta // 本地仓位信息，也是保存的okx端的真实仓位
 	metas map[string]map[int]*LocalPositionMeta // 本地仓位信息
 }
 
@@ -130,7 +130,7 @@ func (t *PositionService) Open(ctx context.Context, req signal.Signal, tpPercent
 	slPrice := computeSL(req.Side, req.Price, slPercent)
 
 	// 根据信号级别和分数计算下单占仓位的比例
-	quantityPct := okx.CalculatePositionSize(req.Level, req.Score)
+	quantityPct := okx.CalculatePositionSize(req.Level)
 	if quantityPct <= 0 {
 		return errors.New("当前仓位占比不足以开仓")
 	}
@@ -149,7 +149,6 @@ func (t *PositionService) Open(ctx context.Context, req signal.Signal, tpPercent
 		Leverage:    req.Leverage,
 		QuantityPct: quantityPct,
 		Level:       req.Level,
-		Score:       req.Score,
 		Timestamp:   req.Timestamp,
 	}
 
@@ -188,8 +187,10 @@ func (t *PositionService) Open(ctx context.Context, req signal.Signal, tpPercent
 		return err
 	}
 
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	// 保存本地元数据
-	t.SaveMeta(order.Symbol, order.Level, string(order.Side), order.Price, order.Quantity)
+	t.saveMeta(order.Symbol, order.Level, string(order.Side), order.Price, order.Quantity)
 
 	// 下单成功，保存订单
 	err = t.OrderCreateNew(ctx, order, resp.OrderId)
@@ -205,13 +206,14 @@ func (ps *PositionService) State(sig signal.Signal) (state *model.PositionInfo, 
 
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	// 获取当前级别的本地仓位
 	meta = ps.metas[sig.Symbol][sig.Level]
-	// 如果没有l2，则把服务端的仓位保存为l2
+	// 获取l2仓位，如果没有l2，则把服务端的仓位保存为l2
 	meta2 := ps.metas[sig.Symbol][2]
 	if long != nil {
 		state = long
 		if meta2 == nil {
-			ps.SaveMeta(sig.Symbol, 2, string(model.Buy), state.AvgPrice, state.Amount)
+			ps.saveMeta(sig.Symbol, 2, string(model.Buy), state.AvgPrice, state.Amount)
 		}
 	}
 
@@ -219,7 +221,7 @@ func (ps *PositionService) State(sig signal.Signal) (state *model.PositionInfo, 
 		state = short
 		if state != nil {
 			if meta2 == nil {
-				ps.SaveMeta(sig.Symbol, 2, string(model.Buy), state.AvgPrice, state.Amount)
+				ps.saveMeta(sig.Symbol, 2, string(model.Buy), state.AvgPrice, state.Amount)
 			}
 		}
 
@@ -229,9 +231,7 @@ func (ps *PositionService) State(sig signal.Signal) (state *model.PositionInfo, 
 }
 
 // 记录开仓的元信息（在下单成功后调用）
-func (ps *PositionService) SaveMeta(symbol string, level int, side string, entry float64, size float64) {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
+func (ps *PositionService) saveMeta(symbol string, level int, side string, entry float64, size float64) {
 	m := make(map[int]*LocalPositionMeta)
 	m[level] = &LocalPositionMeta{
 		Symbol:     symbol,
@@ -248,11 +248,11 @@ func (ps *PositionService) GetPositionByLevel(symbol string, level int) *LocalPo
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	m, ok := ps.metas[symbol]
-	if !ok {
+	if ok == false {
 		return nil
 	}
 	meta, ok := m[level]
-	if ok != false {
+	if ok == false {
 		return nil
 	}
 	return meta

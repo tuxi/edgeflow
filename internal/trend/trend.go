@@ -72,29 +72,29 @@ func (tm *Manager) StopUpdater() {
 
 func (tm *Manager) update(symbol string) (*TrendState, error) {
 	// 拉取 300 根 K 线
-	m15Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_15min, 300, 0, model2.OrderTradeSpot)
+	m15Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_5min, 210, 0, model2.OrderTradeSpot)
 	if err != nil {
 		log.Printf("[TrendManager] fetch 15min kline error for %s: %v", symbol, err)
 		return nil, err
 	}
 	// 反转为正序
-	m15Klines = normalizeCandles(m15Klines, model.Kline_15min, false)
+	m15Klines = normalizeCandles(m15Klines, model.Kline_5min, false)
 
-	h1Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_1h, 300, 0, model2.OrderTradeSpot)
+	h1Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_30min, 210, 0, model2.OrderTradeSpot)
 	if err != nil {
 		log.Printf("[TrendManager] fetch 1hour kline error for %s: %v", symbol, err)
 		return nil, err
 	}
 	// 反转为正序
-	h1Klines = normalizeCandles(h1Klines, model.Kline_1h, false)
+	h1Klines = normalizeCandles(h1Klines, model.Kline_30min, false)
 
-	h4Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_4h, 300, 0, model2.OrderTradeSpot)
+	h4Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_1h, 210, 0, model2.OrderTradeSpot)
 	if err != nil {
 		log.Printf("[TrendManager] fetch 4hour kline error for %s: %v", symbol, err)
 		return nil, err
 	}
 	// 反转为正序
-	h4Klines = normalizeCandles(h4Klines, model.Kline_4h, false)
+	h4Klines = normalizeCandles(h4Klines, model.Kline_1h, true)
 
 	//tm.genCSV(symbol, tm.interval, latestFirst)
 
@@ -140,7 +140,7 @@ func (tm *Manager) update(symbol string) (*TrendState, error) {
 		Timestamp: last.Timestamp,
 	}
 
-	des := fmt.Sprintf("[Trend $:%v 4小时趋势:%v 15分钟强趋势:%v 当前价格:%f]", state.Symbol, dirStr, state.StrongM15, last.Close)
+	des := fmt.Sprintf("[Trend $:%v 1小时趋势:%v 5分钟强趋势:%v 当前价格:%f 时间:%v]", state.Symbol, dirStr, state.StrongM15, last.Close, time.Now())
 	state.Description = des
 
 	return &state, nil
@@ -248,11 +248,3 @@ func (tm *Manager) Get(symbol string) (*TrendState, bool) {
 	st, ok := tm.states[symbol]
 	return st, ok
 }
-
-//func (tm *Manager) IsTrendOk(symbol, side string) bool {
-//	state, ok := tm.Get(symbol)
-//	if ok && state.Direction.MatchesSide(model2.OrderSide(side)) {
-//		return true
-//	}
-//	return false
-//}

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"github.com/nntaoli-project/goex/v2/model"
 	"github.com/nntaoli-project/goex/v2/options"
+	"log"
+	"time"
 )
 
 type OkxExchange struct {
@@ -204,10 +206,22 @@ func (e *OkxExchange) AmendAlgoOrder(instId string, tradeType model2.OrderTradeT
 }
 
 func (e *OkxExchange) GetKlineRecords(symbol string, period model.KlinePeriod, size, since int, tradeType model2.OrderTradeTypeType) ([]model2.Kline, error) {
+
 	api, err := e.getApi(tradeType)
 	if err != nil {
 		return nil, err
 	}
+	var result []model2.Kline
+	// 最多重试 3 次
+	for i := 0; i < 3; i++ {
+		result, err = api.GetKlineRecords(symbol, period, size, since)
+		if err == nil {
+			return result, err // 成功直接返回
+		}
+		log.Printf("GetKlineRecords failed (try %d): %v", i+1, err)
+		time.Sleep(time.Second * time.Duration(i+1)) // 指数退避: 1s, 2s, 3s
+	}
 
-	return api.GetKlineRecords(symbol, period, size, since)
+	// 如果 3 次都失败，就返回最后的错误
+	return nil, fmt.Errorf("GetKlines failed after 3 retries: %w", err)
 }
