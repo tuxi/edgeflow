@@ -4,7 +4,6 @@ import (
 	"edgeflow/internal/config"
 	"log"
 	"sync"
-	"time"
 )
 
 // 决策时需要的上下文
@@ -13,6 +12,7 @@ type DecisionContext struct {
 	L2Entry       float64
 	UnrealizedR   float64
 	TrendOK       bool // 由策略提供的趋势/回撤过滤结果
+	StrongM15     bool // 是不是强15分钟趋势
 }
 
 // SignalManager 接口
@@ -69,10 +69,10 @@ func (m *defaultSignalManager) GetLastSignal(symbol string, level int) (Signal, 
 	return Signal{}, false
 }
 
-// 决定信号的执行决策
 func (m *defaultSignalManager) Decide(
 	sig Signal,
 	ctx DecisionContext,
+	// tm *TrendManager, // 注入趋势管理器
 ) Decision {
 	st := m.getState(sig.Symbol)
 
@@ -82,156 +82,204 @@ func (m *defaultSignalManager) Decide(
 	lastL2, hasL2 := st.LastByLevel[2]
 	lastL3, hasL3 := st.LastByLevel[3]
 	l2Side := st.L2Side
-	l2FlipAgo := time.Since(st.L2LastFlipAt)
 	m.mu.RUnlock()
-	// -------- Level 2：唯一有权开/平主仓 --------
+
+	// -------- Level 1：主仓开/平 --------
 	if sig.Level == 2 {
 		// 防抖：与上一个 L2 同向且过近 -> 忽略
 		if hasL2 && lastL2.Side == sig.Side && sig.Timestamp.Sub(lastL2.Timestamp) < m.cfg.MinSpacingL2 {
-			decision := Decision{Action: ActIgnore, Reason: "L2-debounce"}
-			decision.Log(sig, &m.cfg)
-			return decision
+			return Decision{Action: ActIgnore, Reason: "L2-debounce"}
 		}
 
 		if !ctx.HasL2Position {
 			// 可选：需要 L1 同向确认
 			if m.cfg.RequireL1ConfirmForL2Open {
 				if !hasL1 || lastL1.Side != sig.Side || sig.Timestamp.Sub(lastL1.Timestamp) > m.cfg.L1ConfirmMaxDelay {
-					decision := Decision{Action: ActIgnore, Reason: "L2-open-wait-L1-confirm"}
-					decision.Log(sig, &m.cfg)
-					return decision
+					return Decision{Action: ActIgnore, Reason: "L2-open-wait-L1-confirm"}
 				}
 			}
-			// 可选：趋势过滤
-			if m.cfg.RequireTrendFilter && !ctx.TrendOK {
-				decision := Decision{Action: ActIgnore, Reason: "L2-open-trend-filter-block"}
-				decision.Log(sig, &m.cfg)
-				return decision
+
+			// 趋势过滤：高周期方向必须一致
+			if m.cfg.RequireTrendFilter {
+				if !ctx.TrendOK {
+					return Decision{Action: ActIgnore, Reason: "L2-open-blocked-by-trend"}
+				}
+				// 短周期趋势弱 -> 拒绝开仓
+				if !ctx.StrongM15 {
+					return Decision{Action: ActIgnore, Reason: "L2-open-short-trend-weak"}
+				}
 			}
+
 			// 开仓
-			decision := Decision{Action: ActOpen, Reason: "L2-open"}
-			decision.Log(sig, &m.cfg)
-			return decision
+			return Decision{Action: ActOpen, Reason: "L2-open"}
 		}
 
 		// 已有 L2 仓位：若方向反转 -> 平仓
 		if hasL2 && lastL2.Side != sig.Side {
-			decision := Decision{Action: ActClose, Reason: "L2-flip-close"}
-			decision.Log(sig, &m.cfg)
-			return decision
+			return Decision{Action: ActClose, Reason: "L2-flip-close"}
 		}
-		// 同向就维持（是否二次加仓交给 L3）
-		decision := Decision{Action: ActIgnore, Reason: "L2-same-keep"}
-		decision.Log(sig, &m.cfg)
-		return decision
+
+		// 同向就维持（L3 管理加仓）
+		return Decision{Action: ActIgnore, Reason: "L2-same-keep"}
 	}
 
-	// -------- Level 3：只能在 L2 框架内加减/收紧 --------
+	// -------- Level 3：加减仓 --------
 	if sig.Level == 3 {
-		// 必须有 L2 仓位且经过冷静期
 		if !ctx.HasL2Position || !hasL2 {
-			decision := Decision{Action: ActIgnore, Reason: "L3-no-L2"}
-			decision.Log(sig, &m.cfg)
-			return decision
+			return Decision{Action: ActIgnore, Reason: "L3-no-L2"}
 		}
-		if l2FlipAgo < m.cfg.CooldownAfterL2Flip {
-			decision := Decision{Action: ActIgnore, Reason: "L3-cooldown-after-L2-flip"}
-			decision.Log(sig, &m.cfg)
-			return decision
-		}
+
 		// 防抖：同向 L3 过于密集
 		if hasL3 && lastL3.Side == sig.Side && sig.Timestamp.Sub(lastL3.Timestamp) < m.cfg.MinSpacingL3 {
-			decision := Decision{Action: ActIgnore, Reason: "L3-debounce"}
-			decision.Log(sig, &m.cfg)
-			return decision
+			return Decision{Action: ActIgnore, Reason: "L3-debounce"}
 		}
 
-		// 与 L2 同向：考虑趋势过滤（如“回撤到带内+趋势门槛”）
+		// 与 L2 同向
 		if sig.Side == l2Side {
-			if m.cfg.RequireTrendFilter && !ctx.TrendOK {
-				decision := Decision{Action: ActIgnore, Reason: "L3-add-trend-filter-block"}
-				decision.Log(sig, &m.cfg)
-				return decision
+			if m.cfg.RequireTrendFilter && !ctx.StrongM15 {
+				// 短周期趋势弱 -> 只收紧止损
+				return Decision{Action: ActTightenSL, Reason: "L3-add-trend-weak"}
 			}
-			// 可选：若 L1 近期反向，可只收紧止损而不加仓
+
+			// 若 L1 近期反向，可只收紧止损而不加仓
 			if hasL1 && lastL1.Side != sig.Side && sig.Timestamp.Sub(lastL1.Timestamp) <= 2*m.cfg.MinSpacingL3 {
-				decision := Decision{Action: ActTightenSL, Reason: "L3-add-blocked-by-recent-L1-opposite"}
-				decision.Log(sig, &m.cfg)
-				return decision
+				return Decision{Action: ActTightenSL, Reason: "L3-add-blocked-by-recent-L1-opposite"}
 			}
-			decision := Decision{Action: ActAdd, Reason: "L3-add-with-L2"}
-			decision.Log(sig, &m.cfg)
-			return decision
+
+			return Decision{Action: ActAdd, Reason: "L3-add-with-L2"}
 		}
 
-		// 与 L2 反向：不反手；按浮盈阈值做减仓或只收紧止损
+		// 与 L2 反向 -> 不反手；按浮盈阈值做减仓或只收紧止损
 		if ctx.UnrealizedR >= m.cfg.L3ReduceAtRMultiple {
-			decision := Decision{Action: ActReduce, Reason: "L3-counter-reduce", ReducePercent: m.cfg.L3ReducePercent}
-			decision.Log(sig, &m.cfg)
-			return decision
+			return Decision{Action: ActReduce, Reason: "L3-counter-reduce", ReducePercent: m.cfg.L3ReducePercent}
 		}
-		decision := Decision{Action: ActTightenSL, Reason: "L3-counter-tightenSL"}
-		decision.Log(sig, &m.cfg)
-		return decision
+
+		return Decision{Action: ActTightenSL, Reason: "L3-counter-tightenSL"}
 	}
 
-	// Level 1：只存储做参考，不直接驱动交易
+	// -------- Level 1：参考指标，不直接操作 --------
 	if sig.Level == 1 {
-		decision := Decision{Action: ActIgnore, Reason: "L1-reference-only"}
-		decision.Log(sig, &m.cfg)
-		return decision
+		return Decision{Action: ActIgnore, Reason: "L1-reference-only"}
 	}
-	decision := Decision{Action: ActIgnore, Reason: "unknown-level"}
-	decision.Log(sig, &m.cfg)
-	return decision
+
+	return Decision{Action: ActIgnore, Reason: "unknown-level"}
 }
 
-//func (sm *defaultSignalManager) Decide(sig Signal, ctx DecisionContext) Decision {
-//	// 🚨 先做趋势过滤
-//	if !ctx.TrendOK {
-//		log.Printf("signal %v ignored due to trend filter", sig.Level)
-//		return ActIgnore
-//	}
+// 决定信号的执行决策
+//func (m *defaultSignalManager) Decide(
+//	sig Signal,
+//	ctx DecisionContext,
+//) Decision {
+//	st := m.getState(sig.Symbol)
 //
-//	lastL1, hasL1 := sm.state[sig.Symbol].LastByLevel[1]
-//	lastL2, hasL2 := sm.state[sig.Symbol].LastByLevel[2]
-//	lastL3, hasL3 := sm.state[sig.Symbol].LastByLevel[3]
-//
-//	switch sig.Level {
-//	case 1:
-//		// L1 只存参考，不直接驱动
-//		sm.Save(sig)
-//		return ActIgnore
-//
-//	case 2:
-//		sm.Save(sig)
-//		if !ctx.HasL2Position { // 没有l2仓位
-//			if hasL1 && sig.Side == lastL1.Side { // 有l1信号，并且l1信号与l2方向一致，可以开仓
-//				return ActOpen // 第一次开仓
-//			}
+//	// 读取所需快照
+//	m.mu.RLock()
+//	lastL1, hasL1 := st.LastByLevel[1]
+//	lastL2, hasL2 := st.LastByLevel[2]
+//	lastL3, hasL3 := st.LastByLevel[3]
+//	l2Side := st.L2Side
+//	//l2FlipAgo := time.Since(st.L2LastFlipAt)
+//	m.mu.RUnlock()
+//	// -------- Level 2：唯一有权开/平主仓 --------
+//	if sig.Level == 2 {
+//		// 防抖：与上一个 L2 同向且过近 -> 忽略
+//		if hasL2 && lastL2.Side == sig.Side && sig.Timestamp.Sub(lastL2.Timestamp) < m.cfg.MinSpacingL2 {
+//			decision := Decision{Action: ActIgnore, Reason: "L2-debounce"}
+//			decision.Log(sig, &m.cfg)
+//			return decision
 //		}
-//		if hasL2 && sig.Side != lastL2.Side {
-//			return ActClose // 方向反了 → 平仓
-//		}
-//		return ActIgnore
 //
-//	case 3:
-//		sm.Save(sig)
-//		if ctx.HasL2Position {
-//			if sig.Side == lastL2.Side {
-//				return ActAdd // 与L2同向 → 加仓
-//			}
-//			if sig.Side != lastL2.Side {
-//				if ctx.UnrealizedR > 0.02 { // 盈利超过2% → 减仓锁盈
-//					return ActReduce
+//		if !ctx.HasL2Position {
+//			// 可选：需要 L1 同向确认
+//			if m.cfg.RequireL1ConfirmForL2Open {
+//				if !hasL1 || lastL1.Side != sig.Side || sig.Timestamp.Sub(lastL1.Timestamp) > m.cfg.L1ConfirmMaxDelay {
+//					decision := Decision{Action: ActIgnore, Reason: "L2-open-wait-L1-confirm"}
+//					decision.Log(sig, &m.cfg)
+//					return decision
 //				}
-//				return ActTightenSL // 否则收紧止损
 //			}
+//			// 可选：趋势过滤
+//			if m.cfg.RequireTrendFilter && !ctx.TrendOK {
+//				decision := Decision{Action: ActIgnore, Reason: "L2-open-trend-filter-block"}
+//				decision.Log(sig, &m.cfg)
+//				return decision
+//			}
+//			// 开仓
+//			decision := Decision{Action: ActOpen, Reason: "L2-open"}
+//			decision.Log(sig, &m.cfg)
+//			return decision
 //		}
-//		return ActIgnore
+//
+//		// 已有 L2 仓位：若方向反转 -> 平仓
+//		if hasL2 && lastL2.Side != sig.Side {
+//			decision := Decision{Action: ActClose, Reason: "L2-flip-close"}
+//			decision.Log(sig, &m.cfg)
+//			return decision
+//		}
+//		// 同向就维持（是否二次加仓交给 L3）
+//		decision := Decision{Action: ActIgnore, Reason: "L2-same-keep"}
+//		decision.Log(sig, &m.cfg)
+//		return decision
 //	}
 //
-//	return ActIgnore
+//	// -------- Level 3：只能在 L2 框架内加减/收紧 --------
+//	if sig.Level == 3 {
+//		// 必须有 L2 仓位
+//		if !ctx.HasL2Position || !hasL2 {
+//			decision := Decision{Action: ActIgnore, Reason: "L3-no-L2"}
+//			decision.Log(sig, &m.cfg)
+//			return decision
+//		} // 必须经过冷静期
+//		//if l2FlipAgo < m.cfg.CooldownAfterL2Flip {
+//		//	decision := Decision{Action: ActIgnore, Reason: "L3-cooldown-after-L2-flip"}
+//		//	decision.Log(sig, &m.cfg)
+//		//	return decision
+//		//}
+//		// 防抖：同向 L3 过于密集
+//		if hasL3 && lastL3.Side == sig.Side && sig.Timestamp.Sub(lastL3.Timestamp) < m.cfg.MinSpacingL3 {
+//			decision := Decision{Action: ActIgnore, Reason: "L3-debounce"}
+//			decision.Log(sig, &m.cfg)
+//			return decision
+//		}
+//
+//		// 与 L2 同向：考虑趋势过滤（如“回撤到带内+趋势门槛”）
+//		if sig.Side == l2Side {
+//			if m.cfg.RequireTrendFilter && !ctx.TrendOK {
+//				decision := Decision{Action: ActIgnore, Reason: "L3-add-trend-filter-block"}
+//				decision.Log(sig, &m.cfg)
+//				return decision
+//			}
+//			// 可选：若 L1 近期反向，可只收紧止损而不加仓
+//			if hasL1 && lastL1.Side != sig.Side && sig.Timestamp.Sub(lastL1.Timestamp) <= 2*m.cfg.MinSpacingL3 {
+//				decision := Decision{Action: ActTightenSL, Reason: "L3-add-blocked-by-recent-L1-opposite"}
+//				decision.Log(sig, &m.cfg)
+//				return decision
+//			}
+//			decision := Decision{Action: ActAdd, Reason: "L3-add-with-L2"}
+//			decision.Log(sig, &m.cfg)
+//			return decision
+//		}
+//
+//		// 与 L2 反向：不反手；按浮盈阈值做减仓或只收紧止损
+//		if ctx.UnrealizedR >= m.cfg.L3ReduceAtRMultiple {
+//			decision := Decision{Action: ActReduce, Reason: "L3-counter-reduce", ReducePercent: m.cfg.L3ReducePercent}
+//			decision.Log(sig, &m.cfg)
+//			return decision
+//		}
+//		decision := Decision{Action: ActTightenSL, Reason: "L3-counter-tightenSL"}
+//		decision.Log(sig, &m.cfg)
+//		return decision
+//	}
+//
+//	// Level 1：只存储做参考，不直接驱动交易
+//	if sig.Level == 1 {
+//		decision := Decision{Action: ActIgnore, Reason: "L1-reference-only"}
+//		decision.Log(sig, &m.cfg)
+//		return decision
+//	}
+//	decision := Decision{Action: ActIgnore, Reason: "unknown-level"}
+//	decision.Log(sig, &m.cfg)
+//	return decision
 //}
 
 // 核心逻辑：判断是否执行信号以及是否需要先平仓

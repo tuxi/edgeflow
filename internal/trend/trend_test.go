@@ -3,7 +3,6 @@ package trend
 import (
 	"edgeflow/internal/config"
 	"edgeflow/internal/exchange"
-	model2 "github.com/nntaoli-project/goex/v2/model"
 	"log"
 	"testing"
 	"time"
@@ -29,20 +28,24 @@ func TestTrend(t *testing.T) {
 
 	okx := exchange.NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
 
-	symbols := []string{"BTC/USDT", "ETH/USDT"}
-	tm := NewTrendManager(okx, symbols, model2.Kline_4h)
+	symbols := []string{"BTC/USDT", "ETH/USDT", "AAVE/USDT"}
+	tm := NewManager(okx, symbols)
 	tm.StartUpdater()
 
 	// 查询某币种趋势
 	for {
 		state, ok := tm.Get("BTC/USDT")
 		if ok {
-			log.Printf("BTC Trend: %v, MA200: %.2f EMA50: %.2f ADX14: %.2f lastPrice: %.2f", state.Direction, state.MA200, state.EMA50, state.ADX, state.LastPrice)
+			log.Println(state.Description)
 		}
 
 		state1, ok := tm.Get("ETH/USDT")
 		if ok {
-			log.Printf("ETH Trend: %v, MA200: %.2f EMA50: %.2f ADX14: %.2f lastPrice: %.2f", state1.Direction, state1.MA200, state1.EMA50, state1.ADX, state1.LastPrice)
+			log.Println(state1.Description)
+		}
+		state2, ok := tm.Get("AAVE/USDT")
+		if ok {
+			log.Println(state2.Description)
 		}
 
 		time.Sleep(time.Minute * 1)

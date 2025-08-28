@@ -2,7 +2,8 @@ package strategy
 
 import (
 	"context"
-	"edgeflow/internal/service"
+	"edgeflow/internal/model"
+	"edgeflow/internal/position"
 	"edgeflow/internal/signal"
 	"edgeflow/internal/trend"
 	"log"
@@ -11,13 +12,12 @@ import (
 // 趋势/波段策略：基于 1H 周期，减少频繁进出，拉大止盈止损，追求稳定的中等收益率
 type TVLevelStrategy struct {
 	signalManager signal.Manager
-	positionSvc   *service.PositionService
-	//trendFilter   signal.TrendFilter
-	trend *trend.TrendManager
+	positionSvc   *position.PositionService
+	trend         *trend.Manager
 }
 
 func NewTVLevelStrategy(sm signal.Manager,
-	ps *service.PositionService, trend *trend.TrendManager) *TVLevelStrategy {
+	ps *position.PositionService, trend *trend.Manager) *TVLevelStrategy {
 	return &TVLevelStrategy{
 		signalManager: sm,
 		positionSvc:   ps,
@@ -31,21 +31,36 @@ func (t *TVLevelStrategy) Name() string {
 
 func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error {
 
-	state, meta, err := t.positionSvc.State(sig)
+	state, _, err := t.positionSvc.State(sig)
 	if err != nil {
 		return err
 	}
-	trendOk := t.trend.IsTrendOk(sig.Symbol, sig.Side)
+	metaL2 := t.positionSvc.GetPositionByLevel(sig.Symbol, 2)
+	upnl := 0.0
+	if state != nil {
+		upnl = state.UnrealizedPnl(sig.Price)
+	}
+	entryPrice := 0.0
+	if metaL2 != nil {
+		entryPrice = metaL2.EntryPrice
+	}
+
+	// 获取当前币的趋势
+	st, ok := t.trend.Get(sig.Symbol)
+	sSide := model.OrderSide(sig.Side)
+	trendOK := ok && st.Direction.MatchesSide(sSide)
 
 	dCtx := signal.DecisionContext{
-		HasL2Position: meta != nil && meta.Level == 2,
-		L2Entry:       meta.EntryPrice,
-		UnrealizedR:   state.UnrealizedPnl(sig.Price), // 从交易所仓位算
-		TrendOK:       trendOk,
+		HasL2Position: metaL2 != nil,
+		L2Entry:       entryPrice,
+		UnrealizedR:   upnl, // 从交易所仓位算
+		TrendOK:       trendOK,
+		StrongM15:     ok && st.StrongM15 == true,
 	}
+
 	desc := t.signalManager.Decide(sig, dCtx)
 
-	err = t.positionSvc.ApplyAction(context.Background(), sig.Symbol, desc.Action, sig, state)
+	err = t.positionSvc.ApplyAction(ctx, sig.Symbol, desc.Action, sig, state)
 	if err != nil {
 		log.Printf("Execute error: %v", err)
 	}

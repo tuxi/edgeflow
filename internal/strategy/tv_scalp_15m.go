@@ -2,7 +2,7 @@ package strategy
 
 import (
 	"context"
-	"edgeflow/internal/service"
+	"edgeflow/internal/position"
 	"edgeflow/internal/signal"
 	"errors"
 	"fmt"
@@ -12,10 +12,10 @@ import (
 // 15分钟短线反转单
 type TVScalp15M struct {
 	signalManager signal.Manager
-	positionSvc   *service.PositionService
+	positionSvc   *position.PositionService
 }
 
-func NewTVScalp15M(sm signal.Manager, ps *service.PositionService) *TVScalp15M {
+func NewTVScalp15M(sm signal.Manager, ps *position.PositionService) *TVScalp15M {
 	return &TVScalp15M{signalManager: sm, positionSvc: ps}
 }
 

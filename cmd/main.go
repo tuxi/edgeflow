@@ -4,6 +4,7 @@ import (
 	"edgeflow/internal/config"
 	"edgeflow/internal/dao"
 	"edgeflow/internal/exchange"
+	"edgeflow/internal/position"
 	"edgeflow/internal/service"
 	"edgeflow/internal/signal"
 	"edgeflow/internal/strategy"
@@ -11,7 +12,6 @@ import (
 	"edgeflow/internal/webhook"
 	"edgeflow/pkg/db"
 	"github.com/nntaoli-project/goex/v2"
-	"github.com/nntaoli-project/goex/v2/model"
 	"log"
 	"net/http"
 	"os"
@@ -40,7 +40,7 @@ curl -X POST http://localhost:12180/webhook \
   -H "X-Signature: $SIGNATURE" \
   -d "$BODY"
 
-BODY='{"comment":"空头进场信号","symbol":"ETH/USDT","timestamp":"2025-08-26T23:50:04Z","side":"sell","type":"entry","level":2,"trade_type":"swap","tp_pct":0.35,"sl_pct":0.3,"strategy":"tv-level","price":4324.7,"order_type":"market"}'
+BODY='{"comment":"多头进场信号","symbol":"BTC/USDT","timestamp":"2025-08-28T14:53:04Z","side":"buy","type":"entry","level":2,"trade_type":"swap","tp_pct":0.35,"sl_pct":0.3,"strategy":"tv-level","price":4324.7,"order_type":"market"}'
 SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
 SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
 
@@ -95,11 +95,11 @@ func main() {
 	okxEx := exchange.NewOkxExchange(appCfg.Okx.ApiKey, appCfg.Okx.SecretKey, appCfg.Okx.Password)
 
 	// 仓位管理服务
-	ps := service.NewPositionService(okxEx, d)
+	ps := position.NewPositionService(okxEx, d)
 	// 信号管理
 	sm := signal.NewDefaultSignalManager(appCfg.Strategy)
 
-	tm := trend.NewTrendManager(okxEx, []string{"BTC/USDT", "ETH/USDT", "SOL/USDT"}, model.Kline_4h)
+	tm := trend.NewManager(okxEx, []string{"BTC/USDT", "ETH/USDT", "SOL/USDT"})
 	tm.StartUpdater()
 
 	// 策略分发器：根据级别分发不同的策略

@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"edgeflow/internal/config"
+	"edgeflow/internal/position"
 	"edgeflow/internal/service"
 	"edgeflow/internal/signal"
 	"edgeflow/internal/strategy"
@@ -21,14 +22,14 @@ type WebhookHandler struct {
 	dispatcher *strategy.StrategyDispatcher
 	rc         *service.RiskService
 	sm         signal.Manager
-	ps         *service.PositionService
+	ps         *position.PositionService
 }
 
 func NewWebhookHandler(
 	d *strategy.StrategyDispatcher,
 	rc *service.RiskService,
 	sm signal.Manager,
-	ps *service.PositionService) *WebhookHandler {
+	ps *position.PositionService) *WebhookHandler {
 	return &WebhookHandler{
 		dispatcher: d,
 		rc:         rc,
@@ -90,9 +91,6 @@ func (wh *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 缓存信号
-	wh.sm.Save(sig)
-
 	// 风控检查，是否允许下单
 	err = wh.rc.Allow(context.Background(), sig.Strategy, sig.Symbol, sig.Side, sig.TradeType)
 	if err != nil {
@@ -108,18 +106,18 @@ func (wh *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err = wh.handleSignal(sig)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("%s", err), http.StatusBadRequest)
-	} else {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "Signal received")
-	}
-}
-
-func (wh *WebhookHandler) handleSignal(sig signal.Signal) error {
 	// 分发策略
-	return wh.dispatcher.Dispatch(sig)
+	wh.dispatcher.Dispatch(sig, func(err error) {
+		// 在信号执行完毕后缓存信号
+		wh.sm.Save(sig)
+
+		if err != nil {
+			http.Error(w, fmt.Sprintf("%s", err), http.StatusBadRequest)
+		} else {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "Signal received")
+		}
+	})
 }
 
 func verifySignature(body []byte, signatureHeader string) bool {

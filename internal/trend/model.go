@@ -2,7 +2,6 @@ package trend
 
 import (
 	"edgeflow/internal/model"
-	"time"
 )
 
 // 趋势方向
@@ -10,7 +9,7 @@ type TrendDirection int
 
 const (
 	// 震荡趋势
-	TrendUnknown TrendDirection = iota
+	TrendNeutral TrendDirection = iota
 	// 上升趋势
 	TrendUp
 	// 下降趋势
@@ -30,13 +29,18 @@ func (d TrendDirection) MatchesSide(side model.OrderSide) bool {
 
 // 单币种趋势状态
 type TrendState struct {
-	Symbol     string
-	Direction  TrendDirection
-	MA200      float64
-	EMA50      float64
-	ADX        float64
-	LastPrice  float64
-	LastUpdate time.Time
+	Symbol    string
+	Direction TrendDirection
+	//Strength    int    // 信号强度：数值越大越强 趋势强度 3强趋势、2普通趋势、1弱趋势
+	Description string // 解释原因
+	//EMA200      float64
+	//EMA50       float64
+	//ADX         float64
+	//RSI14       float64
+	LastPrice float64
+	Score     float64 // -3 ~ +3，综合多周期得分
+	StrongM15 bool    // 是否满足强M15推进条件
+	Timestamp int64
 }
 
 type TrendCfg struct {

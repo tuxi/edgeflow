@@ -2,7 +2,7 @@ package strategy
 
 import (
 	"context"
-	"edgeflow/internal/service"
+	"edgeflow/internal/position"
 	"edgeflow/internal/signal"
 	"errors"
 	"fmt"
@@ -12,11 +12,11 @@ import (
 // 趋势/波段策略：基于 1H 周期，减少频繁进出，拉大止盈止损，追求稳定的中等收益率
 type TVTrendH struct {
 	signalManager signal.Manager
-	positionSvc   *service.PositionService
+	positionSvc   *position.PositionService
 }
 
 func NewTVTrendH(sm signal.Manager,
-	ps *service.PositionService) *TVTrendH {
+	ps *position.PositionService) *TVTrendH {
 	return &TVTrendH{
 		signalManager: sm,
 		positionSvc:   ps,

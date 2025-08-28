@@ -27,13 +27,16 @@ func (d *StrategyDispatcher) Register(name string, s StrategyExecutor) {
 	d.strategies[name] = s
 }
 
-func (d *StrategyDispatcher) Dispatch(sig signal.Signal) error {
+func (d *StrategyDispatcher) Dispatch(sig signal.Signal, callback func(err error)) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	// 找到对应级别的策略
 	s, ok := d.strategies[sig.Strategy]
 	if !ok {
-		return fmt.Errorf("no strategy for level %d", sig.Level)
+		if callback != nil {
+			callback(fmt.Errorf("no strategy for level %d", sig.Level))
+		}
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -45,8 +48,9 @@ func (d *StrategyDispatcher) Dispatch(sig signal.Signal) error {
 		if err != nil {
 			log.Printf("StrategyDispatcher Execute error: %v", err.Error())
 		}
-	}()
 
-	// 由于策略执行是异步，这里认为只要策略分发出去了，就响应成功了
-	return nil
+		if callback != nil {
+			callback(err)
+		}
+	}()
 }
