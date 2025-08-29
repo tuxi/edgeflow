@@ -112,9 +112,9 @@ func (m *defaultSignalManager) Decide(
 					return Decision{Action: ActIgnore, Reason: "L2-open-blocked-by-trend"}
 				}
 				// 短周期趋势弱 -> 拒绝开仓
-				if !ctx.StrongM15 {
-					return Decision{Action: ActIgnore, Reason: "L2-open-short-trend-weak"}
-				}
+				//if !ctx.StrongM15 {
+				//	return Decision{Action: ActIgnore, Reason: "L2-open-short-trend-weak"}
+				//}
 			}
 
 			// 开仓

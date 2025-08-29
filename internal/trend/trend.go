@@ -140,7 +140,7 @@ func (tm *Manager) update(symbol string) (*TrendState, error) {
 		Timestamp: last.Timestamp,
 	}
 
-	des := fmt.Sprintf("[Trend $:%v 1小时趋势:%v 5分钟强趋势:%v 当前价格:%f 时间:%v]", state.Symbol, dirStr, state.StrongM15, last.Close, time.Now())
+	des := fmt.Sprintf("[Trend $%v 1小时趋势:%v 5分钟强趋势:%v 当前价格:%f 时间:%v]", state.Symbol, dirStr, state.StrongM15, last.Close, time.Now())
 	state.Description = des
 
 	return &state, nil

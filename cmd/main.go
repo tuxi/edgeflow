@@ -40,7 +40,7 @@ curl -X POST http://localhost:12180/webhook \
   -H "X-Signature: $SIGNATURE" \
   -d "$BODY"
 
-BODY='{"comment":"多头进场信号","symbol":"BTC/USDT","timestamp":"2025-08-29T07:22:04Z","side":"buy","type":"entry","level":2,"trade_type":"swap","tp_pct":0.35,"sl_pct":0.3,"strategy":"tv-level","price":4324.7,"order_type":"market"}'
+BODY='{"comment":"多头进场信号","symbol":"ETH/USDT","timestamp":"2025-08-29T09:29:04Z","side":"sell","type":"entry","level":2,"trade_type":"swap","tp_pct":0.35,"sl_pct":0.3,"strategy":"tv-level","price":4324.7,"order_type":"market"}'
 SECRET="ab12cd34ef56abcdef1234567890abcdef1234567890abcdef1234567890"
 SIGNATURE=$(echo -n $BODY | openssl dgst -sha256 -hmac $SECRET | sed 's/^.* //')
 
