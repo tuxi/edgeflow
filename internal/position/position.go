@@ -153,31 +153,31 @@ func (t *PositionService) Open(ctx context.Context, req signal.Signal, tpPercent
 	}
 
 	// 检查是否有仓位
-	long, short, err := t.Exchange.GetPosition(req.Symbol, order.TradeType)
-	if err != nil {
-		return err
-	}
-	/*
-		收到 buy 信号时：
-		如果已有多仓，可以选择加仓；
-		如果有空仓，先平空再开多。
-		收到 sell 信号时：
-		同理处理
-	*/
-	var closePs *model.PositionInfo
-	if side == model.Buy && short != nil {
-		closePs = short // 记录需要平的空单
-	} else if side == model.Sell && long != nil {
-		closePs = long // 记录需要平的多单
-	}
-
-	if closePs != nil {
-		// 先平掉逆向的仓位
-		err = t.Exchange.ClosePosition(closePs.Symbol, string(closePs.Side), closePs.Amount, closePs.MgnMode, order.TradeType)
-		if err != nil {
-			return err
-		}
-	}
+	//long, short, err := t.Exchange.GetPosition(req.Symbol, order.TradeType)
+	//if err != nil {
+	//	return err
+	//}
+	///*
+	//	收到 buy 信号时：
+	//	如果已有多仓，可以选择加仓；
+	//	如果有空仓，先平空再开多。
+	//	收到 sell 信号时：
+	//	同理处理
+	//*/
+	//var closePs *model.PositionInfo
+	//if side == model.Buy && short != nil {
+	//	closePs = short // 记录需要平的空单
+	//} else if side == model.Sell && long != nil {
+	//	closePs = long // 记录需要平的多单
+	//}
+	//
+	//if closePs != nil {
+	//	// 先平掉逆向的仓位
+	//	err = t.Exchange.ClosePosition(closePs.Symbol, string(closePs.Side), closePs.Amount, closePs.MgnMode, order.TradeType)
+	//	if err != nil {
+	//		return err
+	//	}
+	//}
 
 	// 开仓or加仓
 	log.Printf("[%v] placing order: %+v", "PositionService", order)
@@ -219,12 +219,9 @@ func (ps *PositionService) State(sig signal.Signal) (state *model.PositionInfo, 
 
 	if short != nil {
 		state = short
-		if state != nil {
-			if meta2 == nil {
-				ps.saveMeta(sig.Symbol, 2, string(model.Buy), state.AvgPrice, state.Amount)
-			}
+		if meta2 == nil {
+			ps.saveMeta(sig.Symbol, 2, string(model.Sell), state.AvgPrice, state.Amount)
 		}
-
 	}
 
 	return

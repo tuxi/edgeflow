@@ -19,7 +19,7 @@ type DecisionContext struct {
 // 信号裁判 判断哪些信号有用，什么时候出手
 type Manager interface {
 	Save(sig Signal)
-	GetLastSignal(symbol string, level int) (Signal, bool)
+	GetLastSignal(symbol string, level int) *Signal
 	ShouldExecute(sig Signal) (execute bool, closeFirst bool)
 	Decide(sig Signal, ctx DecisionContext) Decision
 }
@@ -58,16 +58,21 @@ func (m *defaultSignalManager) Save(sig Signal) {
 }
 
 // 获取最近某等级信号
-func (m *defaultSignalManager) GetLastSignal(symbol string, level int) (Signal, bool) {
+func (m *defaultSignalManager) GetLastSignal(symbol string, level int) *Signal {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	sig := m.state[symbol].LastByLevel
+	state, ok := m.state[symbol]
+	if !ok {
+		return nil
+	}
+	sig := state.LastByLevel
 	if sig != nil {
 		s, ok := sig[level]
-		return s, ok
+		if ok {
+			return &s
+		}
 	}
-
-	return Signal{}, false
+	return nil
 }
 
 func (m *defaultSignalManager) Decide(
@@ -143,14 +148,16 @@ func (m *defaultSignalManager) Decide(
 
 		// 与 L2 同向
 		if sig.Side == l2Side {
-			if m.cfg.RequireTrendFilter && !ctx.StrongM15 {
-				// 短周期趋势弱 -> 只收紧止损
-				return Decision{Action: ActTightenSL, Reason: "L3-add-trend-weak"}
-			}
+			//if m.cfg.RequireTrendFilter && !ctx.StrongM15 {
+			//	// 短周期趋势弱 -> 只收紧止损
+			//	//return Decision{Action: ActTightenSL, Reason: "L3-add-trend-weak"}
+			//	return Decision{Action: ActReduce, Reason: "L3-add-trend-weak"}
+			//}
 
 			// 若 L1 近期反向，可只收紧止损而不加仓
 			if hasL1 && lastL1.Side != sig.Side && sig.Timestamp.Sub(lastL1.Timestamp) <= 2*m.cfg.MinSpacingL3 {
-				return Decision{Action: ActTightenSL, Reason: "L3-add-blocked-by-recent-L1-opposite"}
+				//return Decision{Action: ActTightenSL, Reason: "L3-add-blocked-by-recent-L1-opposite"}
+				return Decision{Action: ActReduce, Reason: "L3-add-blocked-by-recent-L1-opposite"}
 			}
 
 			return Decision{Action: ActAdd, Reason: "L3-add-with-L2"}
@@ -161,7 +168,8 @@ func (m *defaultSignalManager) Decide(
 			return Decision{Action: ActReduce, Reason: "L3-counter-reduce", ReducePercent: m.cfg.L3ReducePercent}
 		}
 
-		return Decision{Action: ActTightenSL, Reason: "L3-counter-tightenSL"}
+		//return Decision{Action: ActTightenSL, Reason: "L3-counter-tightenSL"}
+		return Decision{Action: ActReduce, Reason: "L3-add-blocked-by-recent-L1-opposite"}
 	}
 
 	// -------- Level 1：参考指标，不直接操作 --------

@@ -134,8 +134,8 @@ func (e *OkxSwap) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.
 		}
 
 		// 0.98 是最大仓位的容差，防止价差导致余额不足
-		_, qty := CalculateContractOrder(acc.Available*order.QuantityPct*0.98, leverage, order.Price, pair.ContractVal)
-		order.Quantity = qty
+		sz := CalcSzWithLeverage(acc.Available*order.QuantityPct*0.98, order.Price, pair.ContractVal, leverage)
+		order.Quantity = sz
 	}
 	order.MgnMode = mgnMode
 

@@ -196,13 +196,13 @@ func (e *OkxExchange) GetPosition(symbol string, tradeType model2.OrderTradeType
 
 }
 
-func (e *OkxExchange) AmendAlgoOrder(instId string, tradeType model2.OrderTradeTypeType, algoId string, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx float64) ([]byte, error) {
+func (e *OkxExchange) AmendAlgoOrder(instId string, tradeType model2.OrderTradeTypeType, algoId string, newSlTriggerPx, newTpTriggerPx float64) ([]byte, error) {
 	api, err := e.getApi(tradeType)
 	if err != nil {
 		return nil, err
 	}
 
-	return api.AmendAlgoOrder(instId, algoId, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx)
+	return api.AmendAlgoOrder(instId, algoId, newSlTriggerPx, -1, newTpTriggerPx, -1)
 }
 
 func (e *OkxExchange) GetKlineRecords(symbol string, period model.KlinePeriod, size, since int, tradeType model2.OrderTradeTypeType) ([]model2.Kline, error) {

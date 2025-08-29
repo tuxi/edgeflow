@@ -38,8 +38,8 @@ func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error 
 	}
 	metaL2 := t.positionSvc.GetPositionByLevel(sig.Symbol, 2)
 	if metaL2 != nil {
-		_, ok := t.signalManager.GetLastSignal(sig.Symbol, 2)
-		if !ok {
+		lastSig := t.signalManager.GetLastSignal(sig.Symbol, 2)
+		if lastSig == nil {
 			// 当服务端有l2仓位，本地没有信号缓存时，应该是服务重启了，数据丢失了，此时我们补全即可
 			t.signalManager.Save(signal.Signal{
 				Strategy:  sig.Strategy,

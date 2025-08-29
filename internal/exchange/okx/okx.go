@@ -9,6 +9,7 @@ import (
 	goexv2 "github.com/nntaoli-project/goex/v2"
 	"github.com/nntaoli-project/goex/v2/model"
 	"github.com/nntaoli-project/goex/v2/okx/common"
+	"github.com/nntaoli-project/goex/v2/okx/futures"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -96,7 +97,7 @@ func (e *Okx) GetOrderStatus(orderID string, symbol string) (*model2.OrderStatus
 // AmendAlgoOrder 修改算法单（止盈止损/计划委托）
 // 支持更新止盈止损触发价、委托价、数量等
 func (e *Okx) AmendAlgoOrder(instId, algoId string, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx float64) ([]byte, error) {
-	prv, ok := e.prv.(*common.Prv)
+	prv, ok := e.prv.(*futures.PrvApi)
 	if !ok {
 		return nil, errors.New("AmendAlgoOrder err")
 	}

@@ -239,6 +239,26 @@ func CalculateContractOrder(costUSDT float64, leverage int, marketPrice float64,
 	return
 }
 
+// CalcSzWithLeverage 计算 OKX 下单张数
+// availBalance = 可用余额（USDT）
+// useRatio     = 使用比例，比如 0.2 (20%)
+// leverage     = 杠杆倍数，比如 20
+// price        = 当前标的价格
+// instId       = 合约ID，例如 "BTC-USDT-SWAP"
+func CalcSzWithLeverage(margin, price float64, ctVal float64, leverage int) float64 {
+
+	// 1. 最大可开仓价值
+	maxNotional := margin * float64(leverage)
+
+	// 2. 换算成标的数量
+	baseQty := maxNotional / price
+
+	// 3. 换算成张数
+	sz := baseQty / ctVal
+
+	return sz
+}
+
 // 根据信号等级Level和信号分数Score计算本次下单占仓位的百分比
 func CalculatePositionSize(level int) float64 {
 	baseSize := 0.2 // 默认基础仓位（0.2 = 25%仓位）

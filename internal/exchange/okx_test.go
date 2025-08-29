@@ -236,7 +236,29 @@ func TestOkxExchange_GetPosition(t *testing.T) {
 
 }
 
+func TestOkxExchange_AmendAlgoOrder(t *testing.T) {
+	goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
+	// 加载配置文件
+	okxConf, err := loadOkxConf()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
+
+	_, err = okxEx.AmendAlgoOrder("ETH-USDT-SWAP", model.OrderTradeSwap, "2", 4445, 4530)
+	if err != nil {
+		fmt.Printf("AmendAlgoOrder：%v", err)
+	} else {
+		fmt.Println("AmendAlgoOrder 成功")
+	}
+}
+
 func TestNewOkxExchange_Cal(t *testing.T) {
-	sz, qty := okx.CalculateContractOrder(58.5, 10, 117924, 0.01)
-	fmt.Println(sz, qty)
+
+	// btc
+	//sz, qty := okx.CalculateContractOrder(289.5, 20, 111678, 0.01)
+	// eth
+	sz := okx.CalcSzWithLeverage(284.5, 4788, 0.1, 20)
+	fmt.Println(sz)
 }

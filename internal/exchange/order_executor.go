@@ -21,7 +21,7 @@ type Exchange interface {
 	// 平仓
 	ClosePosition(symbol string, side string, quantity float64, tdMode string, tradeType model.OrderTradeTypeType) error
 	Account(tradeType model.OrderTradeTypeType) (Account, error)
-	AmendAlgoOrder(instId string, tradeType model.OrderTradeTypeType, algoId string, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx float64) ([]byte, error)
+	AmendAlgoOrder(instId string, tradeType model.OrderTradeTypeType, algoId string, newSlTriggerPx, newTpTriggerPx float64) ([]byte, error)
 	/*
 		获取k线数据
 		比如取 BTC-USDT 永续合约 1小时K线
