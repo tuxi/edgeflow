@@ -29,13 +29,14 @@ func (d TrendDirection) MatchesSide(side model.OrderSide) bool {
 
 // 单币种趋势状态
 type TrendState struct {
-	Symbol      string
-	Direction   TrendDirection
-	Description string // 解释原因
-	LastPrice   float64
-	Score       float64 // -3 ~ +3，综合多周期得分
-	StrongM15   bool    // 是否满足强M15推进条件
-	Timestamp   int64
+	Symbol        string
+	Direction     TrendDirection
+	LastDirection TrendDirection // 上一根k线方向
+	Description   string         // 解释原因
+	LastPrice     float64
+	Score         float64 // -3 ~ +3，综合多周期得分
+	StrongM15     bool    // 15分钟强势（多或者空都认为是强势）
+	Timestamp     int64
 }
 
 type TrendCfg struct {

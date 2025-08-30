@@ -48,7 +48,7 @@ func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error 
 				Side:      metaL2.Side,
 				OrderType: sig.OrderType,
 				TradeType: sig.TradeType,
-				Comment:   "后补的信号",
+				Comment:   "后补信号",
 				Leverage:  20,
 				Level:     2,
 				Timestamp: time.Now(),
@@ -79,7 +79,7 @@ func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error 
 
 	desc := t.signalManager.Decide(sig, dCtx)
 
-	err = t.positionSvc.ApplyAction(ctx, sig.Symbol, desc.Action, sig, state)
+	err = t.positionSvc.ApplyAction(ctx, desc.Action, sig, state)
 	if err != nil {
 		log.Printf("Execute error: %v", err)
 	}

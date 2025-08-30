@@ -116,10 +116,10 @@ func (m *defaultSignalManager) Decide(
 				if !ctx.TrendOK {
 					return Decision{Action: ActIgnore, Reason: "L2-open-blocked-by-trend"}
 				}
-				// 短周期趋势弱 -> 拒绝开仓
-				//if !ctx.StrongM15 {
-				//	return Decision{Action: ActIgnore, Reason: "L2-open-short-trend-weak"}
-				//}
+				// 短周期趋势弱 -> 开仓
+				if !ctx.StrongM15 {
+					return Decision{Action: ActIgnore, Reason: "L2-open-short-trend-weak"}
+				}
 			}
 
 			// 开仓
@@ -131,8 +131,11 @@ func (m *defaultSignalManager) Decide(
 			return Decision{Action: ActClose, Reason: "L2-flip-close"}
 		}
 
-		// 同向就维持（L3 管理加仓）
-		return Decision{Action: ActIgnore, Reason: "L2-same-keep"}
+		//// 同向就维持（L3 管理加仓）
+		//return Decision{Action: ActIgnore, Reason: "L2-same-keep"}
+
+		// 同向，加点仓位, 不然l2的信号没什么可操作的
+		return Decision{Action: ActAdd, Reason: "L2-same-add"}
 	}
 
 	// -------- Level 3：加减仓 --------

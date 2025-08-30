@@ -275,7 +275,6 @@ func (ps *PositionService) reducePosition(ctx context.Context, sig signal.Signal
 
 func (ps *PositionService) ApplyAction(
 	ctx context.Context,
-	symbol string,
 	action signal.Action,
 	sig signal.Signal,
 	state *model.PositionInfo,
@@ -285,7 +284,7 @@ func (ps *PositionService) ApplyAction(
 		fmt.Printf("[PositionService.ApplyAction: 忽略信号]")
 		return nil
 	case signal.ActOpen:
-		return ps.Open(ctx, sig, 1, 1)
+		return ps.Open(ctx, sig, 2, 1.3)
 
 	case signal.ActAdd:
 		return ps.Open(ctx, sig, 1, 1)
@@ -294,7 +293,7 @@ func (ps *PositionService) ApplyAction(
 		return ps.reducePosition(ctx, sig, state)
 
 	case signal.ActTightenSL:
-		return ps.tightenStopLoss(ctx, symbol, sig, state)
+		return ps.tightenStopLoss(ctx, sig.Symbol, sig, state)
 
 	case signal.ActClose:
 		return ps.Close(ctx, state, sig.TradeType)
