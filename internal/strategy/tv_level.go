@@ -2,10 +2,10 @@ package strategy
 
 import (
 	"context"
-	"edgeflow/internal/model"
 	"edgeflow/internal/position"
 	"edgeflow/internal/signal"
 	"edgeflow/internal/trend"
+	"errors"
 	"log"
 	"time"
 )
@@ -66,14 +66,12 @@ func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error 
 
 	// 获取当前币的趋势
 	st, ok := t.trend.Get(sig.Symbol)
-	sSide := model.OrderSide(sig.Side)
-	trendOK := ok && st.Direction.MatchesSide(sSide)
 
 	dCtx := signal.DecisionContext{
 		HasL2Position: metaL2 != nil,
 		L2Entry:       entryPrice,
 		UnrealizedR:   upnl, // 从交易所仓位算
-		TrendOK:       trendOK,
+		TrendDir:      st.Direction,
 		StrongM15:     ok && st.StrongM15 == true,
 	}
 
@@ -83,6 +81,8 @@ func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error 
 	if err != nil {
 		log.Printf("Execute error: %v", err)
 	}
-
+	if desc.Action == signal.ActIgnore {
+		return errors.New(desc.Reason)
+	}
 	return err
 }

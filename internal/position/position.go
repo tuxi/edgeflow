@@ -101,7 +101,7 @@ func (ps *PositionService) Close(ctx context.Context, state *model.PositionInfo,
 }
 
 // 开仓或者加仓
-func (t *PositionService) Open(ctx context.Context, req signal.Signal, tpPercent, slPercent float64) error {
+func (t *PositionService) Open(ctx context.Context, req signal.Signal, tpPercent, slPercent, quantityPct float64) error {
 	tradeType := model.OrderTradeTypeType(req.TradeType)
 
 	var side model.OrderSide
@@ -130,7 +130,10 @@ func (t *PositionService) Open(ctx context.Context, req signal.Signal, tpPercent
 	slPrice := computeSL(req.Side, req.Price, slPercent)
 
 	// 根据信号级别和分数计算下单占仓位的比例
-	quantityPct := okx.CalculatePositionSize(req.Level)
+	if quantityPct == 0 {
+		quantityPct = okx.CalculatePositionSize(req.Level)
+	}
+
 	if quantityPct <= 0 {
 		return errors.New("当前仓位占比不足以开仓")
 	}
@@ -200,12 +203,19 @@ func (t *PositionService) Open(ctx context.Context, req signal.Signal, tpPercent
 // 获取仓位状态（交易所真实仓位+本地元信息）
 func (ps *PositionService) State(sig signal.Signal) (state *model.PositionInfo, meta *LocalPositionMeta, err error) {
 	long, short, err := ps.Exchange.GetPosition(sig.Symbol, model.OrderTradeTypeType(sig.TradeType))
-	if err != nil || (long == nil && short == nil) {
+	if err != nil {
 		return nil, nil, err
+	}
+
+	if long == nil && short == nil {
+		// 没有仓位清空metas
+		ps.ClearMeta(sig.Symbol)
+		return
 	}
 
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+
 	// 获取当前级别的本地仓位
 	meta = ps.metas[sig.Symbol][sig.Level]
 	// 获取l2仓位，如果没有l2，则把服务端的仓位保存为l2
@@ -284,10 +294,10 @@ func (ps *PositionService) ApplyAction(
 		fmt.Printf("[PositionService.ApplyAction: 忽略信号]")
 		return nil
 	case signal.ActOpen:
-		return ps.Open(ctx, sig, 2, 1.3)
+		return ps.Open(ctx, sig, 2, 1.3, 0.23)
 
 	case signal.ActAdd:
-		return ps.Open(ctx, sig, 1, 1)
+		return ps.Open(ctx, sig, 1, 1, 0.18)
 
 	case signal.ActReduce:
 		return ps.reducePosition(ctx, sig, state)
@@ -296,7 +306,12 @@ func (ps *PositionService) ApplyAction(
 		return ps.tightenStopLoss(ctx, sig.Symbol, sig, state)
 
 	case signal.ActClose:
-		return ps.Close(ctx, state, sig.TradeType)
+		err := ps.Close(ctx, state, sig.TradeType)
+		if err != nil {
+			// 清空本地仓位
+			ps.ClearMeta(sig.Symbol)
+		}
+		return err
 
 	default:
 		return fmt.Errorf("unknown action: %v", action)

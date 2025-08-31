@@ -317,6 +317,9 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline) (float64, string) {
 		reasons = append(reasons, rsiDivReason)
 	}
 
+	// 水下金叉
+	//cross := IsWaterMACDGoldenCross(closes)
+
 	if score > 3 {
 		score = 3
 	}
@@ -491,4 +494,26 @@ func CheckRsiDivergence(closes, rsiVals []float64, lookback int) (float64, strin
 	}
 
 	return 0, ""
+}
+
+// 水下金叉：MACD 线从下往上穿过信号线，但两者都在零轴下方
+// 水下金叉通常意味着：
+// 价格在空头区域经历一定下跌后的 短期反弹信号
+// 可能是 低位买入机会，但趋势整体仍偏空
+// 相比零轴以上的金叉，水下金叉 更弱，但风险/收益比相对高。
+func IsWaterMACDGoldenCross(closes []float64) bool {
+	if len(closes) < 26+9 { // EMA计算长度保证
+		return false
+	}
+
+	macdVals, signalVals, _ := talib.Macd(closes, 12, 26, 9)
+	last := len(macdVals) - 1
+
+	// 水下金叉条件
+	if macdVals[last-1] < signalVals[last-1] &&
+		macdVals[last] > signalVals[last] &&
+		macdVals[last] < 0 && signalVals[last] < 0 {
+		return true
+	}
+	return false
 }

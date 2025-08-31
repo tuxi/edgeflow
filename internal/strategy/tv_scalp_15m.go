@@ -54,6 +54,6 @@ func (t TVScalp15M) Execute(ctx context.Context, req signal.Signal) error {
 		slPercent = req.SlPct
 	}
 	// 执行开仓/加仓
-	return t.positionSvc.Open(ctx, req, tpPercent, slPercent)
+	return t.positionSvc.Open(ctx, req, tpPercent, slPercent, 0)
 
 }

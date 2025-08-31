@@ -108,12 +108,11 @@ func (wh *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 
 	// 分发策略
 	wh.dispatcher.Dispatch(sig, func(err error) {
-		// 在信号执行完毕后缓存信号
-		wh.sm.Save(sig)
-
 		if err != nil {
 			http.Error(w, fmt.Sprintf("%s", err), http.StatusBadRequest)
 		} else {
+			// 在信号执行完毕后缓存信号
+			wh.sm.Save(sig)
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, "Signal received")
 		}
