@@ -26,9 +26,9 @@ type TVLevelStrategy struct {
 // 你可以把这些参数抽成配置
 const (
 	checkInterval   = 1 * time.Minute  // 定时检查间隔1分钟
-	maxHoldDuration = 30 * time.Minute // 最长持仓时间
-	takeProfit      = 0.02             // 达到 +2% 强制止盈
-	stopLoss        = -0.01            // 达到 -1% 强制止损
+	maxHoldDuration = 50 * time.Minute // 最长持仓时间
+	takeProfit      = 0.03             // 达到 +3% 强制止盈
+	stopLoss        = -0.05            // 达到 -5% 强制止损
 )
 
 func NewTVLevelStrategy(sm signal.Manager,
@@ -165,13 +165,13 @@ func (tv *TVLevelStrategy) checkPnL() {
 			if holdDuration > maxHoldDuration {
 				// 仓位开超过半小时，检查盈亏比
 				if uplRatio >= takeProfit {
-					log.Printf("[%s] 仓位超过30分钟, 盈利%.2f%% 强制止盈\n", pos.Symbol, uplRatio*100)
+					log.Printf("[%s] 仓位超过50分钟, 盈利%.3f%% 强制止盈\n", pos.Symbol, uplRatio*100)
 					go tv.positionSvc.Close(context.Background(), pos, model.OrderTradeSwap) // 异步平仓，避免阻塞
 				} else if uplRatio <= stopLoss {
-					log.Printf("[%s] 仓位超过30分钟, 亏损%.2f%% 强制止损\n", pos.Symbol, uplRatio*100)
+					log.Printf("[%s] 仓位超过50分钟, 亏损%.5f%% 强制止损\n", pos.Symbol, uplRatio*100)
 					go tv.positionSvc.Close(context.Background(), pos, model.OrderTradeSwap) // 异步平仓，避免阻塞
 				} else {
-					log.Printf("[%s] 仓位超过30分钟, 但盈亏比 %.2f%% 未达条件, 暂不处理\n", pos.Symbol, uplRatio*100)
+					log.Printf("[%s] 仓位超过50分钟, 但盈亏比 %.2f%% 未达条件, 暂不处理\n", pos.Symbol, uplRatio*100)
 				}
 			}
 		}
