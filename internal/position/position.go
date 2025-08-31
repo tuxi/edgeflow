@@ -45,7 +45,7 @@ func NewPositionService(ex exchange.Exchange, d *dao.OrderDao) *PositionService 
 
 // 平仓
 func (ps *PositionService) CloseAll(ctx context.Context, req signal.Signal) error {
-	tradeType := model.OrderTradeTypeType(req.TradeType)
+	tradeType := model.OrderTradeType(req.TradeType)
 	if tradeType == "" {
 		return errors.New("未知的交易类型，不支持")
 	}
@@ -77,9 +77,9 @@ func (ps *PositionService) CloseAll(ctx context.Context, req signal.Signal) erro
 }
 
 // 平掉某个仓位
-func (ps *PositionService) Close(ctx context.Context, state *model.PositionInfo, tradeType string) error {
-	if tradeType == "" {
-		return errors.New("未知的交易类型，不支持")
+func (ps *PositionService) Close(ctx context.Context, state *model.PositionInfo, tradeType model.OrderTradeType) error {
+	if tradeType == "" || state == nil {
+		return errors.New("未知平仓类型，不支持")
 	}
 
 	// 平仓
@@ -91,7 +91,7 @@ func (ps *PositionService) Close(ctx context.Context, state *model.PositionInfo,
 	for _, item := range positions {
 		// 平仓
 		log.Printf("平仓: %s %s %f", item.Symbol, item.Side, item.Amount)
-		err := ps.Exchange.ClosePosition(item.Symbol, string(item.Side), item.Amount, item.MgnMode, model.OrderTradeTypeType(tradeType))
+		err := ps.Exchange.ClosePosition(item.Symbol, string(item.Side), item.Amount, item.MgnMode, tradeType)
 		if err != nil {
 			return err
 		}
@@ -102,7 +102,7 @@ func (ps *PositionService) Close(ctx context.Context, state *model.PositionInfo,
 
 // 开仓或者加仓
 func (t *PositionService) Open(ctx context.Context, req signal.Signal, tpPercent, slPercent, quantityPct float64) error {
-	tradeType := model.OrderTradeTypeType(req.TradeType)
+	tradeType := model.OrderTradeType(req.TradeType)
 
 	var side model.OrderSide
 	switch strings.ToLower(req.Side) {
@@ -202,7 +202,7 @@ func (t *PositionService) Open(ctx context.Context, req signal.Signal, tpPercent
 
 // 获取仓位状态（交易所真实仓位+本地元信息）
 func (ps *PositionService) State(sig signal.Signal) (state *model.PositionInfo, meta *LocalPositionMeta, err error) {
-	long, short, err := ps.Exchange.GetPosition(sig.Symbol, model.OrderTradeTypeType(sig.TradeType))
+	long, short, err := ps.Exchange.GetPosition(sig.Symbol, model.OrderTradeType(sig.TradeType))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -279,7 +279,7 @@ func (ps *PositionService) reducePosition(ctx context.Context, sig signal.Signal
 	}
 	reduceQty := state.Amount / 2 // 减半仓位
 	state.Amount = reduceQty
-	err := ps.Close(ctx, state, sig.TradeType)
+	err := ps.Close(ctx, state, model.OrderTradeType(sig.TradeType))
 	return err
 }
 
@@ -306,7 +306,7 @@ func (ps *PositionService) ApplyAction(
 		return ps.tightenStopLoss(ctx, sig.Symbol, sig, state)
 
 	case signal.ActClose:
-		err := ps.Close(ctx, state, sig.TradeType)
+		err := ps.Close(ctx, state, model.OrderTradeType(sig.TradeType))
 		if err != nil {
 			// 清空本地仓位
 			ps.ClearMeta(sig.Symbol)

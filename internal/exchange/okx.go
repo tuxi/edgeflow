@@ -13,7 +13,7 @@ import (
 )
 
 type OkxExchange struct {
-	apiCache map[model2.OrderTradeTypeType]okx.OkxService
+	apiCache map[model2.OrderTradeType]okx.OkxService
 	//spot    *okx.OkxSpot
 	//swap    *okx.OkxSwap
 	//futures *okx.OkxFutures
@@ -39,12 +39,12 @@ func NewOkxExchange(apiKey, apiSecret, passphrase string) *OkxExchange {
 	}
 
 	return &OkxExchange{
-		apiCache: make(map[model2.OrderTradeTypeType]okx.OkxService),
+		apiCache: make(map[model2.OrderTradeType]okx.OkxService),
 		apiConf:  opts,
 	}
 }
 
-func (e *OkxExchange) Account(tradeType model2.OrderTradeTypeType) (acc Account, err error) {
+func (e *OkxExchange) Account(tradeType model2.OrderTradeType) (acc Account, err error) {
 	api, err := e.getApi(tradeType)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func (e *OkxExchange) Account(tradeType model2.OrderTradeTypeType) (acc Account,
 }
 
 // 懒加载api服务
-func (e *OkxExchange) getApi(marketType model2.OrderTradeTypeType) (okx.OkxService, error) {
+func (e *OkxExchange) getApi(marketType model2.OrderTradeType) (okx.OkxService, error) {
 
 	if group, ok := e.apiCache[marketType]; ok {
 		return group, nil
@@ -106,7 +106,7 @@ func (e *OkxExchange) getApi(marketType model2.OrderTradeTypeType) (okx.OkxServi
 	}
 }
 
-func (e *OkxExchange) GetLastPrice(symbol string, tradingType model2.OrderTradeTypeType) (float64, error) {
+func (e *OkxExchange) GetLastPrice(symbol string, tradingType model2.OrderTradeType) (float64, error) {
 	api, err := e.getApi(tradingType)
 	if err != nil {
 		return 0, err
@@ -124,7 +124,7 @@ func (e *OkxExchange) PlaceOrder(ctx context.Context, order *model2.Order) (*mod
 	return api.PlaceOrder(ctx, order)
 }
 
-func (e *OkxExchange) CancelOrder(orderID, symbol string, tradingType model2.OrderTradeTypeType) error {
+func (e *OkxExchange) CancelOrder(orderID, symbol string, tradingType model2.OrderTradeType) error {
 	api, err := e.getApi(tradingType)
 	if err != nil {
 		return err
@@ -132,7 +132,7 @@ func (e *OkxExchange) CancelOrder(orderID, symbol string, tradingType model2.Ord
 	return api.CancelOrder(orderID, symbol)
 }
 
-func (e *OkxExchange) GetOrderStatus(orderID string, symbol string, tradingType model2.OrderTradeTypeType) (*model2.OrderStatus, error) {
+func (e *OkxExchange) GetOrderStatus(orderID string, symbol string, tradingType model2.OrderTradeType) (*model2.OrderStatus, error) {
 	api, err := e.getApi(tradingType)
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func (e *OkxExchange) GetOrderStatus(orderID string, symbol string, tradingType 
 // leverage   杠杆倍数，例如 20、50
 // marginMode 保证金模式：isolated（逐仓）或 cross（全仓）
 // posSide    持仓方向：long（做多）、short（做空）、""（全仓模式下可为空）
-func (e *OkxExchange) SetLeverage(symbol string, leverage int, marginMode, posSide string, tradeType model2.OrderTradeTypeType) error {
+func (e *OkxExchange) SetLeverage(symbol string, leverage int, marginMode, posSide string, tradeType model2.OrderTradeType) error {
 
 	// 请求设置杠杆
 	api, err := e.getApi(tradeType)
@@ -163,7 +163,7 @@ func (e *OkxExchange) SetLeverage(symbol string, leverage int, marginMode, posSi
 }
 
 // 平仓函数
-func (e *OkxExchange) ClosePosition(symbol string, side string, quantity float64, tdMode string, tradeType model2.OrderTradeTypeType) error {
+func (e *OkxExchange) ClosePosition(symbol string, side string, quantity float64, tdMode string, tradeType model2.OrderTradeType) error {
 	api, err := e.getApi(tradeType)
 	if err != nil {
 		return err
@@ -180,7 +180,7 @@ func (e *OkxExchange) ClosePosition(symbol string, side string, quantity float64
 }
 
 // 查询是否有持仓
-func (e *OkxExchange) GetPosition(symbol string, tradeType model2.OrderTradeTypeType) (long *model2.PositionInfo, short *model2.PositionInfo, err error) {
+func (e *OkxExchange) GetPosition(symbol string, tradeType model2.OrderTradeType) (long *model2.PositionInfo, short *model2.PositionInfo, err error) {
 	api, err := e.getApi(tradeType)
 	if err != nil {
 		return nil, nil, err
@@ -196,7 +196,7 @@ func (e *OkxExchange) GetPosition(symbol string, tradeType model2.OrderTradeType
 
 }
 
-func (e *OkxExchange) AmendAlgoOrder(instId string, tradeType model2.OrderTradeTypeType, algoId string, newSlTriggerPx, newTpTriggerPx float64) ([]byte, error) {
+func (e *OkxExchange) AmendAlgoOrder(instId string, tradeType model2.OrderTradeType, algoId string, newSlTriggerPx, newTpTriggerPx float64) ([]byte, error) {
 	api, err := e.getApi(tradeType)
 	if err != nil {
 		return nil, err
@@ -205,7 +205,7 @@ func (e *OkxExchange) AmendAlgoOrder(instId string, tradeType model2.OrderTradeT
 	return api.AmendAlgoOrder(instId, algoId, newSlTriggerPx, -1, newTpTriggerPx, -1)
 }
 
-func (e *OkxExchange) GetKlineRecords(symbol string, period model.KlinePeriod, size, since int, tradeType model2.OrderTradeTypeType) ([]model2.Kline, error) {
+func (e *OkxExchange) GetKlineRecords(symbol string, period model.KlinePeriod, size, since int, tradeType model2.OrderTradeType) ([]model2.Kline, error) {
 
 	api, err := e.getApi(tradeType)
 	if err != nil {

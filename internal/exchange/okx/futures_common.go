@@ -36,9 +36,18 @@ func (e *FuturesCommon) getPosition(symbol string) ([]model2.PositionInfo, error
 	type JSONData struct {
 		Code string `json:"code"`
 		Data []struct {
-			MgnMode string `json:"mgnMode"`
-			LiqPx   string `json:"liqPx"`
-			AlgoId  string `json:"algoId"`
+			MgnMode     string `json:"mgnMode"`
+			LiqPx       string `json:"liqPx"`
+			AlgoId      string `json:"algoId"`
+			UPL         string `json:"upl"` // 未实现盈亏
+			RealizedPnl string `json:"realizedPnl"`
+			PositionId  string `json:"posId"`       // 仓位id
+			MarkPx      string `json:"markPx"`      // 标记价格
+			Margin      string `json:"margin"`      // 当前占用保证金
+			Lever       string `json:"lever"`       // 杠杆倍数
+			NotionalUsd string `json:"notionalUsd"` // 仓位名义价值
+			CTime       string `json:"cTime"`       // 开仓时间
+			UplRatio    string `json:"uplRatio"`    // 未实现的收益率
 		} `json:"data"`
 		Msg string `json:"msg"`
 	}
@@ -71,6 +80,14 @@ func (e *FuturesCommon) getPosition(symbol string) ([]model2.PositionInfo, error
 		item.MgnMode = jsonData.Data[i].MgnMode
 		item.LiqPx = jsonData.Data[i].LiqPx
 		item.AlgoId = jsonData.Data[i].AlgoId
+		item.PositionId = jsonData.Data[i].PositionId
+		item.UnrealizedPnl = jsonData.Data[i].UPL
+		item.MarkPx = jsonData.Data[i].MarkPx
+		item.Margin = jsonData.Data[i].Margin
+		item.Lever = jsonData.Data[i].Lever
+		item.NotionalUsd = jsonData.Data[i].NotionalUsd
+		item.CTime = jsonData.Data[i].CTime
+		item.UplRatio = jsonData.Data[i].UplRatio
 		items = append(items, item)
 	}
 
@@ -146,7 +163,7 @@ func (e *FuturesCommon) ClosePosition(symbol string, side string, quantity float
 	}
 
 	opts := []model.OptionParameter{
-		model.OptionParameter{
+		{
 			Key:   "tdMode",
 			Value: tdMode,
 		},

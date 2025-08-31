@@ -277,7 +277,7 @@ func (m *defaultSignalManager) Decide(sig Signal, ctx DecisionContext) Decision 
 			decision.Log(sig, &m.cfg)
 			return decision
 		}
-		
+
 		decision := Decision{Action: ActIgnore, Reason: "L1-reference-only-or-neutral"}
 		decision.Log(sig, &m.cfg)
 		return decision
