@@ -64,17 +64,17 @@ func (e *FuturesCommon) getPosition(symbol string) ([]model2.PositionInfo, error
 			// 没有张数的仓位忽略
 			continue
 		}
-		var ps model2.OrderSide
+		var dir model2.OrderPosSide
 		switch re.PosSide {
 		case model.Futures_OpenBuy, model.Spot_Buy:
 			// 开多仓位
-			ps = model2.OrderPosSideLong
+			dir = model2.OrderPosSideLong
 		case model.Futures_OpenSell, model.Spot_Sell:
 			// 开空仓位
-			ps = model2.OrderPosSideShort
+			dir = model2.OrderPosSideShort
 		}
 		item.Symbol = pari.Symbol
-		item.Side = ps
+		item.Dir = dir
 		item.Amount = re.Qty
 		item.AvgPrice = re.AvgPx
 		item.MgnMode = jsonData.Data[i].MgnMode
@@ -140,7 +140,7 @@ func (e *FuturesCommon) SetLeverage(symbol string, leverage int, marginMode, pos
 }
 
 // 平仓函数
-func (e *FuturesCommon) ClosePosition(symbol string, side string, quantity float64, tdMode string) error {
+func (e *FuturesCommon) ClosePosition(symbol string, dir string, quantity float64, tdMode string) error {
 
 	// 当传入的是BTC/USDT时，通过CurrencyPair匹配正确的instId
 	pair, err := e.toCurrencyPair(symbol)
@@ -151,7 +151,7 @@ func (e *FuturesCommon) ClosePosition(symbol string, side string, quantity float
 
 	// 如果是多仓 -> 需要做空（卖）来平仓
 	// 如果是空仓 -> 需要做多（买）来平仓
-	switch side {
+	switch dir {
 	case "long":
 		// 持有多单，平掉多单
 		orderSide = model.Futures_CloseBuy
@@ -159,7 +159,7 @@ func (e *FuturesCommon) ClosePosition(symbol string, side string, quantity float
 		// 持有空单，平掉空单
 		orderSide = model.Futures_CloseSell
 	default:
-		return fmt.Errorf("unknown side: %s", side)
+		return fmt.Errorf("unknown side: %s", dir)
 	}
 
 	opts := []model.OptionParameter{
@@ -189,7 +189,7 @@ func (e *FuturesCommon) GetPosition(symbol string) (long *model2.PositionInfo, s
 
 	for _, pos := range positions {
 		// 一般方向字段为 "long" 或 "short"，也可能是 "net"（净持仓模式）
-		switch pos.Side {
+		switch pos.Dir {
 		case "long":
 			if pos.Amount > 0 {
 				long = &pos

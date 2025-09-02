@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 // 启动服务（监听webhook）
@@ -104,9 +105,13 @@ func main() {
 
 	// 策略分发器：根据级别分发不同的策略
 	dispatcher := strategy.NewStrategyDispatcher()
-	dispatcher.Register("tv-trend-1h", strategy.NewTVTrendH(sm, ps))
-	dispatcher.Register("tv-scalp-15m", strategy.NewTVScalp15M(sm, ps))
 	dispatcher.Register("tv-level", strategy.NewTVLevelStrategy(sm, ps, tm))
+
+	// 注册指标
+	sg := trend.NewSignalGenerator()
+
+	engine := strategy.NewStrategyEngine(tm, sg, ps)
+	engine.Run(time.Minute*10, []string{"BTC/USDT", "ETH/USDT", "SOL/USDT"})
 
 	hander := webhook.NewWebhookHandler(dispatcher, rc, sm, ps)
 

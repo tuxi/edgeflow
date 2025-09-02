@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type OkxService interface {
@@ -174,7 +175,7 @@ func (e *Okx) GetKlineRecords(symbol string, period model.KlinePeriod, size, sin
 	var items []model2.Kline
 	for _, item := range info {
 		items = append(items, model2.Kline{
-			Timestamp: item.Timestamp,
+			Timestamp: time.UnixMilli(item.Timestamp),
 			Open:      item.Open,
 			Close:     item.Close,
 			High:      item.High,

@@ -52,3 +52,27 @@ func TestTrend(t *testing.T) {
 	}
 
 }
+
+func TestIndicator(t *testing.T) {
+	// 模拟 TrendManager 拉到的K线
+	//klines := []model.Kline{
+	//	{time.Now().Add(-5 * time.Minute), 10800, 10820, 10790, 10810, 100},
+	//	{time.Now().Add(-4 * time.Minute), 10810, 10830, 10795, 10820, 120},
+	//	{time.Now().Add(-3 * time.Minute), 10820, 10840, 10800, 10835, 130},
+	//	{time.Now().Add(-2 * time.Minute), 10835, 10850, 10810, 10825, 150},
+	//	{time.Now().Add(-1 * time.Minute), 10825, 10860, 10800, 10855, 180},
+	//}
+	//
+	//// 注册指标
+	//sg := &SignalGenerator{
+	//	Indicators: []Indicator{
+	//		&EMAIndicator{FastPeriod: 5, SlowPeriod: 10},
+	//		&MACDIndicator{FastPeriod: 12, SlowPeriod: 26, SignalPeriod: 9},
+	//		&RSIIndicator{Period: 14, Buy: 30, Sell: 70},
+	//	},
+	//}
+
+	// 生成信号
+	//signal := sg.Generate(klines, "BTC-USDT")
+	//fmt.Printf("Final TradeSignal: %+v\n", signal)
+}

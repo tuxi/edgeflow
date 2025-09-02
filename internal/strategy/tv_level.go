@@ -25,8 +25,8 @@ type TVLevelStrategy struct {
 
 // 你可以把这些参数抽成配置
 const (
-	checkInterval   = 1 * time.Minute  // 定时检查间隔1分钟
-	maxHoldDuration = 50 * time.Minute // 最长持仓时间
+	checkInterval   = 2 * time.Minute  // 定时检查间隔1分钟
+	maxHoldDuration = 35 * time.Minute // 最长持仓时间
 	takeProfit      = 0.03             // 达到 +3% 强制止盈
 	stopLoss        = -0.05            // 达到 -5% 强制止损
 )
@@ -83,14 +83,14 @@ func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error 
 	}
 
 	// 获取当前币的趋势
-	st, ok := t.trend.Get(sig.Symbol)
+	st, _ := t.trend.Get(sig.Symbol)
 
 	dCtx := signal.DecisionContext{
 		HasL2Position: metaL2 != nil,
 		L2Entry:       entryPrice,
 		UnrealizedR:   upnl, // 从交易所仓位算
 		TrendDir:      st.Direction,
-		StrongM15:     ok && st.StrongM15 == true,
+		StrongM15:     false,
 	}
 
 	desc := t.signalManager.Decide(sig, dCtx)
@@ -165,14 +165,15 @@ func (tv *TVLevelStrategy) checkPnL() {
 			if holdDuration > maxHoldDuration {
 				// 仓位开超过半小时，检查盈亏比
 				if uplRatio >= takeProfit {
-					log.Printf("[%s] 仓位超过50分钟, 盈利%.3f%% 强制止盈\n", pos.Symbol, uplRatio*100)
+					log.Printf("[%s] 仓位超过35分钟, 盈利%.3f%% 强制止盈\n", pos.Symbol, uplRatio*100)
 					go tv.positionSvc.Close(context.Background(), pos, model.OrderTradeSwap) // 异步平仓，避免阻塞
-				} else if uplRatio <= stopLoss {
-					log.Printf("[%s] 仓位超过50分钟, 亏损%.5f%% 强制止损\n", pos.Symbol, uplRatio*100)
-					go tv.positionSvc.Close(context.Background(), pos, model.OrderTradeSwap) // 异步平仓，避免阻塞
-				} else {
-					log.Printf("[%s] 仓位超过50分钟, 但盈亏比 %.2f%% 未达条件, 暂不处理\n", pos.Symbol, uplRatio*100)
 				}
+				//else if uplRatio <= stopLoss {
+				//	log.Printf("[%s] 仓位超过50分钟, 亏损%.5f%% 强制止损\n", pos.Symbol, uplRatio*100)
+				//	go tv.positionSvc.Close(context.Background(), pos, model.OrderTradeSwap) // 异步平仓，避免阻塞
+				//} else {
+				//	log.Printf("[%s] 仓位超过50分钟, 但盈亏比 %.2f%% 未达条件, 暂不处理\n", pos.Symbol, uplRatio*100)
+				//}
 			}
 		}
 

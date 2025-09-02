@@ -140,7 +140,7 @@ func (e *OkxSwap) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.
 	order.MgnMode = mgnMode
 
 	// 创建订单
-	fmt.Printf("CreateOrder start: quantity:%v price:%v side:%v", order.Quantity, order.Price, order.Side)
+	fmt.Printf("CreateOrder start: quantity:%v price:%v side:%v\n", order.Quantity, order.Price, order.Side)
 	createdOrder, _, err := e.prv.CreateOrder(pair, order.Quantity, order.Price, side, orderType, opts...)
 	if err != nil {
 		fmt.Printf("CreateOrder error：%v", err.Error())

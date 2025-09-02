@@ -2,6 +2,7 @@ package trend
 
 import (
 	"edgeflow/internal/model"
+	"time"
 )
 
 // 趋势方向
@@ -35,8 +36,11 @@ type TrendState struct {
 	Description   string         // 解释原因
 	LastPrice     float64
 	Score         float64 // -3 ~ +3，综合多周期得分
-	StrongM15     bool    // 15分钟强势（多或者空都认为是强势）
-	Timestamp     int64
+	// 技术指标
+	ATR       float64
+	ADX       float64
+	RSI       float64
+	Timestamp time.Time
 }
 
 type TrendCfg struct {
@@ -53,4 +57,19 @@ func DefaultTrendCfg() TrendCfg {
 		SlopeWindow:  60,
 		ConfirmBars:  2,
 	}
+}
+
+type Signal struct {
+	Symbol    string    `json:"symbol"`    // BTC/USDT
+	Price     float64   `json:"price"`     // 当前价格
+	Side      string    `json:"side"`      // buy / sell
+	Timestamp time.Time `json:"timestamp"` // 触发时间
+	/*
+		越大代表信号越强（比如用RSI偏离度、ADX等算）
+		0.3 视为「弱信号」
+		0.5 视为「中等信号」
+		0.7 视为「强信号」
+	*/
+	Strength   float64
+	IsReversal bool // 是否底部/顶部反转信号
 }

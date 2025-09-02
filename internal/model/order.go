@@ -110,12 +110,12 @@ func (OrderRecord) TableName() string {
 }
 
 type PositionInfo struct {
-	Symbol        string    // 币
-	Side          OrderSide // 方向
-	Amount        float64   // 持有张数
-	AvgPrice      float64   // 开仓均价
-	MgnMode       string    // 保证金模式
-	LiqPx         string    // 强平价
+	Symbol        string       // 币
+	Dir           OrderPosSide // 方向
+	Amount        float64      // 持有张数
+	AvgPrice      float64      // 开仓均价
+	MgnMode       string       // 保证金模式
+	LiqPx         string       // 强平价
 	AlgoId        string
 	PositionId    string // 仓位id
 	UnrealizedPnl string // 未实现的盈亏
@@ -141,10 +141,18 @@ type PositionInfo struct {
 
 type Kline struct {
 	//Pair      CurrencyPair `json:"pair"`
-	Timestamp int64   `json:"t"`
-	Open      float64 `json:"o"`
-	Close     float64 `json:"s"`
-	High      float64 `json:"h"`
-	Low       float64 `json:"l"`
-	Vol       float64 `json:"v"`
+	Timestamp time.Time `json:"t"`
+	Open      float64   `json:"o"`
+	Close     float64   `json:"s"`
+	High      float64   `json:"h"`
+	Low       float64   `json:"l"`
+	Vol       float64   `json:"v"`
+}
+
+// 指标结果
+type IndicatorResult struct {
+	Name     string
+	Values   map[string]float64
+	Signal   string  // "buy", "sell", "hold"
+	Strength float64 // 指标强度0～1
 }

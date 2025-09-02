@@ -44,15 +44,14 @@ func NewPositionService(ex exchange.Exchange, d *dao.OrderDao) *PositionService 
 }
 
 // 平仓
-func (ps *PositionService) CloseAll(ctx context.Context, req signal.Signal) error {
-	tradeType := model.OrderTradeType(req.TradeType)
+func (ps *PositionService) CloseAll(ctx context.Context, symbol string, tradeType model.OrderTradeType) error {
 	if tradeType == "" {
 		return errors.New("未知的交易类型，不支持")
 	}
 
 	// 清仓
 	// 检查是否有仓位
-	long, short, err := ps.Exchange.GetPosition(req.Symbol, tradeType)
+	long, short, err := ps.Exchange.GetPosition(symbol, tradeType)
 	if err != nil {
 		return err
 	}
@@ -66,8 +65,8 @@ func (ps *PositionService) CloseAll(ctx context.Context, req signal.Signal) erro
 
 	for _, item := range positions {
 		// 平仓
-		log.Printf("平仓: %s %s %f", item.Symbol, item.Side, item.Amount)
-		err = ps.Exchange.ClosePosition(item.Symbol, string(item.Side), item.Amount, item.MgnMode, tradeType)
+		log.Printf("平仓: %s %s %f", item.Symbol, item.Dir, item.Amount)
+		err = ps.Exchange.ClosePosition(item.Symbol, string(item.Dir), item.Amount, item.MgnMode, tradeType)
 		if err != nil {
 			return err
 		}
@@ -90,8 +89,8 @@ func (ps *PositionService) Close(ctx context.Context, state *model.PositionInfo,
 
 	for _, item := range positions {
 		// 平仓
-		log.Printf("平仓: %s %s %f", item.Symbol, item.Side, item.Amount)
-		err := ps.Exchange.ClosePosition(item.Symbol, string(item.Side), item.Amount, item.MgnMode, tradeType)
+		log.Printf("平仓: %s %s %f", item.Symbol, item.Dir, item.Amount)
+		err := ps.Exchange.ClosePosition(item.Symbol, string(item.Dir), item.Amount, item.MgnMode, tradeType)
 		if err != nil {
 			return err
 		}
@@ -246,7 +245,7 @@ func (ps *PositionService) saveMeta(symbol string, level int, side string, entry
 		Side:       side,
 		EntryPrice: entry,
 		Size:       size,
-		OpenTime:   time.Time{},
+		OpenTime:   time.Now(),
 	}
 	ps.metas[symbol] = m
 }
@@ -291,7 +290,7 @@ func (ps *PositionService) ApplyAction(
 ) error {
 	switch action {
 	case signal.ActIgnore:
-		fmt.Printf("[PositionService.ApplyAction: 忽略信号]")
+		fmt.Printf("[PositionService.ApplyAction: 忽略信号]\n")
 		return nil
 	case signal.ActOpen:
 		return ps.Open(ctx, sig, 2, 1.3, 0.23)
@@ -332,7 +331,7 @@ func (r *PositionService) OrderCreateNew(ctx context.Context, order model.Order,
 	record := &model.OrderRecord{
 		OrderId:   orderId,
 		Symbol:    order.Symbol,
-		CreatedAt: time.Time{},
+		CreatedAt: time.Now(),
 		Side:      order.Side,
 		Price:     order.Price,
 		Quantity:  order.Quantity,

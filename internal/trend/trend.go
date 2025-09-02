@@ -5,7 +5,6 @@ import (
 	model2 "edgeflow/internal/model"
 	"fmt"
 	"log"
-	"math"
 	"strings"
 	"sync"
 	"time"
@@ -59,7 +58,7 @@ func (tm *Manager) StartUpdater() {
 
 func (tm *Manager) _update() {
 	for _, sym := range tm.symbols {
-		state, err := tm.update(sym)
+		state, err := tm.updateTrend(sym)
 		if err == nil {
 			tm.save(state)
 			fmt.Println(state.Description)
@@ -72,114 +71,96 @@ func (tm *Manager) StopUpdater() {
 	close(tm.stopCh)
 }
 
-func (tm *Manager) update(symbol string) (*TrendState, error) {
-	// 拉取 300 根 K 线
-	m15Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_15min, 210, 0, model2.OrderTradeSpot)
-	if err != nil {
-		log.Printf("[TrendManager] fetch 15min kline error for %s: %v", symbol, err)
-		return nil, err
-	}
-	// 反转为正序
-	m15Klines = normalizeCandles(m15Klines, model.Kline_15min, false)
-
-	h1Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_1h, 210, 0, model2.OrderTradeSpot)
+func (tm *Manager) updateTrend(symbol string) (*TrendState, error) {
+	// ------------------ 1. 拉取多周期K线 ------------------
+	h1Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_30min, 210, 0, model2.OrderTradeSpot, false)
 	if err != nil {
 		log.Printf("[TrendManager] fetch 1hour kline error for %s: %v", symbol, err)
 		return nil, err
 	}
-	// 反转为正序
-	h1Klines = normalizeCandles(h1Klines, model.Kline_1h, false)
 
-	h4Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_4h, 210, 0, model2.OrderTradeSpot)
+	h4Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_1h, 210, 0, model2.OrderTradeSpot, false)
 	if err != nil {
 		log.Printf("[TrendManager] fetch 4hour kline error for %s: %v", symbol, err)
 		return nil, err
 	}
-	// 反转为正序
-	h4Klines = normalizeCandles(h4Klines, model.Kline_4h, false)
 
 	//tm.genCSV(symbol, tm.interval, latestFirst)
 
-	// ---- 分别计算各周期分数----
-	s15, _ := tm.ScoreForPeriod(m15Klines)
+	// ------------------ 2. 计算各周期指标分数 ------------------
 	s1h, _ := tm.ScoreForPeriod(h1Klines)
 	s4h, _ := tm.ScoreForPeriod(h4Klines)
-	//fmt.Printf("%v 4小时：%v\n", symbol, s4hReasons)
-	//fmt.Printf("%v 1小时：%v\n", symbol, s1hReasons)
-	//fmt.Printf("%v 15分钟：%v\n", symbol, s15Reasons)
 
-	// 加权平均，权重：大周期更重要
-	total := tm.WeightedScore(s4h, s1h, s15)
+	// 加权平均，权重可调
+	total := tm.weightedScore(s4h, s1h)
 
-	closesM15 := make([]float64, len(m15Klines))
-	highsM15 := make([]float64, len(m15Klines))
-	lowsM15 := make([]float64, len(m15Klines))
+	//last := lines
 
-	for i, k := range m15Klines {
+	// ------------------ 4. 多周期趋势方向判定 ------------------
+	dir := TrendNeutral
+	if total >= 1.0 {
+		dir = TrendUp
+	} else if total <= -1.0 {
+		dir = TrendDown
+	}
+
+	dirStr := map[TrendDirection]string{
+		TrendUp:      "多头",
+		TrendDown:    "空头",
+		TrendNeutral: "横盘",
+	}[dir]
+
+	closes1H := make([]float64, len(h1Klines))
+	highs1H := make([]float64, len(h1Klines))
+	lows1H := make([]float64, len(h1Klines))
+
+	// ------------------ 5. 构建TrendState ------------------
+	atr1H := talib.Atr(highs1H, lows1H, closes1H, 14)
+	adx1H := talib.Adx(highs1H, lows1H, closes1H, 14)
+	rsi1H := talib.Rsi(closes1H, 14)
+
+	last := h1Klines[len(h1Klines)-1]
+
+	state := TrendState{
+		Symbol:    symbol,
+		Direction: dir,
+		ATR:       atr1H[len(atr1H)-1],
+		ADX:       atr1H[len(adx1H)-1],
+		RSI:       rsi1H[len(atr1H)-1],
+		LastPrice: last.Close,
+		Timestamp: last.Timestamp,
+	}
+
+	state.Description = fmt.Sprintf(
+		"[Trend %s %s] 4h/1h综合score: %.2f, 当前价格: %.2f 时间:%v",
+		symbol, dirStr, total, last.Close, last.Timestamp,
+	)
+
+	return &state, nil
+}
+
+func (tm *Manager) isStrong(klines []model2.Kline) bool {
+	closesM15 := make([]float64, len(klines))
+	highsM15 := make([]float64, len(klines))
+	lowsM15 := make([]float64, len(klines))
+
+	for i, k := range klines {
 		closesM15[i] = k.Close
 		highsM15[i] = k.High
 		lowsM15[i] = k.Low
 	}
 
-	last := m15Klines[len(m15Klines)-1]
-
 	// 判定 StrongM15
 	adxM15 := talib.Adx(highsM15, lowsM15, closesM15, 14)
 	adx := adxM15[len(adxM15)-1]
-	strongM15 := math.Abs(s15) >= 1.5 && adx > 20
-
-	// --- 趋势方向判定 ---
-	dir := TrendNeutral // 横盘
-	dirStr := "震荡"
-	if total >= 1.0 {
-		dir = TrendUp
-		dirStr = "多头"
-	} else if total <= -1.0 {
-		dir = TrendDown
-		dirStr = "空头"
-	} else if strongM15 {
-		// 如果短周期强势但总分未到大周期阈值，则按短周期方向开仓
-		if s15 > 0 {
-			dir = TrendUp
-			dirStr = "多头"
-		} else {
-			dir = TrendDown
-			dirStr = "空头"
-		}
-	} else {
-		dir = TrendNeutral
-	}
-
-	//threshold := 1.0
-	//dirStr := "震荡"
-
-	//if total >= threshold {
-	//	dir = TrendUp // 多头
-	//	dirStr = "多头"
-	//} else if total <= -threshold {
-	//	dir = TrendDown // 空头
-	//	dirStr = "空头"
-	//}
-
-	state := TrendState{
-		Symbol:    symbol,
-		Direction: dir,
-		StrongM15: strongM15,
-
-		LastPrice: last.Close,
-		Timestamp: last.Timestamp,
-	}
-
-	des := fmt.Sprintf("[Trend $%v 4小时趋势:%v 15分钟强趋势:%v score:%f, 当前价格:%f 时间:%v]", state.Symbol, dirStr, state.StrongM15, total, last.Close, time.Now())
-	state.Description = des
-
-	return &state, nil
+	return adx > 20
 }
 
 // 加权总分
-func (tm *Manager) WeightedScore(s4h, s1h, s15m float64) float64 {
+func (tm *Manager) weightedScore(s4h, s1h float64) float64 {
 	//return 0.5*s4h + 0.3*s1h + 0.2*s15m
-	return 0.4*s4h + 0.3*s1h + 0.3*s15m
+	//return 0.4*s4h + 0.3*s1h + 0.3*s15m
+	return s4h*0.7 + s1h*0.3
 }
 
 // 计算周期趋势分数 -3 ~ +3（方向化 + 抖动抑制）
