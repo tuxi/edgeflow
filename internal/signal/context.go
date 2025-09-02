@@ -77,8 +77,8 @@ func Decide(ctx Context) Action {
 		return ActIgnore
 	}
 
-	// 大趋势不一致，如果出现短线反转，加仓
-	if ctx.Sig.IsReversal {
+	// 大趋势不一致，如果出现短线反转，逆市加仓
+	if ctx.Sig.IsReversal || ctx.Sig.Strength > 0.6 {
 		return ActAdd //ActSmallAdd
 	}
 	// 横盘 / 明显逆势 → 平仓离场

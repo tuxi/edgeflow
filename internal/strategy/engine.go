@@ -102,7 +102,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 		OrderType: "market",
 		TradeType: "swap",
 		Comment:   "",
-		Leverage:  20,
+		Leverage:  30,
 		Level:     2,
 		Meta:      nil,
 		Timestamp: time.Now(),

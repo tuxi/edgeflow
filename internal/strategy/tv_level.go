@@ -27,7 +27,7 @@ type TVLevelStrategy struct {
 const (
 	checkInterval   = 2 * time.Minute  // 定时检查间隔1分钟
 	maxHoldDuration = 35 * time.Minute // 最长持仓时间
-	takeProfit      = 0.03             // 达到 +3% 强制止盈
+	takeProfit      = 0.08             // 达到 +3% 强制止盈
 	stopLoss        = -0.05            // 达到 -5% 强制止损
 )
 

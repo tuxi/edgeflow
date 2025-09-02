@@ -20,8 +20,7 @@ func NewSignalGenerator() *SignalGenerator {
 			&EMAIndicator{FastPeriod: 5, SlowPeriod: 10},
 			&MACDIndicator{FastPeriod: 12, SlowPeriod: 26, SignalPeriod: 9},
 			&RSIIndicator{Period: 14, Buy: 30, Sell: 70},
-			NewADXIndicator(),
-			NewReversalDetector()},
+			NewADXIndicator()},
 	}
 }
 

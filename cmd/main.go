@@ -111,7 +111,7 @@ func main() {
 	sg := trend.NewSignalGenerator()
 
 	engine := strategy.NewStrategyEngine(tm, sg, ps)
-	engine.Run(time.Minute*10, []string{"BTC/USDT", "ETH/USDT", "SOL/USDT"})
+	engine.Run(time.Minute*5, []string{"BTC/USDT", "ETH/USDT", "SOL/USDT"})
 
 	hander := webhook.NewWebhookHandler(dispatcher, rc, sm, ps)
 
