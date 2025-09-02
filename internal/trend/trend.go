@@ -132,8 +132,8 @@ func (tm *Manager) updateTrend(symbol string) (*TrendState, error) {
 	}
 
 	state.Description = fmt.Sprintf(
-		"[Trend %s %s] 41/30m综合score: %.2f, 当前价格: %.2f 时间:%v",
-		symbol, dirStr, total, last.Close, last.Timestamp,
+		"[Trend %s %s] 41/30m综合score: %.2f, 当前价格: %.2f 1小时k线时间:%v 当前时间:%v",
+		symbol, dirStr, total, last.Close, last.Timestamp, time.Now(),
 	)
 
 	return &state, nil

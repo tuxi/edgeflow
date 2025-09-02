@@ -12,6 +12,13 @@ import (
 // 单周期信号工厂：15分钟
 type SignalGenerator struct {
 	Indicators []Indicator
+	/*
+		保存反转信号的
+		第一根强反弹记为「潜在反转」；
+		如果下一根继续上涨，即使强度不够，也沿用反转方向 → 提前抓住行情；
+		如果 2–3 根内又回到下跌 → 那么作废。
+	*/
+	reversalSignal map[string]*Signal
 }
 
 func NewSignalGenerator() *SignalGenerator {
@@ -21,6 +28,7 @@ func NewSignalGenerator() *SignalGenerator {
 			&MACDIndicator{FastPeriod: 12, SlowPeriod: 26, SignalPeriod: 9},
 			&RSIIndicator{Period: 14, Buy: 30, Sell: 70},
 			NewADXIndicator()},
+		reversalSignal: make(map[string]*Signal),
 	}
 }
 
@@ -84,14 +92,41 @@ func (sg *SignalGenerator) Generate(klines []model.Kline, symbol string) (*Signa
 		Side:       finalAction,
 		Strength:   strength,
 		IsReversal: reversal,
-		Timestamp:  time.Now(),
+		Timestamp:  last.Timestamp,
 	}
 
 	// --- 如果出现反转信号 ---
-	if reversalStrength > 0.7 && reversalSignal != "hold" {
+	if reversalStrength >= 0.7 && reversalSignal != "hold" {
 		sig.IsReversal = true
 		sig.Side = reversalSignal
 		sig.Strength = reversalStrength
+		// 第一根 → 潜在反转，存到缓存
+		sg.reversalSignal[symbol] = sig
+		return sig, nil
+	}
+
+	// 检查缓存是否有「潜在反转」
+	if prev, ok := sg.reversalSignal[symbol]; ok {
+		// 如果当前 K 线方向继续跟随反转方向，即使强度不够，也确认反转
+		if prev.Side == "buy" && last.Close > prev.Price {
+			// 价格高于反转触发价 → 延续反转多头
+			sig.Side = "buy"
+			sig.IsReversal = true
+			sg.reversalSignal[symbol] = sig
+			return sig, nil
+		}
+		if prev.Side == "sell" && last.Close < prev.Price {
+			// 价格低于反转触发价 → 延续空头反转
+			sig.Side = "sell"
+			sig.IsReversal = true
+			sg.reversalSignal[symbol] = sig
+			return sig, nil
+		}
+
+		// 超过 3 根 K 线未确认 → 作废
+		if sig.Timestamp.Sub(prev.Timestamp) > 45*time.Minute {
+			delete(sg.reversalSignal, symbol)
+		}
 	}
 
 	return sig, nil

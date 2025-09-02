@@ -73,3 +73,10 @@ type Signal struct {
 	Strength   float64
 	IsReversal bool // 是否底部/顶部反转信号
 }
+
+func (sig *Signal) Equal(sig1 *Signal) bool {
+	if sig1 == nil {
+		return false
+	}
+	return sig.Symbol == sig1.Symbol && sig.Side == sig1.Side && sig.Timestamp.Equal(sig1.Timestamp) && sig.Strength == sig1.Strength
+}

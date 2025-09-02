@@ -290,13 +290,16 @@ func (ps *PositionService) ApplyAction(
 ) error {
 	switch action {
 	case signal.ActIgnore:
-		fmt.Printf("[PositionService.ApplyAction: 忽略信号]\n")
+		fmt.Printf("[PositionService.ApplyAction: 忽略信号%v]\n", sig.Symbol)
 		return nil
 	case signal.ActOpen:
-		return ps.Open(ctx, sig, 2, 1.3, 0.23)
-
+		return ps.Open(ctx, sig, 1.8, 1.3, 0.21)
+	case signal.ActOpenSmall:
+		return ps.Open(ctx, sig, 1.5, 1.1, 0.15)
 	case signal.ActAdd:
-		return ps.Open(ctx, sig, 1, 1, 0.18)
+		return ps.Open(ctx, sig, 1.1, 1, 0.18)
+	case signal.ActAddSmall:
+		return ps.Open(ctx, sig, 1, 0.9, 0.13)
 
 	case signal.ActReduce:
 		return ps.reducePosition(ctx, sig, state)
