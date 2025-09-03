@@ -48,6 +48,7 @@ func (e *FuturesCommon) getPosition(symbol string) ([]model2.PositionInfo, error
 			NotionalUsd string `json:"notionalUsd"` // 仓位名义价值
 			CTime       string `json:"cTime"`       // 开仓时间
 			UplRatio    string `json:"uplRatio"`    // 未实现的收益率
+			Last        string `json:"last"`        // 最后成交价
 		} `json:"data"`
 		Msg string `json:"msg"`
 	}
@@ -73,21 +74,23 @@ func (e *FuturesCommon) getPosition(symbol string) ([]model2.PositionInfo, error
 			// 开空仓位
 			dir = model2.OrderPosSideShort
 		}
+		data := jsonData.Data[i]
 		item.Symbol = pari.Symbol
 		item.Dir = dir
 		item.Amount = re.Qty
 		item.AvgPrice = re.AvgPx
-		item.MgnMode = jsonData.Data[i].MgnMode
-		item.LiqPx = jsonData.Data[i].LiqPx
-		item.AlgoId = jsonData.Data[i].AlgoId
-		item.PositionId = jsonData.Data[i].PositionId
+		item.MgnMode = data.MgnMode
+		item.LiqPx = data.LiqPx
+		item.AlgoId = data.AlgoId
+		item.PositionId = data.PositionId
 		item.UnrealizedPnl = jsonData.Data[i].UPL
-		item.MarkPx = jsonData.Data[i].MarkPx
-		item.Margin = jsonData.Data[i].Margin
-		item.Lever = jsonData.Data[i].Lever
-		item.NotionalUsd = jsonData.Data[i].NotionalUsd
-		item.CTime = jsonData.Data[i].CTime
-		item.UplRatio = jsonData.Data[i].UplRatio
+		item.MarkPx = data.MarkPx
+		item.Margin = data.Margin
+		item.Lever = data.Lever
+		item.NotionalUsd = data.NotionalUsd
+		item.CTime = data.CTime
+		item.UplRatio = data.UplRatio
+		item.Last, _ = strconv.ParseFloat(data.Last, 64)
 		items = append(items, item)
 	}
 

@@ -19,10 +19,10 @@ type StrategyEngine struct {
 	trendMgr  *trend.Manager
 	signalGen *trend.SignalGenerator
 	ps        *position.PositionService
-	symbols   []string
 	Signals   map[string]*trend.Signal // 交易完成的信号
 	mu        sync.Mutex
 	ticker    *time.Ticker
+	isTesting bool
 }
 
 // 你可以把这些参数抽成配置
@@ -33,12 +33,16 @@ const (
 	stopLoss        = -0.05            // 达到 -5% 强制止损
 )
 
-func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator, ps *position.PositionService) *StrategyEngine {
+func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator, ps *position.PositionService, isTesting bool) *StrategyEngine {
 	se := &StrategyEngine{
 		trendMgr:  trendMgr,
 		signalGen: signalGen,
 		ps:        ps,
 		Signals:   make(map[string]*trend.Signal),
+		isTesting: isTesting,
+	}
+	if se.isTesting {
+		return se
 	}
 	// 检查盈亏状态
 	se.startPnLWatcher()
@@ -49,7 +53,9 @@ func (se *StrategyEngine) Run(interval time.Duration, symbols []string) {
 
 	ticker := time.NewTicker(interval)
 	quit := make(chan struct{})
-	se.symbols = symbols
+	for _, symbol := range symbols {
+		se.Signals[symbol] = nil
+	}
 
 	go se._run()
 
@@ -68,8 +74,8 @@ func (se *StrategyEngine) Run(interval time.Duration, symbols []string) {
 }
 
 func (se *StrategyEngine) _run() {
-	for _, symbol := range se.symbols {
-		se.runForSymbol(symbol)
+	for k, _ := range se.Signals {
+		se.runForSymbol(k)
 		time.Sleep(time.Second * 2)
 	}
 }
@@ -90,13 +96,18 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 		return
 	}
 
-	lines15m, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSpot, true)
+	lines15m, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, false)
+	lines15mClosed, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, true)
 
 	if err != nil {
 		return
 	}
 	// 2. 获取15分钟周期信号
 	sig15, err := se.signalGen.Generate(lines15m, symbol)
+	sig151, err := se.signalGen.Generate(lines15mClosed, symbol)
+	if sig15.IsReversal && !sig151.IsReversal {
+		sig15.IsReversal = true
+	}
 	if err != nil {
 		return
 	}
@@ -117,6 +128,10 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	}
 	if ctx.Pos != nil && ctx.Pos.Lever != "" {
 		leverage, _ = strconv.ParseInt(ctx.Pos.Lever, 10, 64)
+	} else {
+		if symbol != "BTC/USDT" && symbol != "ETH/USDT" && symbol != "SOL/USDT" {
+			leverage = 20
+		}
 	}
 	sig := signal.Signal{
 		Strategy:  "auto-Strategy-Engine",
@@ -132,6 +147,9 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 		Timestamp: time.Now(),
 	}
 	se.Signals[symbol] = sig15
+	if se.isTesting {
+		return
+	}
 	// 5. 执行交易
 	err = se.ps.ApplyAction(context.Background(), action, sig, pos)
 	if err != nil {
@@ -158,7 +176,7 @@ func (tv *StrategyEngine) checkPnL() {
 
 	tv.mu.Lock()
 	defer tv.mu.Unlock()
-	for _, symbol := range tv.symbols {
+	for symbol, _ := range tv.Signals {
 		long, short, err := tv.ps.Exchange.GetPosition(symbol, model.OrderTradeSwap)
 		if err != nil {
 			continue

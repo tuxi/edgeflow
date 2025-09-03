@@ -73,13 +73,13 @@ func (tm *Manager) StopUpdater() {
 
 func (tm *Manager) updateTrend(symbol string) (*TrendState, error) {
 	// ------------------ 1. 拉取多周期K线 ------------------
-	h1Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_30min, 210, 0, model2.OrderTradeSpot, false)
+	h1Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_30min, 210, 0, model2.OrderTradeSwap, false)
 	if err != nil {
 		log.Printf("[TrendManager] fetch 1hour kline error for %s: %v", symbol, err)
 		return nil, err
 	}
 
-	h4Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_1h, 210, 0, model2.OrderTradeSpot, false)
+	h4Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_1h, 210, 0, model2.OrderTradeSwap, false)
 	if err != nil {
 		log.Printf("[TrendManager] fetch 4hour kline error for %s: %v", symbol, err)
 		return nil, err
@@ -114,6 +114,12 @@ func (tm *Manager) updateTrend(symbol string) (*TrendState, error) {
 	highs1H := make([]float64, len(h1Klines))
 	lows1H := make([]float64, len(h1Klines))
 
+	for i, line := range h1Klines {
+		closes1H[i] = line.Close
+		highs1H[i] = line.High
+		lows1H[i] = line.Low
+	}
+
 	// ------------------ 5. 构建TrendState ------------------
 	atr1H := talib.Atr(highs1H, lows1H, closes1H, 14)
 	adx1H := talib.Adx(highs1H, lows1H, closes1H, 14)
@@ -129,6 +135,7 @@ func (tm *Manager) updateTrend(symbol string) (*TrendState, error) {
 		RSI:       rsi1H[len(atr1H)-1],
 		LastPrice: last.Close,
 		Timestamp: last.Timestamp,
+		Score:     total,
 	}
 
 	state.Description = fmt.Sprintf(

@@ -100,7 +100,8 @@ func main() {
 	// 信号管理
 	sm := signal.NewDefaultSignalManager(appCfg.Strategy)
 
-	tm := trend.NewManager(okxEx, []string{"BTC/USDT", "ETH/USDT", "SOL/USDT"})
+	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "ONDO/USDT"}
+	tm := trend.NewManager(okxEx, symbols)
 	tm.StartUpdater()
 
 	// 策略分发器：根据级别分发不同的策略
@@ -110,8 +111,8 @@ func main() {
 	// 注册指标
 	sg := trend.NewSignalGenerator()
 
-	engine := strategy.NewStrategyEngine(tm, sg, ps)
-	engine.Run(time.Minute*10, []string{"BTC/USDT", "ETH/USDT", "SOL/USDT"})
+	engine := strategy.NewStrategyEngine(tm, sg, ps, false)
+	engine.Run(time.Minute*8, symbols)
 
 	hander := webhook.NewWebhookHandler(dispatcher, rc, sm, ps)
 

@@ -122,9 +122,10 @@ type PositionInfo struct {
 	UplRatio      string // 未实现的收益率
 	MarkPx        string // 当前价格
 	Margin        string
-	Lever         string // 杠杆倍数
-	NotionalUsd   string // 仓位名义价值
-	CTime         string // 开仓时间戳
+	Lever         string  // 杠杆倍数
+	NotionalUsd   string  // 仓位名义价值
+	Last          float64 // 最后成交价
+	CTime         string  // 开仓时间戳
 }
 
 // UnrealizedPnl 计算未实现盈亏
