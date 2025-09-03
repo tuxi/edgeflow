@@ -99,18 +99,19 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 		return
 	}
 
-	lines15m, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, true)
-	//lines15mClosed, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, true)
+	lines15m, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, false)
+	lines15mClosed, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, true)
 
 	if err != nil {
 		return
 	}
 	// 2. 获取15分钟周期信号
 	sig15, err := se.signalGen.Generate(lines15m, symbol)
-	//sig151, err := se.signalGen.Generate(lines15mClosed, symbol)
-	//if sig15.IsReversal && !sig151.IsReversal {
-	//	sig15.IsReversal = true
-	//}
+	sig151, err := se.signalGen.Generate(lines15mClosed, symbol)
+	if sig15.IsReversal && !sig151.IsReversal {
+		sig15.IsReversal = true
+		sig15.Strength = sig151.Strength
+	}
 	if err != nil {
 		return
 	}

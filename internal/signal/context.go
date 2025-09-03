@@ -87,7 +87,7 @@ func Decide(ctx *Context) Action {
 			// 本次信号的强度大于上一次的信号时候加仓，并且判断不是同一个信息
 			if ctx.isValidLastSignal() {
 				if ctx.Sig.Strength > lastSig.Strength { // 信号强度越来越高加仓
-					if ctx.Sig.Strength > 0.6 {
+					if ctx.Sig.Strength > 0.65 {
 						return ActReduce // 信号越强代表快要到达顶部，减仓
 					}
 					if ctx.Sig.Strength > 0.3 {
@@ -140,8 +140,8 @@ func Decide(ctx *Context) Action {
 		rsi := ctx.Sig.Values["RSI"]
 
 		// 设置缓冲比例，例如 1% 区间
-		//buffer := 0.01
-		buffer := 0.0
+		buffer := 0.01
+		//buffer := 0.0
 		// ---- 无仓位 → 建仓 ----
 		if ctx.Pos == nil {
 			if price <= lower*(1+buffer) && rsi < 40 {
@@ -186,7 +186,7 @@ func Decide(ctx *Context) Action {
 		return ActAddSmall
 	}
 
-	return ActClose
+	return ActClose // 逆势平仓
 }
 
 // ===== 入场逻辑 =====
