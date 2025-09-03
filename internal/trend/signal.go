@@ -40,7 +40,7 @@ func (sg *SignalGenerator) Generate(klines []model.Kline, symbol string) (*Signa
 	score := 0.0
 	reversal := false
 	last := klines[len(klines)-1]
-
+	values := make(map[string]float64)
 	var rsiStrength, adxStrength float64
 	for _, ind := range sg.Indicators {
 		res := ind.Calculate(klines)
@@ -52,7 +52,9 @@ func (sg *SignalGenerator) Generate(klines []model.Kline, symbol string) (*Signa
 		case "sell":
 			score--
 		}
-
+		for k, v := range res.Values {
+			values[k] = v
+		}
 		// 把指标值拿出来算强度/反转
 		switch res.Name {
 		case "RSI":
@@ -81,6 +83,9 @@ func (sg *SignalGenerator) Generate(klines []model.Kline, symbol string) (*Signa
 	reversalStrength := rdRes.Strength
 	// 反转信号的方向
 	reversalSignal := rdRes.Signal
+	for k, v := range rdRes.Values {
+		values[k] = v
+	}
 
 	// 综合强度
 	rawStrength := math.Abs(score) / float64(len(sg.Indicators))
@@ -93,6 +98,7 @@ func (sg *SignalGenerator) Generate(klines []model.Kline, symbol string) (*Signa
 		Strength:   strength,
 		IsReversal: reversal,
 		Timestamp:  last.Timestamp,
+		Values:     values,
 	}
 
 	// --- 如果出现反转信号 ---

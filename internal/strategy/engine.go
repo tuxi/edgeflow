@@ -82,10 +82,13 @@ func (se *StrategyEngine) _run() {
 
 func (se *StrategyEngine) runForSymbol(symbol string) {
 	// 0.获取交易锁仓位
-	long, short, _ := se.ps.Exchange.GetPosition(symbol, model.OrderTradeSwap)
-
+	long, short, err := se.ps.Exchange.GetPosition(symbol, model.OrderTradeSwap)
+	if err != nil {
+		fmt.Printf("[StrategyEngine.run GetPosition error: %v]\n", err.Error())
+		return
+	}
 	pos := long
-	if short != nil {
+	if pos == nil {
 		pos = short
 	}
 
@@ -121,7 +124,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	}
 
 	// 4. 决策
-	action := signal.Decide(ctx)
+	action := signal.Decide(&ctx)
 	var leverage int64 = 30
 	if action == signal.ActAddSmall || action == signal.ActOpenSmall {
 		leverage = 20
@@ -153,7 +156,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	// 5. 执行交易
 	err = se.ps.ApplyAction(context.Background(), action, sig, pos)
 	if err != nil {
-		fmt.Printf("[StrategyEngine.run error: %v]", err.Error())
+		fmt.Printf("[StrategyEngine.run error: %v]\n", err.Error())
 	}
 
 }

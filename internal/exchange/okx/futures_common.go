@@ -31,7 +31,7 @@ func (e *FuturesCommon) getPosition(symbol string) ([]model2.PositionInfo, error
 
 	res, data, err := swap.GetPositions(pari)
 	if err != nil {
-		return nil, err
+		return nil, errors.New(fmt.Sprintf("GetPosition error: %v", string(data)))
 	}
 	type JSONData struct {
 		Code string `json:"code"`

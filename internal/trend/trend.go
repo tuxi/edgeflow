@@ -73,13 +73,19 @@ func (tm *Manager) StopUpdater() {
 
 func (tm *Manager) updateTrend(symbol string) (*TrendState, error) {
 	// ------------------ 1. 拉取多周期K线 ------------------
-	h1Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_30min, 210, 0, model2.OrderTradeSwap, false)
+	m30Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_30min, 210, 0, model2.OrderTradeSwap, false)
+	if err != nil {
+		log.Printf("[TrendManager] fetch 30m kline error for %s: %v", symbol, err)
+		return nil, err
+	}
+
+	h1Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_1h, 210, 0, model2.OrderTradeSwap, false)
 	if err != nil {
 		log.Printf("[TrendManager] fetch 1hour kline error for %s: %v", symbol, err)
 		return nil, err
 	}
 
-	h4Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_1h, 210, 0, model2.OrderTradeSwap, false)
+	h4Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_4h, 210, 0, model2.OrderTradeSwap, false)
 	if err != nil {
 		log.Printf("[TrendManager] fetch 4hour kline error for %s: %v", symbol, err)
 		return nil, err
@@ -88,11 +94,12 @@ func (tm *Manager) updateTrend(symbol string) (*TrendState, error) {
 	//tm.genCSV(symbol, tm.interval, latestFirst)
 
 	// ------------------ 2. 计算各周期指标分数 ------------------
+	s30m, _ := tm.ScoreForPeriod(m30Klines)
 	s1h, _ := tm.ScoreForPeriod(h1Klines)
 	s4h, _ := tm.ScoreForPeriod(h4Klines)
 
 	// 加权平均，权重可调
-	total := tm.weightedScore(s4h, s1h)
+	total := tm.weightedScore(s4h, s1h, s30m)
 
 	//last := lines
 
@@ -114,7 +121,7 @@ func (tm *Manager) updateTrend(symbol string) (*TrendState, error) {
 	highs1H := make([]float64, len(h1Klines))
 	lows1H := make([]float64, len(h1Klines))
 
-	for i, line := range h1Klines {
+	for i, line := range m30Klines {
 		closes1H[i] = line.Close
 		highs1H[i] = line.High
 		lows1H[i] = line.Low
@@ -125,7 +132,7 @@ func (tm *Manager) updateTrend(symbol string) (*TrendState, error) {
 	adx1H := talib.Adx(highs1H, lows1H, closes1H, 14)
 	rsi1H := talib.Rsi(closes1H, 14)
 
-	last := h1Klines[len(h1Klines)-1]
+	last := h1Klines[len(m30Klines)-1]
 
 	state := TrendState{
 		Symbol:    symbol,
@@ -164,10 +171,10 @@ func (tm *Manager) isStrong(klines []model2.Kline) bool {
 }
 
 // 加权总分
-func (tm *Manager) weightedScore(s4h, s1h float64) float64 {
-	//return 0.5*s4h + 0.3*s1h + 0.2*s15m
-	//return 0.4*s4h + 0.3*s1h + 0.3*s15m
-	return s4h*0.7 + s1h*0.3
+func (tm *Manager) weightedScore(s4h, s1h, s30m float64) float64 {
+	//return 0.5*s4h + 0.3*s1h + 0.2*s30m
+	return 0.4*s4h + 0.3*s1h + 0.3*s30m
+	//return s4h*0.7 + s1h*0.3
 }
 
 // 计算周期趋势分数 -3 ~ +3（方向化 + 抖动抑制）

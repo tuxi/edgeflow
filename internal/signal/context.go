@@ -3,6 +3,7 @@ package signal
 import (
 	"edgeflow/internal/model"
 	"edgeflow/internal/trend"
+	"math"
 	"strconv"
 	"time"
 )
@@ -45,14 +46,28 @@ func (ctx Context) isValidLastSignal() bool {
 }
 
 // ==== 决策器 ====
-func Decide(ctx Context) Action {
+func Decide(ctx *Context) Action {
 	// 这里把同一个信号屏蔽掉
 	if ctx.Sig.Equal(ctx.LastSig) {
 		return ActIgnore
 	}
+
 	// 第一种：无仓位 → 入场
 	if ctx.Pos == nil {
-		return decideEntry(ctx)
+		isTrending := ctx.Trend.Direction.MatchesSide(model.OrderSide(ctx.Sig.Side))
+		// 顺势开多:当大趋势方向相同，并且短期趋势强 顺势开多
+		if isTrending {
+			// 强信号 → 正常开仓
+			if ctx.Sig.Strength > 0.5 {
+				return ActOpen
+			}
+
+		} else {
+			if ctx.Sig.IsReversal {
+				return ActOpen // 反转信号通常是超卖，开大一点仓位
+			}
+		}
+		return ActIgnore
 	}
 
 	var lastSig = ctx.LastSig
@@ -128,10 +143,48 @@ func Decide(ctx Context) Action {
 	if ctx.Sig.IsReversal {
 		return ActAddSmall
 	}
-	// 横盘 / 明显逆势 → 平仓离场
+	// 横盘 做高抛低吸
 	if ctx.Trend.Direction == trend.TrendNeutral {
+		price := ctx.Sig.Price
+		upper := ctx.Sig.Values["Upper"]
+		lower := ctx.Sig.Values["Lower"]
+		rsi := ctx.Sig.Values["RSI"]
+
+		// 设置缓冲比例，例如 1% 区间
+		buffer := 0.01
+
+		// ---- 无仓位 → 建仓 ----
+		if ctx.Pos == nil {
+			if price <= lower*(1+buffer) && rsi < 40 {
+				ctx.Sig.Side = "buy"
+				return ActOpen // 低位做多
+			}
+			if price >= upper*(1-buffer) && rsi > 60 {
+				ctx.Sig.Side = "sell"
+				return ActOpen // 高位做空
+			}
+		} else {
+			// ---- 已有仓位 → 管理仓位 ----
+			switch ctx.Pos.Dir {
+			case model.OrderPosSideLong:
+				if price >= upper*(1-buffer) && rsi > 60 {
+					return ActReduce // 高位卖出
+				}
+				if price <= lower*(1+buffer) && rsi < 40 {
+					return ActAdd // 低位加仓
+				}
+			case model.OrderPosSideShort:
+				if price <= lower*(1+buffer) && rsi < 40 {
+					return ActReduce // 低位回补
+				}
+				if price >= upper*(1-buffer) && rsi > 60 {
+					return ActAdd // 高位加仓
+				}
+			}
+		}
 		return ActIgnore
 	}
+	
 	return ActClose
 }
 
@@ -168,7 +221,7 @@ func decideEntry(ctx Context) Action {
 	}
 
 	// 大趋势明显，小趋势横盘，但是强度到达0.15开仓
-	if ctx.Trend.Score >= 2.5 && ctx.Sig.Side == "hold" && ctx.Sig.Strength > 0.15 {
+	if math.Abs(ctx.Trend.Score) >= 2.5 && ctx.Sig.Side == "hold" && ctx.Sig.Strength > 0.15 {
 		return ActOpenSmall
 
 	}

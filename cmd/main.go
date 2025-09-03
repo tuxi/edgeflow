@@ -112,7 +112,7 @@ func main() {
 	sg := trend.NewSignalGenerator()
 
 	engine := strategy.NewStrategyEngine(tm, sg, ps, false)
-	engine.Run(time.Minute*8, symbols)
+	engine.Run(time.Minute*5, symbols)
 
 	hander := webhook.NewWebhookHandler(dispatcher, rc, sm, ps)
 
