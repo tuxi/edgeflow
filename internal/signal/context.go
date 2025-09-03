@@ -97,7 +97,7 @@ func Decide(ctx *Context) Action {
 
 			}
 			// 多单：回调后做多
-			if currentPrice < ctx.Pos.Last*0.995 && ctx.Sig.Strength > 0.25 {
+			if currentPrice < ctx.Pos.AvgPrice*0.995 && ctx.Sig.Strength > 0.25 {
 				return ActAddSmall
 			}
 			return ActIgnore
@@ -124,7 +124,7 @@ func Decide(ctx *Context) Action {
 			}
 
 			// 空单：反弹后继续做空
-			if currentPrice > ctx.Pos.Last*1.005 && ctx.Sig.Strength > 0.25 {
+			if currentPrice > ctx.Pos.AvgPrice*1.005 && ctx.Sig.Strength > 0.25 {
 				return ActAddSmall
 			}
 
@@ -132,17 +132,6 @@ func Decide(ctx *Context) Action {
 		}
 	}
 
-	// 方向不确定时，赚18个点就止盈
-	// 获取未实现盈亏，逆势中，如果盈利中，加仓
-	uplRatio, _ := strconv.ParseFloat(ctx.Pos.UplRatio, 64)
-	if uplRatio > 0.18 {
-		return ActReduce
-	}
-
-	// 大趋势不一致，如果出现短线反转，逆市加仓
-	if ctx.Sig.IsReversal {
-		return ActAddSmall
-	}
 	// 横盘 做高抛低吸
 	if ctx.Trend.Direction == trend.TrendNeutral {
 		price := ctx.Sig.Price
@@ -151,8 +140,8 @@ func Decide(ctx *Context) Action {
 		rsi := ctx.Sig.Values["RSI"]
 
 		// 设置缓冲比例，例如 1% 区间
-		buffer := 0.01
-
+		//buffer := 0.01
+		buffer := 0.0
 		// ---- 无仓位 → 建仓 ----
 		if ctx.Pos == nil {
 			if price <= lower*(1+buffer) && rsi < 40 {
@@ -184,7 +173,19 @@ func Decide(ctx *Context) Action {
 		}
 		return ActIgnore
 	}
-	
+
+	// 方向不确定时，赚18个点就止盈
+	// 获取未实现盈亏，逆势中，如果盈利中，加仓
+	uplRatio, _ := strconv.ParseFloat(ctx.Pos.UplRatio, 64)
+	if uplRatio > 0.18 {
+		return ActReduce
+	}
+
+	// 大趋势不一致，如果出现短线反转，逆市加仓
+	if ctx.Sig.IsReversal {
+		return ActAddSmall
+	}
+
 	return ActClose
 }
 
