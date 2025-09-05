@@ -108,18 +108,23 @@ func (tm *Manager) GenerateTrend(symbol string) (*TrendState, error) {
 	// 趋势方向
 	dir := TrendNeutral
 
-	if scores.Score1h >= 1.0 { // 1h 指标为主
-		if scores.Score30m >= 0 {
-			dir = TrendUp
-		} else {
-			dir = TrendNeutral // 短期走弱，不确认
-		}
-	} else if scores.Score1h <= -1.0 {
-		if scores.Score30m <= 0 {
-			dir = TrendDown
-		} else {
-			dir = TrendNeutral // 短期反弹，不确认
-		}
+	//if scores.Score1h >= 1.0 { // 1h 指标为主
+	//	if scores.Score30m >= 0 {
+	//		dir = TrendUp
+	//	} else {
+	//		dir = TrendNeutral // 短期走弱，不确认
+	//	}
+	//} else if scores.Score1h <= -1.0 {
+	//	if scores.Score30m <= 0 {
+	//		dir = TrendDown
+	//	} else {
+	//		dir = TrendNeutral // 短期反弹，不确认
+	//	}
+	//}
+	if scores.FinalScore >= 1.0 {
+		dir = TrendUp
+	} else if scores.FinalScore <= -1.0 {
+		dir = TrendDown
 	}
 
 	// 如果 4h 和 1h 冲突 → 保守设为横盘

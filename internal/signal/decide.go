@@ -16,17 +16,17 @@ func RunDecide(ctx *Context) Action {
 		return openPosition(ctx)
 	}
 
-	// 获取趋势方向
-	trendDir := trendDirection(ctx)
+	// ---- 有仓位 → 管理仓位 ----
+	action := managePosition(ctx)
 
 	// ---- 横盘低吸高抛 ----
-	if trendDir == trend.TrendNeutral && ctx.Sig.Side == "hold" {
+	//if action == ActIgnore && trendDirection(ctx) == trend.TrendNeutral {
+	//	return handleSideways(ctx)
+	//}
+	if action == ActIgnore && (ctx.Trend.Direction == trend.TrendNeutral || ctx.Sig.Side == "hold") {
 		return handleSideways(ctx)
 	}
-
-	// ---- 有仓位 → 管理仓位 ----
-	return managePosition(ctx)
-
+	return action
 }
 
 // 获取趋势方向
@@ -126,14 +126,14 @@ func openPosition(ctx *Context) Action {
 	}
 
 	// 空头排列 顺势做空 由多转空
-	if scores.Score4h > scores.Score1h && scores.Score1h >= scores.Score30m &&
-		ctx.Sig.Side == "sell" && ctx.Sig.Strength > 0.35 {
+	if scores.Score4h >= scores.Score1h && scores.Score1h > scores.Score30m &&
+		ctx.Sig.Side == "sell" && ctx.Sig.Strength > 0.3 {
 		return ActOpen
 	}
 
 	// 多头排列 顺势做多  斜率转正了如果不能突破，也许会在山顶 由空转多
-	if scores.Score4h < scores.Score1h && scores.Score1h <= scores.Score30m &&
-		ctx.Sig.Side == "buy" && ctx.Sig.Strength > 0.35 {
+	if scores.Score4h <= scores.Score1h && scores.Score1h < scores.Score30m &&
+		ctx.Sig.Side == "buy" && ctx.Sig.Strength > 0.3 {
 		return ActOpen
 	}
 
@@ -151,68 +151,116 @@ func managePosition(ctx *Context) Action {
 		return ActClose
 	}
 
-	//lastSig := ctx.LastSig
 	posDir := ctx.Pos.Dir
-	//currentPrice, err := strconv.ParseFloat(ctx.Pos.MarkPx, 64)
-	//if err != nil {
-	//	currentPrice = ctx.Sig.Price
-	//}
-	//ma30 := ctx.Sig.Values["slow"]
+	currentPrice, err := strconv.ParseFloat(ctx.Pos.MarkPx, 64)
+	if err != nil {
+		currentPrice = ctx.Sig.Price
+	}
+	ma30 := ctx.Sig.Values["fast"]
 
-	if ctx.Trend.Direction.MatchesSide(model.OrderSide(ctx.Sig.Side)) {
+	// 趋势向上时
+	slopeDir := ctx.Trend.Direction
+	slope := ctx.Trend.HistorySlope
+	scores := ctx.Trend.Scores
+	if slope != nil {
+		slopeDir = slope.Dir
+		// 如果 30m 分数的斜率已经转正，哪怕分数没到阈值，也可以认为“底部反弹正在发生”。core30m < -1.5说明超卖现在买入赔率低
+		if slope.Slope30m > 0 &&
+			scores.Score30m < -1.5 && // 超卖区
+			ctx.Sig.Side == "buy" && ctx.Sig.Strength > 0.3 {
+			if posDir == model.OrderPosSideLong {
+				return ActAdd
+			}
+			return ActClose
+		}
+
+		if slope.Slope30m < 0 &&
+			scores.Score30m >= 1.5 && // 超买区
+			ctx.Sig.Side == "sell" && ctx.Sig.Strength > 0.3 {
+			if posDir == model.OrderPosSideShort {
+				return ActAdd
+			}
+			return ActClose
+		}
+	}
+	isSomeDir := slopeDir.MatchesSide(model.OrderSide(ctx.Sig.Side))
+	if isSomeDir {
 		// 仓位与信号方向不同，减仓
 		if ctx.Sig.Side == "buy" && posDir == model.OrderPosSideShort ||
 			ctx.Sig.Side == "sell" && posDir == model.OrderPosSideLong {
 			if ctx.Sig.Strength > 0.5 {
-				return ActReduce
+				return ActClose
 			}
 		}
 
 		// 仓位与信号方向相同
-		if ctx.Sig.Strength > 0.7 {
-			return ActReduce
-		}
+		//if ctx.Sig.Strength > 0.7 { // 强度很大，说明在高位
+		//	return ActReduce
+		//}
+
+		lastSig := ctx.LastSig
+		//adl := 3
 		if ctx.Sig.Strength > 0.35 {
-			return ActAdd
+			if ctx.Sig.Side == "buy" {
+				if lastSig != nil {
+					// 回调补仓
+					if currentPrice < lastSig.Price && (lastSig.Price-currentPrice)/lastSig.Price < 0.01 {
+						return ActAddSmall
+					}
+					// 趋势延续加仓（但限制次数和偏离度）
+					if currentPrice > lastSig.Price && ctx.Sig.Strength > lastSig.Strength &&
+						currentPrice < ma30*1.02 { //&& pos.AddCouna < 3 {
+						return ActAdd
+					}
+				}
+				if currentPrice >= ma30 {
+					return ActAdd // 趋势还在
+				} else {
+					return ActReduce // 回调过深，减仓或止损
+				}
+			} else if ctx.Sig.Side == "sell" {
+				if lastSig != nil {
+					// 反弹补空
+					if currentPrice > lastSig.Price && (currentPrice-lastSig.Price)/lastSig.Price < 0.01 {
+						return ActAddSmall
+					}
+					// 趋势延续加仓（但限制次数和偏离度）
+					if currentPrice < lastSig.Price && ctx.Sig.Strength > lastSig.Strength &&
+						currentPrice > ma30*1.02 { //&& pos.AddCouna < 3 {
+						return ActAdd
+					}
+				}
+				if currentPrice <= ma30 {
+					return ActAdd
+				} else {
+					return ActReduce
+				}
+			}
+
 		}
 	}
 
-	// 趋势向上时
-	if ctx.Trend.Direction == trend.TrendUp {
-		if ctx.Sig.Side != "sell" && ctx.Sig.Strength >= 0.15 {
-			if posDir == model.OrderPosSideShort { // 仓位与大方向反向时 平仓
-				return ActClose
-			}
+	// 趋势向上
+	if slopeDir == trend.TrendUp {
+		// 趋势向上，但是给出的信号确是卖， 信号与仓位反向相反，减仓
+		if ctx.Sig.Side == "sell" && posDir == model.OrderPosSideLong && ctx.Sig.Strength >= 0.35 {
+			return ActReduce
+		}
+
+		if ctx.Sig.Side == "buy" && posDir == model.OrderPosSideLong && ctx.Sig.Strength >= 0.35 {
 			return ActAdd
 		}
 	}
 
 	// 趋势向下
-	if ctx.Trend.Direction == trend.TrendDown {
-		if ctx.Sig.Side != "buy" && ctx.Sig.Strength >= 0.15 {
-			if posDir == model.OrderPosSideLong { /// 仓位与大方向反向时 平仓
-				return ActClose
-			}
+	if slopeDir == trend.TrendDown {
+		// 信号与仓位反向相反，减仓
+		if ctx.Sig.Side == "buy" && posDir == model.OrderPosSideShort && ctx.Sig.Strength >= 0.35 {
+			return ActReduce
+		}
+		if ctx.Sig.Side == "sell" && posDir == model.OrderPosSideShort && ctx.Sig.Strength >= 0.35 {
 			return ActAdd
 		}
 	}
-
-	//// 2. 趋势方向一致，信号转强时，开基础仓位
-	//if posDir == model.OrderPosSideLong && ctx.Trend.Direction == trend.TrendUp && ctx.Sig.Side == "buy" {
-	//	if currentPrice >= ma30 && ctx.Sig.Strength > 0.35 {
-	//		return ActAdd // 趋势还在
-	//	} else {
-	//		return ActReduce // 回调过深，减仓或止损
-	//	}
-	//}
-	//
-	//if posDir == model.OrderPosSideShort && ctx.Trend.Direction == trend.TrendDown && ctx.Sig.Side == "sell" {
-	//	if currentPrice <= ma30 && ctx.Sig.Strength > 0.35 {
-	//		return ActAdd
-	//	} else {
-	//		return ActReduce
-	//	}
-	//}
-
 	return ActIgnore
 }

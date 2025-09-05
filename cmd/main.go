@@ -100,8 +100,9 @@ func main() {
 	// 信号管理
 	sm := signal.NewDefaultSignalManager(appCfg.Strategy)
 
-	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "AAVE/USDT", "DOGE/USDT"}
-	symbols = symbols[:2]
+	//symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "AAVE/USDT", "DOGE/USDT", "XRP/USDT"}
+	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "AAVE/USDT", "XRP/USDT", "DOGE/USDT"}
+	//symbols = symbols[len(symbols)-1:]
 	tm := trend.NewManager(okxEx, symbols)
 	tm.StartUpdater()
 

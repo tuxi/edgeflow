@@ -29,8 +29,8 @@ type StrategyEngine struct {
 const (
 	checkInterval   = 2 * time.Minute  // 定时检查间隔1分钟
 	maxHoldDuration = 35 * time.Minute // 最长持仓时间
-	takeProfit      = 0.12             // 达到 +12% 强制止盈
-	stopLoss        = -0.05            // 达到 -5% 强制止损
+	takeProfit      = 0.1              // 达到 +10% 强制止盈
+	stopLoss        = -0.09            // 达到 -5% 强制止损
 )
 
 func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator, ps *position.PositionService, isTesting bool) *StrategyEngine {
@@ -202,13 +202,12 @@ func (tv *StrategyEngine) checkPnL() {
 				if uplRatio >= takeProfit {
 					log.Printf("[%s] 仓位超过35分钟, 盈利%.3f%% 强制止盈\n", pos.Symbol, uplRatio*100)
 					go tv.ps.Close(context.Background(), pos, model.OrderTradeSwap) // 异步平仓，避免阻塞
+				} else if uplRatio <= stopLoss {
+					log.Printf("[%s] 仓位超过50分钟, 亏损%.5f%% 强制止损\n", pos.Symbol, uplRatio*100)
+					go tv.ps.Close(context.Background(), pos, model.OrderTradeSwap) // 异步平仓，避免阻塞
+				} else {
+					log.Printf("[%s] 仓位超过50分钟, 但盈亏比 %.2f%% 未达条件, 暂不处理\n", pos.Symbol, uplRatio*100)
 				}
-				//else if uplRatio <= stopLoss {
-				//	log.Printf("[%s] 仓位超过50分钟, 亏损%.5f%% 强制止损\n", pos.Symbol, uplRatio*100)
-				//	go tv.positionSvc.Close(context.Background(), pos, model.OrderTradeSwap) // 异步平仓，避免阻塞
-				//} else {
-				//	log.Printf("[%s] 仓位超过50分钟, 但盈亏比 %.2f%% 未达条件, 暂不处理\n", pos.Symbol, uplRatio*100)
-				//}
 			}
 		}
 
