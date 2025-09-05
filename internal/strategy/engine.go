@@ -93,25 +93,19 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	}
 
 	// 1. 获取大趋势
-	state, ok := se.trendMgr.Get(symbol)
-	if ok == false {
+	state := se.trendMgr.Get(symbol)
+	if state == nil {
 		log.Println("[StrategyEngine] 获取大趋势失败")
 		return
 	}
 
 	lines15m, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, false)
-	lines15mClosed, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, true)
 
 	if err != nil {
 		return
 	}
 	// 2. 获取15分钟周期信号
 	sig15, err := se.signalGen.Generate(lines15m, symbol)
-	sig151, err := se.signalGen.Generate(lines15mClosed, symbol)
-	if sig15.IsReversal && !sig151.IsReversal {
-		sig15.IsReversal = true
-		sig15.Strength = sig151.Strength
-	}
 	if err != nil {
 		return
 	}
@@ -125,7 +119,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	}
 
 	// 4. 决策
-	action := signal.Decide(&ctx)
+	action := signal.RunDecide(&ctx)
 	var leverage int64 = 30
 	if action == signal.ActAddSmall || action == signal.ActOpenSmall {
 		leverage = 20
@@ -139,9 +133,9 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	}
 	sig := signal.Signal{
 		Strategy:  "auto-Strategy-Engine",
-		Symbol:    sig15.Symbol,
-		Price:     sig15.Price,
-		Side:      sig15.Side,
+		Symbol:    ctx.Sig.Symbol,
+		Price:     ctx.Sig.Price,
+		Side:      ctx.Sig.Side,
 		OrderType: "market",
 		TradeType: "swap",
 		Comment:   "",

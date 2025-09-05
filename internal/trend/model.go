@@ -35,12 +35,93 @@ type TrendState struct {
 	LastDirection TrendDirection // 上一根k线方向
 	Description   string         // 解释原因
 	LastPrice     float64
-	Score         float64 // -3 ~ +3，综合多周期得分
 	// 技术指标
-	ATR       float64
-	ADX       float64
-	RSI       float64
+	ATR float64
+	ADX float64
+	RSI float64
+
 	Timestamp time.Time
+
+	Scores TrendScores
+	// 历史斜率
+	HistorySlope *TrendSlope
+}
+
+type TrendScores struct {
+	TrendScore  float64 // 长+中周期趋势分
+	SignalScore float64 // 短周期信号分
+	FinalScore  float64 // 综合分 -3 ~ +3，综合多周期得分
+	Score30m    float64
+	Score1h     float64
+	Score4h     float64
+}
+
+// 趋势斜率 结合历史最多14条数据计算的斜率
+type TrendSlope struct {
+	// 4h 斜率 → 背景过滤（只要不反着就行）
+	Slope4h float64
+	// 1h 斜率 → 主趋势
+	Slope1h float64
+	// 30m 斜率 → 入场信号 & 强弱确认
+	Slope30m float64
+
+	Avg4h  float64
+	Avg1h  float64
+	Avg30m float64
+
+	Dir         TrendDirection
+	Description string
+}
+
+// 从历史趋势中计算最新的综合指标
+func NewTrendSlope(history []*TrendState) *TrendSlope {
+	if history == nil || len(history) <= 1 {
+		return nil
+	}
+	var arr4h, arr1h, arr30m []float64
+	for _, h := range history {
+		arr4h = append(arr4h, h.Scores.Score4h)
+		arr1h = append(arr1h, h.Scores.Score1h)
+		arr30m = append(arr30m, h.Scores.Score30m)
+	}
+
+	slope := &TrendSlope{
+		Slope4h:  calcSlope(arr4h),
+		Slope1h:  calcSlope(arr1h),
+		Slope30m: calcSlope(arr30m),
+
+		Avg4h:  mean(arr4h),
+		Avg1h:  mean(arr1h),
+		Avg30m: mean(arr30m),
+	}
+
+	var dir TrendDirection
+	var explanation string
+	// 决策逻辑
+	if slope.Slope4h > 0 && slope.Slope1h > 0 {
+		if slope.Slope30m > 0 {
+			dir = TrendUp
+			explanation = "大周期与中周期均向上，短周期继续放大 → 顺势开多"
+		} else {
+			dir = TrendNeutral
+			explanation = "大周期与中周期向上，但短周期走弱 → 等待确认或止盈"
+		}
+	} else if slope.Slope4h < 0 && slope.Slope1h < 0 {
+		if slope.Slope30m < 0 {
+			dir = TrendDown
+			explanation = "大周期与中周期均向下，短周期继续走弱 → 顺势开空"
+		} else {
+			dir = TrendNeutral
+			explanation = "大周期与中周期向下，但短周期反弹 → 等待确认或止盈"
+		}
+	} else {
+		dir = TrendNeutral
+		explanation = "大周期与中周期不一致 → 观望为主"
+	}
+
+	slope.Dir = dir
+	slope.Description = explanation
+	return slope
 }
 
 type TrendCfg struct {

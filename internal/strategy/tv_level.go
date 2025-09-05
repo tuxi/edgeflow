@@ -6,6 +6,7 @@ import (
 	"edgeflow/internal/signal"
 	"edgeflow/internal/trend"
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"time"
@@ -66,7 +67,10 @@ func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error 
 	}
 
 	// 获取当前币的趋势
-	st, _ := t.trend.Get(sig.Symbol)
+	st := t.trend.Get(sig.Symbol)
+	if st == nil {
+		return errors.New(fmt.Sprintf("%v 暂时没有可用的趋势", sig.Symbol))
+	}
 
 	dCtx := signal.DecisionContext{
 		HasL2Position: metaL2 != nil,
@@ -88,4 +92,3 @@ func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error 
 
 	return err
 }
-
