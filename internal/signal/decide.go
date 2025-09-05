@@ -115,25 +115,25 @@ func openPosition(ctx *Context) Action {
 		}
 	}
 	if slopeDir == trend.TrendUp {
-		if scores.TrendScore > 1.0 && ctx.Sig.Side == "buy" && ctx.Sig.Strength > 0.3 {
+		if scores.TrendScore > 1.0 && ctx.Sig.Side == "buy" && ctx.Sig.Strength > 0.35 {
 			return ActOpen // 顺势多
 		}
 	}
 	if slopeDir == trend.TrendDown {
-		if scores.TrendScore < -1.0 && ctx.Sig.Side == "sell" && ctx.Sig.Strength > 0.3 {
+		if scores.TrendScore < -1.0 && ctx.Sig.Side == "sell" && ctx.Sig.Strength > 0.35 {
 			return ActOpen // 顺势空
 		}
 	}
 
 	// 空头排列 顺势做空 由多转空
 	if scores.Score4h >= scores.Score1h && scores.Score1h > scores.Score30m &&
-		ctx.Sig.Side == "sell" && ctx.Sig.Strength > 0.3 {
+		ctx.Sig.Side == "sell" && ctx.Sig.Strength > 0.35 {
 		return ActOpen
 	}
 
 	// 多头排列 顺势做多  斜率转正了如果不能突破，也许会在山顶 由空转多
 	if scores.Score4h <= scores.Score1h && scores.Score1h < scores.Score30m &&
-		ctx.Sig.Side == "buy" && ctx.Sig.Strength > 0.3 {
+		ctx.Sig.Side == "buy" && ctx.Sig.Strength > 0.35 {
 		return ActOpen
 	}
 
@@ -213,10 +213,8 @@ func managePosition(ctx *Context) Action {
 						return ActAdd
 					}
 				}
-				if currentPrice >= ma30 {
-					return ActAdd // 趋势还在
-				} else {
-					return ActReduce // 回调过深，减仓或止损
+				if currentPrice < ma30 { // 价格回调在ma30一下加仓 回调过深，减仓或止损
+					return ActAdd
 				}
 			} else if ctx.Sig.Side == "sell" {
 				if lastSig != nil {
@@ -230,10 +228,8 @@ func managePosition(ctx *Context) Action {
 						return ActAdd
 					}
 				}
-				if currentPrice <= ma30 {
+				if currentPrice > ma30 {
 					return ActAdd
-				} else {
-					return ActReduce
 				}
 			}
 
