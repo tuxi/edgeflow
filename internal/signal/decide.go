@@ -20,9 +20,6 @@ func RunDecide(ctx *Context) Action {
 	action := managePosition(ctx)
 
 	// ---- 横盘低吸高抛 ----
-	//if action == ActIgnore && trendDirection(ctx) == trend.TrendNeutral {
-	//	return handleSideways(ctx)
-	//}
 	if action == ActIgnore && (ctx.Trend.Direction == trend.TrendNeutral || ctx.Sig.Side == "hold") {
 		return handleSideways(ctx)
 	}
@@ -239,11 +236,15 @@ func managePosition(ctx *Context) Action {
 	// 趋势向上
 	if slopeDir == trend.TrendUp {
 		// 趋势向上，但是给出的信号确是卖， 信号与仓位反向相反，减仓
-		if ctx.Sig.Side == "sell" && posDir == model.OrderPosSideLong && ctx.Sig.Strength >= 0.35 {
+		if ctx.Sig.Side == "sell" &&
+			posDir == model.OrderPosSideLong &&
+			ctx.Sig.Strength >= 0.35 { // 多趋势减弱了 减仓 ctx.Trend.Scores.TrendScore < 1
 			return ActReduce
 		}
 
-		if ctx.Sig.Side == "buy" && posDir == model.OrderPosSideLong && ctx.Sig.Strength >= 0.35 {
+		if ctx.Sig.Side == "buy" &&
+			posDir == model.OrderPosSideLong &&
+			ctx.Sig.Strength >= 0.35 { // 多趋势变强了 加仓 && ctx.Trend.Scores.TrendScore > 1
 			return ActAdd
 		}
 	}
@@ -251,10 +252,14 @@ func managePosition(ctx *Context) Action {
 	// 趋势向下
 	if slopeDir == trend.TrendDown {
 		// 信号与仓位反向相反，减仓
-		if ctx.Sig.Side == "buy" && posDir == model.OrderPosSideShort && ctx.Sig.Strength >= 0.35 {
+		if ctx.Sig.Side == "buy" &&
+			posDir == model.OrderPosSideShort &&
+			ctx.Sig.Strength >= 0.35 { // 空趋势变弱了 减空单 && ctx.Trend.Scores.TrendScore > -1
 			return ActReduce
 		}
-		if ctx.Sig.Side == "sell" && posDir == model.OrderPosSideShort && ctx.Sig.Strength >= 0.35 {
+		if ctx.Sig.Side == "sell" &&
+			posDir == model.OrderPosSideShort &&
+			ctx.Sig.Strength >= 0.35 { // 空的趋势变强了 加仓 && ctx.Trend.Scores.TrendScore < -1
 			return ActAdd
 		}
 	}

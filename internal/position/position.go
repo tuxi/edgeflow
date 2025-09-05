@@ -276,7 +276,7 @@ func (ps *PositionService) reducePosition(ctx context.Context, sig signal.Signal
 	if state.Amount <= 0 {
 		return nil
 	}
-	reduceQty := state.Amount / 2 // 减半仓位
+	reduceQty := state.Amount * 0.5 * 0.5 // 减半仓位
 	state.Amount = reduceQty
 	err := ps.Close(ctx, state, model.OrderTradeType(sig.TradeType))
 	return err
@@ -293,13 +293,13 @@ func (ps *PositionService) ApplyAction(
 		fmt.Printf("[PositionService.ApplyAction: 忽略信号%v]\n", sig.Symbol)
 		return nil
 	case signal.ActOpen:
-		return ps.Open(ctx, sig, 1.8, 1.3, 0.21)
+		return ps.Open(ctx, sig, 0.8, 0.9, 0.21*0.3) // 开仓把资金控制小一些
 	case signal.ActOpenSmall:
-		return ps.Open(ctx, sig, 1.5, 1.1, 0.15)
+		return ps.Open(ctx, sig, 0.7, 0.8, 0.15*0.3)
 	case signal.ActAdd:
-		return ps.Open(ctx, sig, 1.1, 1, 0.18)
+		return ps.Open(ctx, sig, 1, 1, 0.18*0.3)
 	case signal.ActAddSmall:
-		return ps.Open(ctx, sig, 1, 0.9, 0.13)
+		return ps.Open(ctx, sig, 0.9, 0.9, 0.13*0.3)
 
 	case signal.ActReduce:
 		return ps.reducePosition(ctx, sig, state)
