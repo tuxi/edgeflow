@@ -3,7 +3,6 @@ package trend
 import (
 	"edgeflow/internal/model"
 	"errors"
-	"fmt"
 	"math"
 	"time"
 )
@@ -44,7 +43,7 @@ func (sg *SignalGenerator) Generate(klines []model.Kline, symbol string) (*Signa
 	var rsiStrength, adxStrength float64
 	for _, ind := range sg.Indicators {
 		res := ind.Calculate(klines)
-		fmt.Printf("[%s] %s -> signal=%s values=%v\n", symbol, res.Name, res.Signal, res.Values)
+		//fmt.Printf("[%s] %s -> signal=%s values=%v\n", symbol, res.Name, res.Signal, res.Values)
 
 		switch res.Signal {
 		case "buy":
