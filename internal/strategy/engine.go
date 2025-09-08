@@ -93,9 +93,9 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	}
 
 	// 1. 获取大趋势
-	state := se.trendMgr.Get(symbol)
+	state := se.trendMgr.GetState(symbol)
 	if state == nil {
-		log.Println("[StrategyEngine] 获取大趋势失败")
+		log.Printf("[StrategyEngine] 获取%v大趋势失败\n", symbol)
 		return
 	}
 
@@ -119,7 +119,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	}
 
 	// 4. 决策
-	action := signal.RunDecide(&ctx)
+	action := signal.NewDecisionEngine(ctx).Run()
 	var leverage int64 = 30
 	if action == signal.ActAddSmall || action == signal.ActOpenSmall {
 		leverage = 20

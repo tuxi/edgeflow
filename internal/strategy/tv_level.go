@@ -67,7 +67,7 @@ func (t *TVLevelStrategy) Execute(ctx context.Context, sig signal.Signal) error 
 	}
 
 	// 获取当前币的趋势
-	st := t.trend.Get(sig.Symbol)
+	st := t.trend.GetState(sig.Symbol)
 	if st == nil {
 		return errors.New(fmt.Sprintf("%v 暂时没有可用的趋势", sig.Symbol))
 	}

@@ -15,6 +15,8 @@ const (
 	TrendUp
 	// 下降趋势
 	TrendDown
+	// 趋势反转/动量背离
+	TrendReversal
 )
 
 func (d TrendDirection) MatchesSide(side model.OrderSide) bool {
@@ -30,11 +32,10 @@ func (d TrendDirection) MatchesSide(side model.OrderSide) bool {
 
 // 单币种趋势状态
 type TrendState struct {
-	Symbol        string
-	Direction     TrendDirection
-	LastDirection TrendDirection // 上一根k线方向
-	Description   string         // 解释原因
-	LastPrice     float64
+	Symbol      string
+	Direction   TrendDirection
+	Description string // 解释原因
+	LastPrice   float64
 	// 技术指标
 	ATR float64
 	ADX float64
@@ -43,14 +44,15 @@ type TrendState struct {
 	Timestamp time.Time
 
 	Scores TrendScores
-	// 历史斜率
-	HistorySlope *TrendSlope
+
+	// 历史斜率分数
+	Slope float64
 }
 
 type TrendScores struct {
 	TrendScore  float64 // 长+中周期趋势分
 	SignalScore float64 // 短周期信号分
-	FinalScore  float64 // 综合分 -3 ~ +3，综合多周期得分
+	FinalScore  float64 // 综合分 -3 ~ +3，综合多周期得分，包含 4h/1h/30m，动态加权。这个分数更全面，更灵活，可以捕捉到市场细微的变化和趋势的早期迹象。
 	Score30m    float64
 	Score1h     float64
 	Score4h     float64
@@ -69,8 +71,11 @@ type TrendSlope struct {
 	Avg1h  float64
 	Avg30m float64
 
-	Dir         TrendDirection
-	Description string
+	// 斜率分数
+	//FinalSlope float64
+
+	//Dir         TrendDirection
+	//Description string
 }
 
 // 从历史趋势中计算最新的综合指标
@@ -95,32 +100,32 @@ func NewTrendSlope(history []*TrendState) *TrendSlope {
 		Avg30m: mean(arr30m),
 	}
 
-	var dir TrendDirection
-	var explanation string
-	// 决策逻辑
-	if slope.Slope4h > 0 && slope.Slope1h > 0 {
-		if slope.Slope30m > 0 {
-			dir = TrendUp
-			explanation = "大周期与中周期均向上，短周期继续放大 → 顺势开多"
-		} else {
-			dir = TrendNeutral
-			explanation = "大周期与中周期向上，但短周期走弱 → 等待确认或止盈"
-		}
-	} else if slope.Slope4h < 0 && slope.Slope1h < 0 {
-		if slope.Slope30m < 0 {
-			dir = TrendDown
-			explanation = "大周期与中周期均向下，短周期继续走弱 → 顺势开空"
-		} else {
-			dir = TrendNeutral
-			explanation = "大周期与中周期向下，但短周期反弹 → 等待确认或止盈"
-		}
-	} else {
-		dir = TrendNeutral
-		explanation = "大周期与中周期不一致 → 观望为主"
-	}
-
-	slope.Dir = dir
-	slope.Description = explanation
+	//var dir TrendDirection
+	//var explanation string
+	//// 决策逻辑
+	//if slope.Slope4h > 0 && slope.Slope1h > 0 {
+	//	if slope.Slope30m > 0 {
+	//		dir = TrendUp
+	//		explanation = "大周期与中周期均向上，短周期继续放大 → 顺势开多"
+	//	} else {
+	//		dir = TrendNeutral
+	//		explanation = "大周期与中周期向上，但短周期走弱 → 等待确认或止盈"
+	//	}
+	//} else if slope.Slope4h < 0 && slope.Slope1h < 0 {
+	//	if slope.Slope30m < 0 {
+	//		dir = TrendDown
+	//		explanation = "大周期与中周期均向下，短周期继续走弱 → 顺势开空"
+	//	} else {
+	//		dir = TrendNeutral
+	//		explanation = "大周期与中周期向下，但短周期反弹 → 等待确认或止盈"
+	//	}
+	//} else {
+	//	dir = TrendNeutral
+	//	explanation = "大周期与中周期不一致 → 观望为主"
+	//}
+	//
+	//slope.Dir = dir
+	//slope.Description = explanation
 	return slope
 }
 

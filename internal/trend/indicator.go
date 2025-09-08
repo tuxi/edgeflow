@@ -11,7 +11,7 @@ type Indicator interface {
 }
 
 // ========== EMA 指标 ==========
-
+// 趋势确认
 type EMAIndicator struct {
 	FastPeriod int
 	SlowPeriod int
@@ -25,31 +25,47 @@ func (e *EMAIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
 
 	fastEMA := talib.Ema(closes, e.FastPeriod)
 	slowEMA := talib.Ema(closes, e.SlowPeriod)
+	ema30EMA := talib.Ema(closes, 30)
 
 	// 取最后一个数值
 	fast := fastEMA[len(fastEMA)-1]
 	slow := slowEMA[len(slowEMA)-1]
+	ema30 := ema30EMA[len(ema30EMA)-1]
 
+	// 策略一：大趋势过滤
 	signal := "hold"
 	if fast > slow {
+		// 当快线从下方上穿慢线时,这通常被视为一个看涨的买入信号，表明短期动量正在增强，可能预示着上涨趋势的开始。
 		signal = "buy"
 	} else if fast < slow {
+		// 当快线从上方下穿慢线（fast < slow）时，则被视为一个看跌的卖出信号。
 		signal = "sell"
 	}
+
+	// 策略二：均线排列过滤
+	// 看涨趋势确认
+	//if fast > slow && slow > ema30 {
+	//	signal = "buy" // 均线多头排列
+	//}
+	//
+	//// 看跌趋势确认
+	//if fast < slow && slow < ema30 {
+	//	signal = "sell" // 均线空头排列
+	//}
 	last := klines[len(klines)-1]
 
 	diff := fast - slow
 	strength := diff / last.Close
 	return model.IndicatorResult{
 		Name:     "EMA",
-		Values:   map[string]float64{"fast": fast, "slow": slow},
+		Values:   map[string]float64{"fast": fast, "slow": slow, "EMA30": ema30},
 		Signal:   signal,
 		Strength: strength,
 	}
 }
 
 // ========== MACD 指标 ==========
-
+// 动量确认
 type MACDIndicator struct {
 	FastPeriod   int
 	SlowPeriod   int
@@ -84,11 +100,11 @@ func (m *MACDIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
 }
 
 // ========== RSI 指标 ==========
-
+// 超买超卖确认
 type RSIIndicator struct {
 	Period int
-	Buy    float64
-	Sell   float64
+	Buy    float64 // 超卖 适合开多或者减仓空头
+	Sell   float64 // 超买 适合开空或者减仓空头
 }
 
 func (r *RSIIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
@@ -109,7 +125,7 @@ func (r *RSIIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
 	rsiStrength := math.Abs(lastRsi-50) / 50
 	return model.IndicatorResult{
 		Name:     "RSI",
-		Values:   map[string]float64{"rsi": lastRsi},
+		Values:   map[string]float64{"RSI": lastRsi},
 		Signal:   signal,
 		Strength: rsiStrength,
 	}
@@ -210,6 +226,7 @@ func (r *ReversalDetector) Calculate(klines []model.Kline) model.IndicatorResult
 	}
 }
 
+// 趋势强度确认
 type ADXIndicator struct {
 	Name   string
 	Period int
