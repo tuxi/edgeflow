@@ -258,11 +258,43 @@ func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 
 	// 3. 趋势减弱时减仓
 	if ctx.Pos != nil {
-		isWeakening := op.isSignalWithTrend(model.OrderSide(ctx.Sig.Side), ctx.Trend.Direction) &&
-			!op.isMomentumPositive(ctx.Trend.Slope)
-		if isWeakening {
-			return ActReduce
+		posDir := ctx.Pos.Dir
+		uplRatio, _ := strconv.ParseFloat(ctx.Pos.UplRatio, 64)
+
+		// --- 优先检查盈利状况，只有盈利时才考虑主动减仓 ---
+		if uplRatio > 0.01 { // 只有盈利超过1%才考虑主动减仓
+			// --- 条件一：趋势动能显著减弱，且15分钟信号给出反向信号 ---
+			// 例如：当前持有长仓，但 FinalScore 已经明显下降，或者 FinalSlope 变为负值，
+			// 同时 15分钟信号也出现了卖出信号。
+
+			// 判断看涨趋势是否减弱
+			isBullishWeakening := (posDir == model.OrderPosSideLong && ctx.Sig.Side == "sell" && (
+				ctx.Trend.Scores.FinalScore < 0.5 || // FinalScore 低于某个阈值
+					ctx.Trend.Slope < 0)) // FinalSlope 变为负值
+
+			// 判断看跌趋势是否减弱
+			isBearishWeakening := (posDir == model.OrderPosSideShort && ctx.Sig.Side == "buy" && (
+				ctx.Trend.Scores.FinalScore > -0.5 || // FinalScore 高于某个阈值
+					ctx.Trend.Slope > 0)) // FinalSlope 变为正值
+
+			if isBullishWeakening || isBearishWeakening {
+				return ActReduce
+			}
+
+			// --- 条件二：价格超买/超卖，且信号强度较高时减仓 ---
+			// 这通常发生在趋势末期，价格短暂冲高/跌低
+			if (posDir == model.OrderPosSideLong && rsiValue > 70 && ctx.Sig.Strength >= 0.6) ||
+				(posDir == model.OrderPosSideShort && rsiValue < 30 && ctx.Sig.Strength >= 0.6) {
+				return ActReduce
+			}
+		} else if uplRatio < -0.01 { // 如果小幅亏损，且出现明确的反向信号，也考虑减仓
+			// 这个条件是为了在亏损时也能及时止损，避免小亏变大亏
+			if (posDir == model.OrderPosSideLong && ctx.Sig.Side == "sell" && ctx.Sig.Strength >= 0.6) ||
+				(posDir == model.OrderPosSideShort && ctx.Sig.Side == "buy" && ctx.Sig.Strength >= 0.6) {
+				return ActReduce
+			}
 		}
+
 	}
 
 	return ActIgnore
