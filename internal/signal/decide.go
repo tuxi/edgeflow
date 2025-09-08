@@ -7,6 +7,9 @@ import (
 	"strconv"
 )
 
+// 趋势减弱检测器
+var detector = NewWeakTrendDetector(3, 0.5, 0.01) // 连续3次，FinalScore阈值0.5，Slope阈值0.01
+
 // 决策
 type DecisionEngine struct {
 	Ctx Context
@@ -185,13 +188,9 @@ func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 	// 如果持有仓位，且15分钟信号给出反转信号
 	// 趋势反转时，锁定部分利润，降低风险
 	if ctx.Pos != nil && ctx.Sig.IsReversal {
-		// 且反转信号与持仓方向相反
-		if ctx.Pos.Dir == model.OrderPosSideLong && ctx.Sig.Side == "sell" ||
-			ctx.Pos.Dir == model.OrderPosSideShort && ctx.Sig.Side == "long" {
-			// 在大趋势强劲时，短期反转信号是平仓/减仓的好机会
-			// 可以选择激进平仓，也可以选择保守减仓
-			return ActReduce // 在这里减仓，锁定部分利润，降低风险
-		}
+		// 在大趋势强劲时，短期反转信号是平仓/减仓的好机会
+		// 可以选择激进平仓，也可以选择保守减仓
+		return ActReduce // 在这里减仓，锁定部分利润，降低风险
 	}
 	// 获取均线价格
 	ema30, ema30OK := ctx.Sig.Values["EMA30"]
@@ -224,9 +223,7 @@ func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 		} else {
 
 			// --- 趋势减弱减仓 ---
-			// 当 FinalScore 开始下降，或 FinalSlope 变为负值时
-			if (ctx.Trend.Scores.FinalScore < 1.0 && ctx.Trend.Slope < 0) || // 由多转空时，趋势减弱
-				(ctx.Trend.Scores.FinalScore > -1.0 && ctx.Trend.Slope > 0) { // 由空转多时，趋势变强
+			if detector.Check(ctx.Sig.Symbol, ctx.Pos.Dir, ctx.Trend.Scores.FinalScore, ctx.Trend.Slope) {
 				return ActReduce
 			}
 
@@ -268,14 +265,12 @@ func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 			// 同时 15分钟信号也出现了卖出信号。
 
 			// 判断看涨趋势是否减弱
-			isBullishWeakening := (posDir == model.OrderPosSideLong && ctx.Sig.Side == "sell" && (
-				ctx.Trend.Scores.FinalScore < 0.5 || // FinalScore 低于某个阈值
-					ctx.Trend.Slope < 0)) // FinalSlope 变为负值
+			isBullishWeakening := (posDir == model.OrderPosSideLong && ctx.Sig.Side == "sell" && (ctx.Trend.Scores.FinalScore < 0.5 || // FinalScore 低于某个阈值
+				ctx.Trend.Slope < 0)) // FinalSlope 变为负值
 
 			// 判断看跌趋势是否减弱
-			isBearishWeakening := (posDir == model.OrderPosSideShort && ctx.Sig.Side == "buy" && (
-				ctx.Trend.Scores.FinalScore > -0.5 || // FinalScore 高于某个阈值
-					ctx.Trend.Slope > 0)) // FinalSlope 变为正值
+			isBearishWeakening := (posDir == model.OrderPosSideShort && ctx.Sig.Side == "buy" && (ctx.Trend.Scores.FinalScore > -0.5 || // FinalScore 高于某个阈值
+				ctx.Trend.Slope > 0)) // FinalSlope 变为正值
 
 			if isBullishWeakening || isBearishWeakening {
 				return ActReduce
@@ -330,4 +325,54 @@ func getBearishOperator() TrendOperator {
 			return signalSide == model.Sell && trendDir == trend.TrendDown
 		},
 	}
+}
+
+// 趋势减弱检测器
+type WeakTrendDetector struct {
+	declineCounts map[string]int // 每个 symbol 对应的衰弱计数
+	threshold     int            // 连续次数阈值
+	scoreTh       float64        // FinalScore 阈值
+	slopeTh       float64        // Slope 阈值
+}
+
+// 初始化
+func NewWeakTrendDetector(threshold int, scoreTh, slopeTh float64) *WeakTrendDetector {
+	return &WeakTrendDetector{
+		declineCounts: make(map[string]int),
+		threshold:     threshold,
+		scoreTh:       scoreTh,
+		slopeTh:       slopeTh,
+	}
+}
+
+// 检查是否趋势减弱
+func (w *WeakTrendDetector) Check(symbol string, posDir model.OrderPosSide, finalScore, slope float64) bool {
+	count := w.declineCounts[symbol]
+	trigger := false
+
+	if posDir == model.OrderPosSideLong {
+		if finalScore < w.scoreTh && slope < -w.slopeTh { // 由多转空时，趋势减弱
+			count++
+		} else {
+			count = 0
+		}
+	} else if posDir == model.OrderPosSideShort {
+		if finalScore > -w.scoreTh && slope > w.slopeTh { // 由空转多时，趋势变强
+			count++
+		} else {
+			count = 0
+		}
+	}
+
+	// 更新缓存
+	w.declineCounts[symbol] = count
+
+	// 判断是否触发
+	if count >= w.threshold {
+		trigger = true
+		// 触发一次后清零，避免重复触发
+		w.declineCounts[symbol] = 0
+	}
+
+	return trigger
 }
