@@ -57,7 +57,7 @@ func (sg *SignalGenerator) Generate(klines []model.Kline, symbol string) (*Signa
 		// 把指标值拿出来算强度/反转
 		switch res.Name {
 		case "RSI":
-			rsi := res.Values["rsi"]
+			rsi := res.Values["RSI"]
 			if rsi < 25 || rsi > 75 {
 				reversal = true
 			}

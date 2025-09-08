@@ -68,14 +68,13 @@ func (tm *Manager) _updateSymbol(symbol string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(state.Description)
 	// 获取状态机
 	machine := tm.GetStateMachine(symbol)
 	if machine == nil {
 		return errors.New("无效的状态机")
 	}
 	machine.Update(state.Scores.FinalScore, state.Scores.TrendScore, slope)
-
+	fmt.Println(state.Description())
 	return nil
 }
 
@@ -119,12 +118,6 @@ func (tm *Manager) GenerateTrend(symbol string) (state *TrendState, finalSlope *
 		dir = TrendDown
 	}
 
-	dirStr := map[TrendDirection]string{
-		TrendUp:      "多头",
-		TrendDown:    "空头",
-		TrendNeutral: "横盘",
-	}[dir]
-
 	closes1H := make([]float64, len(h1Klines))
 	highs1H := make([]float64, len(h1Klines))
 	lows1H := make([]float64, len(h1Klines))
@@ -152,11 +145,6 @@ func (tm *Manager) GenerateTrend(symbol string) (state *TrendState, finalSlope *
 		Timestamp: last.Timestamp,
 		Scores:    scores,
 	}
-
-	state.Description = fmt.Sprintf(
-		"[Trend %s %s] 趋势score:%.2f 综合score: %.2f, 4h:%.1f 1h:%.1f 30min:%.1f 当前价格: %.2f 当前时间:%v\n",
-		symbol, dirStr, scores.TrendScore, scores.FinalScore, s4h, s1h, s30m, last.Close, time.Now().Format("2006-01-02 15:04:05"),
-	)
 
 	// 计算加权平均分数，可以给越新的趋势权重越高
 	tm.save(state)

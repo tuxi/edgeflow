@@ -2,6 +2,7 @@ package trend
 
 import (
 	"edgeflow/internal/model"
+	"fmt"
 	"time"
 )
 
@@ -15,9 +16,19 @@ const (
 	TrendUp
 	// 下降趋势
 	TrendDown
-	// 趋势反转/动量背离
+	// 趋势反转/动量背离 这是一种趋势背离（Divergence）的判断，代表着宏观大趋势的反转
 	TrendReversal
 )
+
+func (d TrendDirection) Desc() string {
+	dirStr := map[TrendDirection]string{
+		TrendUp:       "多头",
+		TrendDown:     "空头",
+		TrendNeutral:  "横盘",
+		TrendReversal: "反转",
+	}[d]
+	return dirStr
+}
 
 func (d TrendDirection) MatchesSide(side model.OrderSide) bool {
 	switch d {
@@ -34,7 +45,7 @@ func (d TrendDirection) MatchesSide(side model.OrderSide) bool {
 type TrendState struct {
 	Symbol      string
 	Direction   TrendDirection
-	Description string // 解释原因
+	description string // 解释原因
 	LastPrice   float64
 	// 技术指标
 	ATR float64
@@ -47,6 +58,14 @@ type TrendState struct {
 
 	// 历史斜率分数
 	Slope float64
+}
+
+func (ts *TrendState) Description() string {
+	ts.description = fmt.Sprintf(
+		"[Trend %s %s] 趋势score:%.2f 综合score: %.2f, 4h:%.1f 1h:%.1f 30min:%.1f 当前价格: %.2f 当前时间:%v\n",
+		ts.Symbol, ts.Direction.Desc(), ts.Scores.TrendScore, ts.Scores.FinalScore, ts.Scores.Score4h, ts.Scores.Score1h, ts.Scores.Score30m, ts.LastPrice, time.Now().Format("2006-01-02 15:04:05"),
+	)
+	return ts.description
 }
 
 type TrendScores struct {

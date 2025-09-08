@@ -120,7 +120,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 
 	// 4. 决策
 	action := signal.NewDecisionEngine(ctx).Run()
-	var leverage int64 = 30
+	var leverage int64 = 50
 	if action == signal.ActAddSmall || action == signal.ActOpenSmall {
 		leverage = 20
 	}

@@ -37,8 +37,8 @@ func (sm *StateMachine) Update(finalScore, trendScore float64, finalSlope *float
 	// 趋势分数和斜率出现方向背离，这是最危险的信号
 	if (finalScore > 0 && *finalSlope < -0.05) || (finalScore < 0 && *finalSlope > 0.05) {
 		if sm.CurrentState != TrendReversal {
+			fmt.Printf(sm.Symbol, "状态转换: %s  -> 反转\n", sm.CurrentState.Desc())
 			sm.CurrentState = TrendReversal
-			fmt.Println(sm.Symbol, "状态转换: -> 反转")
 		}
 		return
 	}
@@ -47,8 +47,8 @@ func (sm *StateMachine) Update(finalScore, trendScore float64, finalSlope *float
 	// 强劲的看涨趋势：同时需要短期和长期分数都高于阈值，且斜率为正
 	if finalScore >= 1.5 && trendScore >= 0.5 && *finalSlope > 0.1 {
 		if sm.CurrentState != TrendUp {
+			fmt.Println(sm.Symbol, "状态转换: %s -> 上升\n", sm.CurrentState)
 			sm.CurrentState = TrendUp
-			fmt.Println(sm.Symbol, "状态转换: -> 上升")
 		}
 		return
 	}
@@ -56,16 +56,16 @@ func (sm *StateMachine) Update(finalScore, trendScore float64, finalSlope *float
 	// 强劲的看跌趋势：同时需要短期和长期分数都低于阈值，且斜率为负
 	if finalScore <= -1.5 && trendScore <= -0.5 && *finalSlope < -0.1 {
 		if sm.CurrentState != TrendDown {
+			fmt.Println(sm.Symbol, "状态转换: %s -> 下降\n", sm.CurrentState)
 			sm.CurrentState = TrendDown
-			fmt.Println(sm.Symbol, "状态转换: -> 下降")
 		}
 		return
 	}
 
 	// --- 最后判断中性/震荡行情 ---
 	if sm.CurrentState != TrendNeutral {
+		fmt.Println(sm.Symbol, "状态转换: %s -> 中性\n", sm.CurrentState)
 		sm.CurrentState = TrendNeutral
-		fmt.Println(sm.Symbol, "状态转换: -> 中性")
 	}
 }
 
