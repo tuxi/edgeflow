@@ -23,6 +23,8 @@ type Context struct {
 	// 风控
 	DailyR float64
 
+	Line model.Kline
+
 	// 上一次交易完成的信号
 	LastSig *trend.Signal
 }

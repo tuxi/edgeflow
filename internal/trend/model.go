@@ -175,9 +175,10 @@ type Signal struct {
 		0.5 视为「中等信号」
 		0.7 视为「强信号」
 	*/
-	Strength   float64
-	Values     map[string]float64
-	IsReversal bool // 是否底部/顶部反转信号
+	Strength         float64
+	Values           map[string]float64
+	IsReversal       bool    // 是否底部/顶部反转信号
+	ReversalStrength float64 // 反转强度
 }
 
 func (sig *Signal) Equal(sig1 *Signal) bool {

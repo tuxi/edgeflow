@@ -99,7 +99,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 		return
 	}
 
-	lines15m, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, false)
+	lines15m, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, true)
 
 	if err != nil {
 		return
@@ -110,12 +110,14 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 		return
 	}
 
+	lastLine := lines15m[len(lines15m)-1]
 	// 3. 组装上下文
 	ctx := signal.Context{
 		Trend:   *state,
 		Sig:     *sig15,
 		Pos:     pos,
 		LastSig: se.Signals[symbol],
+		Line:    lastLine,
 	}
 
 	// 4. 决策

@@ -5,10 +5,11 @@ import (
 	"edgeflow/internal/trend"
 	"math"
 	"strconv"
+	"time"
 )
 
 // 趋势减弱检测器
-var detector = NewWeakTrendDetector(3, 0.5, 0.01) // 连续3次，FinalScore阈值0.5，Slope阈值0.01
+var detector = NewWeakTrendDetector(3, 0.5, 0.01, time.Minute*15) // 连续3次，FinalScore阈值0.5，Slope阈值0.01
 
 // 决策
 type DecisionEngine struct {
@@ -106,7 +107,7 @@ func (de *DecisionEngine) handleNeutral() Action {
 	return ActIgnore
 }
 
-// 反转
+// 趋势反转
 func (de *DecisionEngine) handleReversal() Action {
 	ctx := de.Ctx
 	// 1. 如果没有持仓，立即返回 ActIgnore
@@ -169,29 +170,42 @@ func (de *DecisionEngine) handleReversal() Action {
 
 func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 	ctx := de.Ctx
-	// 1. 风险控制
+	// 1. 风险控制（先止损，再部分止盈，再大止盈 ）
 	if ctx.Pos != nil {
 		uplRatio, _ := strconv.ParseFloat(ctx.Pos.UplRatio, 64)
-		if uplRatio < -0.05 {
-			return ActClose // 止损
+
+		// IMPORTANT: uplRatio 是小数（例如 0.1 = 10%），阈值应结合杠杆和 ATR 设置
+		// 止损：亏损超过阈值（这里给出更宽的默认值，避免被短期回撤洗掉）
+		if uplRatio < -0.10 { // 把 -0.05 放宽为 -0.10（30x杠杆可再调）
+			return ActClose
 		}
-		if uplRatio > 0.25 {
-			return ActClose // 止盈
+		// 大止盈：如果盈利已经很高，优先了结
+		if uplRatio > 0.30 {
+			return ActClose
 		}
-		if uplRatio > 0.15 {
-			return ActReduce // 部分止盈
+		// 部分止盈：中等盈利时减仓锁利
+		if uplRatio > 0.18 {
+			return ActReduce
 		}
 
+		// --- 新增：严格处理短期反转信号（IsReversal） ---
+		// 不再对任何 IsReversal 立即减仓，必须满足：持仓有盈利 + reversal 强度 >= thr + 高级确认（higher timeframe）
+		if ctx.Sig.IsReversal {
+			// 只在满足这些条件时才减仓：1) 有一定盈利；2) 信号强度高；3) 高级别趋势也显示弱化或 detector 触发
+			reversalStrength := ctx.Sig.ReversalStrength
+			uplRatio, _ := strconv.ParseFloat(ctx.Pos.UplRatio, 64)
+			// 趋势是否转弱
+			isWeek :=
+				detector.CheckWeak(ctx.Sig.Symbol, ctx.Pos.Dir, ctx.Trend.Scores.FinalScore, ctx.Trend.Slope)
+
+			// 当盈利、信号高强度、趋势转弱时减仓
+			if uplRatio > 0.02 && reversalStrength >= 0.65 && isWeek {
+				return ActReduce
+			}
+			// 否则把短期反转视作回调信号，先忽略，避免追高被洗
+		}
 	}
 
-	// --- 新增逻辑：处理大趋势与小信号分歧 ---
-	// 如果持有仓位，且15分钟信号给出反转信号
-	// 趋势反转时，锁定部分利润，降低风险
-	if ctx.Pos != nil && ctx.Sig.IsReversal {
-		// 在大趋势强劲时，短期反转信号是平仓/减仓的好机会
-		// 可以选择激进平仓，也可以选择保守减仓
-		return ActReduce // 在这里减仓，锁定部分利润，降低风险
-	}
 	// 获取均线价格
 	ema30, ema30OK := ctx.Sig.Values["EMA30"]
 	rsiValue, rsiOK := ctx.Sig.Values["RSI"]
@@ -199,97 +213,82 @@ func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 		return ActIgnore
 	}
 	// 2. 根据信号进行开仓或加仓
-	// 注意这里我们不再直接使用 "buy" 或 "sell" 的字符串，而是使用 isDirectional
+	// 使用“弱信号开仓，强信号作为减仓/止盈参考”，此前强信号开仓一直开在最高点
 	if op.isSignalWithTrend(model.OrderSide(ctx.Sig.Side), ctx.Trend.Direction) {
 		// 无仓位时开仓
+		// 无仓位时开仓 — 只允许在弱/中等强度下开仓（避免追高）
 		if ctx.Pos == nil {
-			// RIS低于30被视为超卖，可开多仓或者减仓空头，RSI高于30时被视为超买，可开空仓或者减仓多头
-
-			// 开多时价格不能严重偏离均线 price <= ma30 * 1.01
-			// 信号0.5强度中等，且必须有强劲的动量支持
-			if op.isMomentumPositive(ctx.Trend.Slope) && ctx.Sig.Strength >= 0.45 {
-				// 避免在价格严重偏离均线（通常是趋势末期）时追高。
-				// rsiValue < 30 超卖
-				if ctx.Sig.Side == "buy" && (ctx.Sig.Price <= ema30*1.01 || rsiValue < 30) {
+			// 允许开仓的 strength 区间： [0.25, 0.55]（可以回测调参）
+			if ctx.Sig.Strength >= 0.25 && ctx.Sig.Strength <= 0.55 && op.isMomentumPositive(ctx.Trend.Slope) {
+				// 严格要求价格接近均线或 RSI 支持（避免在独立大阳/大阴上开仓）
+				if ctx.Sig.Side == "buy" && (ctx.Sig.Price <= ema30*1.01 || rsiValue < 40) {
+					// 另外限制同一 symbol 一定时间内只能开一次
+					detector.UpdateState(ctx.Sig.Symbol)
 					return ActOpen
 				}
-				// rsiValue > 70 超买
-				if ctx.Sig.Side == "sell" && (ctx.Sig.Price >= ema30*0.99 || rsiValue > 70) {
+				if ctx.Sig.Side == "sell" && (ctx.Sig.Price >= ema30*0.99 || rsiValue > 60) {
+					detector.UpdateState(ctx.Sig.Symbol)
 					return ActOpen
 				}
-
-				return ActIgnore
 			}
 		} else {
 
-			// --- 趋势减弱减仓 ---
-			if detector.Check(ctx.Sig.Symbol, ctx.Pos.Dir, ctx.Trend.Scores.FinalScore, ctx.Trend.Slope) {
+			//
+			// --- 趋势不同 有仓位时 ---
+			uplRatio, _ := strconv.ParseFloat(ctx.Pos.UplRatio, 64)
+			// 1) 趋势减弱
+			if detector.CheckWeak(ctx.Sig.Symbol, ctx.Pos.Dir, ctx.Trend.Scores.FinalScore, ctx.Trend.Slope) {
+				// 只有在盈利或信号强度确认时才做实减仓
+
+				if uplRatio > 0.01 || ctx.Sig.Strength >= 0.6 {
+					return ActReduce
+				}
+			}
+
+			// 2) 强信号出现在超买/超卖区域 -> 减仓（保护利润）
+			if (ctx.Sig.Side == "buy" && ctx.Pos.Dir == "long" && ctx.Sig.Strength >= 0.7 && rsiValue > 70) || // 超卖
+				(ctx.Sig.Side == "sell" && ctx.Pos.Dir == "short" && ctx.Sig.Strength >= 0.7 && rsiValue < 30) { // 超买
 				return ActReduce
 			}
 
-			// --- 高强度信号减仓 ---
-			// 当出现高强度信号，但它可能预示着一个顶部或底部时
-			if (ctx.Sig.Side == "buy" && ctx.Pos.Dir == "long" && ctx.Sig.Strength >= 0.7) ||
-				(ctx.Sig.Side == "sell" && ctx.Pos.Dir == "short" && ctx.Sig.Strength >= 0.7) {
-
-				// 获取 RSI 值
-				if rsiValue > 70 || rsiValue < 30 {
-					return ActReduce // 在超买或超卖区域减仓
+			// 3) 加仓逻辑：严格回调补仓和趋势延续加仓分开
+			// 回调补仓：只有当价格较上次信号有小幅回撤（非追高），并且总加仓次数未超过上限
+			if ctx.Sig.Strength > 0.35 && op.isMomentumPositive(ctx.Trend.Slope) {
+				if !op.isPriceHigher(ctx.Sig.Price, ctx.LastSig.Price) &&
+					math.Abs(ctx.LastSig.Price-ctx.Sig.Price)/ctx.LastSig.Price < 0.015 && // 放宽到1.5%回调容差
+					detector.IsAllowAdd(ctx.Sig.Symbol) { // 限制加仓次数
+					return ActAddSmall
+				}
+				// 趋势延续加仓：只有当 price 新高 且 slope 显著
+				if op.isPriceHigher(ctx.Sig.Price, ctx.LastSig.Price) &&
+					math.Abs(ctx.Trend.Slope) > 0.12 &&
+					detector.IsAllowAdd(ctx.Sig.Symbol) {
+					// 但避免在非常强的单根 K 线开加仓（防止追当根阳）
+					if !IsSingleCandleSpike(ctx.Line, 2.0) {
+						return ActAdd
+					}
 				}
 			}
 
-			// 有仓位时加仓
-			if ctx.Sig.Strength > 0.35 && op.isMomentumPositive(ctx.Trend.Slope) {
-				// 回调补仓
-				if !op.isPriceHigher(ctx.Sig.Price, ctx.LastSig.Price) &&
-					math.Abs(ctx.LastSig.Price-ctx.Sig.Price)/ctx.LastSig.Price < 0.01 {
-					return ActAddSmall
-				}
-				// 趋势延续加仓
-				if op.isPriceHigher(ctx.Sig.Price, ctx.LastSig.Price) && math.Abs(ctx.Trend.Slope) > 0.1 {
-					return ActAdd
-				}
+			// --- 趋势减弱减仓 ---
+			if detector.CheckWeak(ctx.Sig.Symbol, ctx.Pos.Dir, ctx.Trend.Scores.FinalScore, ctx.Trend.Slope) {
+				return ActReduce
 			}
 		}
 	}
 
-	// 3. 趋势减弱时减仓
+	// 3. 兜底：当亏损变大且出现明确反向信号时，进行保护性减仓或平仓
 	if ctx.Pos != nil {
 		posDir := ctx.Pos.Dir
 		uplRatio, _ := strconv.ParseFloat(ctx.Pos.UplRatio, 64)
 
-		// --- 优先检查盈利状况，只有盈利时才考虑主动减仓 ---
-		if uplRatio > 0.01 { // 只有盈利超过1%才考虑主动减仓
-			// --- 条件一：趋势动能显著减弱，且15分钟信号给出反向信号 ---
-			// 例如：当前持有长仓，但 FinalScore 已经明显下降，或者 FinalSlope 变为负值，
-			// 同时 15分钟信号也出现了卖出信号。
-
-			// 判断看涨趋势是否减弱
-			isBullishWeakening := (posDir == model.OrderPosSideLong && ctx.Sig.Side == "sell" && (ctx.Trend.Scores.FinalScore < 0.5 || // FinalScore 低于某个阈值
-				ctx.Trend.Slope < 0)) // FinalSlope 变为负值
-
-			// 判断看跌趋势是否减弱
-			isBearishWeakening := (posDir == model.OrderPosSideShort && ctx.Sig.Side == "buy" && (ctx.Trend.Scores.FinalScore > -0.5 || // FinalScore 高于某个阈值
-				ctx.Trend.Slope > 0)) // FinalSlope 变为正值
-
-			if isBullishWeakening || isBearishWeakening {
-				return ActReduce
-			}
-
-			// --- 条件二：价格超买/超卖，且信号强度较高时减仓 ---
-			// 这通常发生在趋势末期，价格短暂冲高/跌低
-			if (posDir == model.OrderPosSideLong && rsiValue > 70 && ctx.Sig.Strength >= 0.6) ||
-				(posDir == model.OrderPosSideShort && rsiValue < 30 && ctx.Sig.Strength >= 0.6) {
-				return ActReduce
-			}
-		} else if uplRatio < -0.01 { // 如果小幅亏损，且出现明确的反向信号，也考虑减仓
-			// 这个条件是为了在亏损时也能及时止损，避免小亏变大亏
+		// 如果亏损超过阈值并出现强反向信号 -> 先减仓再考虑平仓
+		if uplRatio < -0.03 {
 			if (posDir == model.OrderPosSideLong && ctx.Sig.Side == "sell" && ctx.Sig.Strength >= 0.6) ||
 				(posDir == model.OrderPosSideShort && ctx.Sig.Side == "buy" && ctx.Sig.Strength >= 0.6) {
 				return ActReduce
 			}
 		}
-
 	}
 
 	return ActIgnore
@@ -327,52 +326,121 @@ func getBearishOperator() TrendOperator {
 	}
 }
 
+// 保存每一个趋势减弱的状态
+type DeclineState struct {
+	AddCount       int       // 加仓次数
+	LastActionTime time.Time // 上一次执行时间（开仓/加仓）
+	WeakSigCount   int       //连续弱信号次数
+}
+
 // 趋势减弱检测器
 type WeakTrendDetector struct {
-	declineCounts map[string]int // 每个 symbol 对应的衰弱计数
-	threshold     int            // 连续次数阈值
-	scoreTh       float64        // FinalScore 阈值
-	slopeTh       float64        // Slope 阈值
+	declineCounts map[string]*DeclineState // 每个 symbol 对应的衰弱计数
+	threshold     int                      // 连续次数阈值
+	scoreTh       float64                  // FinalScore 阈值
+	slopeTh       float64                  // Slope 阈值
+	interval      time.Duration
+	maxAdds       int // 最多允许的加仓次数
 }
 
 // 初始化
-func NewWeakTrendDetector(threshold int, scoreTh, slopeTh float64) *WeakTrendDetector {
+func NewWeakTrendDetector(threshold int, scoreTh, slopeTh float64, interval time.Duration) *WeakTrendDetector {
 	return &WeakTrendDetector{
-		declineCounts: make(map[string]int),
+		declineCounts: make(map[string]*DeclineState),
 		threshold:     threshold,
 		scoreTh:       scoreTh,
 		slopeTh:       slopeTh,
+		interval:      interval,
+		maxAdds:       5,
 	}
 }
 
-// 检查是否趋势减弱
-func (w *WeakTrendDetector) Check(symbol string, posDir model.OrderPosSide, finalScore, slope float64) bool {
-	count := w.declineCounts[symbol]
-	trigger := false
+// RecentActionTooFrequent 检查是否距离上一次操作太近
+func (w *WeakTrendDetector) RecentActionTooFrequent(symbol string) bool {
+	state, ok := w.declineCounts[symbol]
+	if !ok || state.LastActionTime.IsZero() {
+		return false
+	}
+	return time.Since(state.LastActionTime) < w.interval
+}
+
+// UpdateState 更新 symbol 状态（执行开仓/加仓后调用）
+func (w *WeakTrendDetector) UpdateState(symbol string) {
+	state, ok := w.declineCounts[symbol]
+	if !ok {
+		state = &DeclineState{}
+		w.declineCounts[symbol] = state
+	}
+	state.AddCount++
+	state.LastActionTime = time.Now()
+}
+
+// ResetState 在行情明显变化或平仓后调用，重置状态
+func (w *WeakTrendDetector) ResetState(symbol string) {
+	delete(w.declineCounts, symbol)
+}
+
+// CanOpenNewPosition 判断能否添加仓位
+func (w *WeakTrendDetector) IsAllowAdd(symbol string) bool {
+	if w.RecentActionTooFrequent(symbol) {
+		return false
+	}
+	state, ok := w.declineCounts[symbol]
+	if !ok {
+		return true // 没有记录，允许开仓
+	}
+	return state.AddCount >= w.threshold
+}
+
+// Check 判断某个 symbol 的趋势是否衰弱
+// - posDir: 当前持仓方向 (long/short)
+// - finalScore: 当前趋势分数
+// - slope: 当前趋势斜率
+// 返回 true 表示趋势连续衰弱，触发减仓/平仓信号
+func (w *WeakTrendDetector) CheckWeak(symbol string, posDir model.OrderPosSide, finalScore, slope float64) bool {
+	state := w.declineCounts[symbol]
+	if state == nil {
+		state = &DeclineState{}
+	}
 
 	if posDir == model.OrderPosSideLong {
-		if finalScore < w.scoreTh && slope < -w.slopeTh { // 由多转空时，趋势减弱
-			count++
+		// 多单衰弱条件：趋势分数偏弱 且 动能转负
+		if finalScore < w.scoreTh && slope < -w.slopeTh {
+			state.WeakSigCount++
 		} else {
-			count = 0
+			state.WeakSigCount = 0
 		}
 	} else if posDir == model.OrderPosSideShort {
-		if finalScore > -w.scoreTh && slope > w.slopeTh { // 由空转多时，趋势变强
-			count++
+		// 空单衰弱条件：趋势分数偏强 且 动能转正
+		if finalScore > -w.scoreTh && slope > w.slopeTh {
+			state.WeakSigCount++
 		} else {
-			count = 0
+			state.WeakSigCount = 0
 		}
 	}
 
 	// 更新缓存
-	w.declineCounts[symbol] = count
+	w.declineCounts[symbol] = state
 
-	// 判断是否触发
-	if count >= w.threshold {
-		trigger = true
-		// 触发一次后清零，避免重复触发
-		w.declineCounts[symbol] = 0
+	if state.WeakSigCount >= w.threshold {
+		// 连续满足才触发一次，触发后清零
+		state.WeakSigCount = 0
+		w.declineCounts[symbol] = state
+		return true
 	}
+	return false
+}
 
-	return trigger
+// 是否是单根 K 线的极端插针（spike）
+// 用于避免被异常波动误导开仓/止损
+func IsSingleCandleSpike(kline model.Kline, factor float64) bool {
+	// factor 建议 1.5 ~ 2.0，用来判断上下影线是否过长
+	body := math.Abs(kline.Close - kline.Open)
+	upperWick := kline.High - math.Max(kline.Close, kline.Open)
+	lowerWick := math.Min(kline.Close, kline.Open) - kline.Low
+
+	if upperWick > body*factor || lowerWick > body*factor {
+		return true
+	}
+	return false
 }
