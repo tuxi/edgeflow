@@ -45,6 +45,17 @@ func (de *DecisionEngine) handleNeutral() Action {
 			// 这里可以加入价格触及布林带或重要支撑/阻力位的条件
 			return ActOpen
 		}
+
+		// 原本4小时空的，现在30分钟和1小时转多
+		if ctx.Sig.Side == "buy" && ctx.Trend.Scores.Score30m >= 2 && ctx.Trend.Scores.Score1h >= 0.5 && ctx.Trend.Scores.Score1h <= 1 && ctx.Trend.Scores.Score4h < 0 {
+			return ActOpen
+		}
+
+		// 由多转空
+		if ctx.Sig.Side == "sell" && ctx.Trend.Scores.Score30m <= -2 && ctx.Trend.Scores.Score1h <= -0.5 && ctx.Trend.Scores.Score1h >= -1 && ctx.Trend.Scores.Score4h > 0 {
+			return ActOpen
+		}
+
 		return ActIgnore
 	}
 

@@ -51,7 +51,7 @@ func (tm *Manager) StartUpdater() {
 
 // 为每一个币单独开启一个定时器
 func (tm *Manager) startSymbolTimer(symbol string) {
-	ticker := time.NewTicker(30 * time.Minute)
+	ticker := time.NewTicker(15 * time.Minute)
 	for range ticker.C {
 		err := tm._updateSymbol(symbol)
 		if err != nil {

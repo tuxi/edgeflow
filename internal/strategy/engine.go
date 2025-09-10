@@ -39,8 +39,8 @@ func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator
 		MaxConsecutiveAdds:  2,                // 最多连续加仓2次
 		OpenCooldownPeriod:  30 * time.Minute, // 开仓冷却30分钟
 		AddCooldownPeriod:   15 * time.Minute, // 加仓冷却15分钟
-		MaxOpensPerDay:      6,                // 每日最多开仓6次
-		MaxAddsPerDay:       10,               // 每日最多加仓10次
+		MaxOpensPerDay:      8,                // 每日最多开仓6次
+		MaxAddsPerDay:       16,               // 每日最多加仓10次
 	}
 	se := &StrategyEngine{
 		trendMgr:     trendMgr,
@@ -81,20 +81,20 @@ func (se *StrategyEngine) runScheduled(symbols []string) {
 	se.waitForNext15MinComplete()
 
 	// ✅ 立即执行一次，确保不会错过刚结束的K线
-	log.Printf("15分钟K线完成，开始分析信号... 时间: %s", time.Now().Format("15:04:05"))
+	log.Printf("5分钟K线完成，开始分析信号... 时间: %s", time.Now().Format("15:04:05"))
 	se.runAllSymbols(symbols)
 
 	// 创建15分钟定时器
-	ticker := time.NewTicker(15 * time.Minute)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	log.Println("引擎策略启动，等待15分钟k线完成执行交易")
+	log.Println("引擎策略启动，等待5分钟k线完成执行交易")
 
 	for {
 		select {
 		case <-ticker.C:
 			// 每15分钟执行一次，使用完整K线
-			log.Printf("15分钟K线完成，开始分析信号... 时间: %s", time.Now().Format("15:04:05"))
+			log.Printf("5分钟K线完成，开始分析信号... 时间: %s", time.Now().Format("15:04:05"))
 			se.runAllSymbols(symbols)
 		}
 	}
@@ -105,14 +105,14 @@ func (se *StrategyEngine) waitForNext15MinComplete() {
 	now := time.Now()
 
 	// 计算下一个15分钟整点时间
-	next15min := now.Truncate(15 * time.Minute).Add(15 * time.Minute)
+	next15min := now.Truncate(5 * time.Minute).Add(5 * time.Minute)
 
 	// 再加30秒确保交易所数据更新完成
 	waitUntil := next15min.Add(30 * time.Second)
 
 	waitDuration := time.Until(waitUntil)
 	if waitDuration > 0 {
-		log.Printf("等待K线完成... 将在 %s 后开始交易", waitDuration.Round(time.Second))
+		log.Printf("等待5分钟K线完成... 将在 %s 后开始交易", waitDuration.Round(time.Second))
 		time.Sleep(waitDuration)
 	}
 }
@@ -175,7 +175,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	log.Printf("开始分析 %s", symbol)
 
 	// 2.获取完整的K线数据（不包含未完成的K线）
-	timeframeData, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, true)
+	timeframeData, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_5min, 210, 0, model.OrderTradeSwap, true)
 
 	if err != nil {
 		log.Printf("[StrategyEngine] 获取%s K线数据失败: %v", symbol, err)
@@ -343,7 +343,7 @@ func (t *StrategyEngine) waitForKlineCompletion() {
 	now := time.Now()
 
 	// 计算下一个15分钟K线完成时间
-	next15min := now.Truncate(15 * time.Minute).Add(15 * time.Minute)
+	next15min := now.Truncate(5 * time.Minute).Add(5 * time.Minute)
 
 	// 等到K线完成后再检查信号
 	time.Sleep(time.Until(next15min.Add(30 * time.Second))) // 多等30秒确保数据更新
