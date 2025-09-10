@@ -39,7 +39,7 @@ func (sm *StateMachine) Update(finalScore, trendScore float64, finalSlope *float
 		if sm.CurrentState != TrendReversal {
 			oldState := sm.CurrentState
 			sm.CurrentState = TrendReversal
-			fmt.Printf("%s 状态转换: %s  -> %s\n", sm.Symbol, oldState, sm.CurrentState.Desc())
+			fmt.Printf("%s 状态转换: %v  -> %s\n", sm.Symbol, oldState.Desc(), sm.CurrentState.Desc())
 		}
 		return
 	}
@@ -50,7 +50,7 @@ func (sm *StateMachine) Update(finalScore, trendScore float64, finalSlope *float
 		if sm.CurrentState != TrendUp {
 			oldState := sm.CurrentState
 			sm.CurrentState = TrendUp
-			fmt.Printf("%s 状态转换: %s  -> %s\n", sm.Symbol, oldState, sm.CurrentState.Desc())
+			fmt.Printf("%s 状态转换: %v  -> %s", sm.Symbol, oldState.Desc(), sm.CurrentState.Desc())
 		}
 		return
 	}
@@ -60,7 +60,7 @@ func (sm *StateMachine) Update(finalScore, trendScore float64, finalSlope *float
 		if sm.CurrentState != TrendDown {
 			oldState := sm.CurrentState
 			sm.CurrentState = TrendDown
-			fmt.Printf("%s 状态转换: %s  -> %s\n", sm.Symbol, oldState, sm.CurrentState.Desc())
+			fmt.Printf("%s 状态转换: %v  -> %s\n", sm.Symbol, oldState.Desc(), sm.CurrentState.Desc())
 		}
 		return
 	}
@@ -69,6 +69,6 @@ func (sm *StateMachine) Update(finalScore, trendScore float64, finalSlope *float
 	if sm.CurrentState != TrendNeutral {
 		oldState := sm.CurrentState
 		sm.CurrentState = TrendNeutral
-		fmt.Printf("%s 状态转换: %s  -> %s\n", sm.Symbol, oldState, sm.CurrentState.Desc())
+		fmt.Printf("%s 状态转换: %v  -> %s\n", sm.Symbol, oldState.Desc(), sm.CurrentState.Desc())
 	}
 }

@@ -55,9 +55,7 @@ type Action int
 const (
 	ActIgnore    Action = iota
 	ActOpen             // 仅L2可触发
-	ActOpenSmall        // 仅L2可触发
 	ActAdd              // 仅L3与L2同向：加仓
-	ActAddSmall         // 仅L3与L2同向：加仓
 	ActReduce           // L3反向且满足获利阀值：减仓/锁盈
 	ActTightenSL        // L3反向但达到减仓阀值：仅收紧止损
 	ActClose            // 仅L2反向时允许：平掉所有主仓

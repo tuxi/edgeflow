@@ -62,7 +62,7 @@ type TrendState struct {
 
 func (ts *TrendState) Description() string {
 	ts.description = fmt.Sprintf(
-		"[Trend %s %s] 趋势score:%.2f 综合score: %.2f, 4h:%.1f 1h:%.1f 30min:%.1f 当前价格: %.2f 当前时间:%v\n",
+		"[Trend %s %s] 趋势score:%.2f 综合score: %.2f, 4h:%.1f 1h:%.1f 30min:%.1f 当前价格: %.2f 当前时间:%v",
 		ts.Symbol, ts.Direction.Desc(), ts.Scores.TrendScore, ts.Scores.FinalScore, ts.Scores.Score4h, ts.Scores.Score1h, ts.Scores.Score30m, ts.LastPrice, time.Now().Format("2006-01-02 15:04:05"),
 	)
 	return ts.description

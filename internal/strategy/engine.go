@@ -16,30 +16,39 @@ import (
 )
 
 type StrategyEngine struct {
-	trendMgr  *trend.Manager
-	signalGen *trend.SignalGenerator
-	ps        *position.PositionService
-	Signals   map[string]*trend.Signal // 交易完成的信号
-	mu        sync.Mutex
-	ticker    *time.Ticker
-	isTesting bool
+	trendMgr     *trend.Manager
+	signalGen    *trend.SignalGenerator
+	ps           *position.PositionService
+	Signals      map[string]*trend.Signal // 交易完成的信号
+	mu           sync.Mutex
+	isTesting    bool
+	tradeLimiter *signal.TradeLimiter
 }
 
 // 你可以把这些参数抽成配置
 const (
-	checkInterval   = 2 * time.Minute  // 定时检查间隔1分钟
+	checkInterval   = 6 * time.Minute  // 定时检查间隔5分钟
 	maxHoldDuration = 35 * time.Minute // 最长持仓时间
-	takeProfit      = 0.1              // 达到 +10% 强制止盈
-	stopLoss        = -0.09            // 达到 -5% 强制止损
+	takeProfit      = 0.2              // 达到 +20% 强制止盈
+	stopLoss        = -0.15            // 达到 -15% 强制止损
 )
 
 func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator, ps *position.PositionService, isTesting bool) *StrategyEngine {
+	config := signal.TradeLimiterConfig{
+		MaxConsecutiveOpens: 2,                // 最多连续开仓2次
+		MaxConsecutiveAdds:  2,                // 最多连续加仓2次
+		OpenCooldownPeriod:  30 * time.Minute, // 开仓冷却30分钟
+		AddCooldownPeriod:   15 * time.Minute, // 加仓冷却15分钟
+		MaxOpensPerDay:      6,                // 每日最多开仓6次
+		MaxAddsPerDay:       10,               // 每日最多加仓10次
+	}
 	se := &StrategyEngine{
-		trendMgr:  trendMgr,
-		signalGen: signalGen,
-		ps:        ps,
-		Signals:   make(map[string]*trend.Signal),
-		isTesting: isTesting,
+		trendMgr:     trendMgr,
+		signalGen:    signalGen,
+		ps:           ps,
+		Signals:      make(map[string]*trend.Signal),
+		isTesting:    isTesting,
+		tradeLimiter: signal.NewTradeLimiter(config),
 	}
 	if se.isTesting {
 		return se
@@ -49,30 +58,87 @@ func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator
 	return se
 }
 
-func (se *StrategyEngine) Run(interval time.Duration, symbols []string) {
+func (se *StrategyEngine) Run(symbols []string) {
+	// 初始化信号存储
+	se.mu.Lock()
 
-	ticker := time.NewTicker(interval)
-	quit := make(chan struct{})
+	if se.Signals == nil {
+		se.Signals = map[string]*trend.Signal{}
+	}
+
 	for _, symbol := range symbols {
 		se.Signals[symbol] = nil
 	}
+	defer se.mu.Unlock()
 
-	go se._run()
-
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				se._run()
-			case <-quit:
-				ticker.Stop()
-				return
-			}
-		}
-	}()
-
+	// 启动策略引擎
+	go se.runScheduled(symbols)
 }
 
+// 启动策略引擎
+func (se *StrategyEngine) runScheduled(symbols []string) {
+	// 先等待到下一个15分钟k线完成
+	se.waitForNext15MinComplete()
+
+	// ✅ 立即执行一次，确保不会错过刚结束的K线
+	log.Printf("15分钟K线完成，开始分析信号... 时间: %s", time.Now().Format("15:04:05"))
+	se.runAllSymbols(symbols)
+
+	// 创建15分钟定时器
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+
+	log.Println("引擎策略启动，等待15分钟k线完成执行交易")
+
+	for {
+		select {
+		case <-ticker.C:
+			// 每15分钟执行一次，使用完整K线
+			log.Printf("15分钟K线完成，开始分析信号... 时间: %s", time.Now().Format("15:04:05"))
+			se.runAllSymbols(symbols)
+		}
+	}
+}
+
+// 等待下一个15分钟K线完成
+func (se *StrategyEngine) waitForNext15MinComplete() {
+	now := time.Now()
+
+	// 计算下一个15分钟整点时间
+	next15min := now.Truncate(15 * time.Minute).Add(15 * time.Minute)
+
+	// 再加30秒确保交易所数据更新完成
+	waitUntil := next15min.Add(30 * time.Second)
+
+	waitDuration := time.Until(waitUntil)
+	if waitDuration > 0 {
+		log.Printf("等待K线完成... 将在 %s 后开始交易", waitDuration.Round(time.Second))
+		time.Sleep(waitDuration)
+	}
+}
+
+// 为所有交易对运行策略
+func (se *StrategyEngine) runAllSymbols(symbols []string) {
+	var wg sync.WaitGroup
+
+	// 并发处理多个交易对，但限制并发数
+	semaphore := make(chan struct{}, 3) // 最多3个并发
+
+	for _, symbol := range symbols {
+		wg.Add(1)
+		go func(sym string) {
+			defer wg.Done()
+
+			semaphore <- struct{}{}        // 获取信号量
+			defer func() { <-semaphore }() // 释放信号量
+
+			se.runForSymbol(sym)
+		}(symbol)
+	}
+
+	wg.Wait()
+	log.Println("本轮信号分析完成")
+}
 func (se *StrategyEngine) _run() {
 	for k, _ := range se.Signals {
 		se.runForSymbol(k)
@@ -80,11 +146,18 @@ func (se *StrategyEngine) _run() {
 	}
 }
 
+// 为单个交易对运行策略
 func (se *StrategyEngine) runForSymbol(symbol string) {
-	// 0.获取交易锁仓位
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("交易对 %s 处理出错: %v", symbol, r)
+		}
+	}()
+
+	// 0.获取交易所仓位
 	long, short, err := se.ps.Exchange.GetPosition(symbol, model.OrderTradeSwap)
 	if err != nil {
-		fmt.Printf("[StrategyEngine.run GetPosition error: %v]\n", err.Error())
+		log.Printf("[StrategyEngine.runForSymbol] 获取%s仓位失败: %v", symbol, err)
 		return
 	}
 	pos := long
@@ -99,19 +172,35 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 		return
 	}
 
-	lines15m, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, true)
+	log.Printf("开始分析 %s", symbol)
+
+	// 2.获取完整的K线数据（不包含未完成的K线）
+	timeframeData, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_15min, 210, 0, model.OrderTradeSwap, true)
 
 	if err != nil {
-		return
-	}
-	// 2. 获取15分钟周期信号
-	sig15, err := se.signalGen.Generate(lines15m, symbol)
-	if err != nil {
+		log.Printf("[StrategyEngine] 获取%s K线数据失败: %v", symbol, err)
 		return
 	}
 
-	lastLine := lines15m[len(lines15m)-1]
-	// 3. 组装上下文
+	// 验证K线数据质量
+	if len(timeframeData) < 200 {
+		log.Printf("[StrategyEngine] %s K线数据不足，需要至少200根，当前:%d", symbol, len(timeframeData))
+		return
+	}
+
+	// 3.分析信号
+	sig15, err := se.signalGen.Generate(timeframeData, symbol)
+	if err != nil {
+		log.Printf("[StrategyEngine] %s 信号生成失败: %v", symbol, err)
+		return
+	}
+	if sig15 == nil {
+		log.Printf("[StrategyEngine] %s 未生成有效信号", symbol)
+		return
+	}
+
+	lastLine := timeframeData[len(timeframeData)-1]
+	// 组装上下文
 	ctx := signal.Context{
 		Trend:   *state,
 		Sig:     *sig15,
@@ -122,13 +211,33 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 
 	// 4. 决策
 	action := signal.NewDecisionEngine(ctx).Run()
-	var leverage int64 = 50
-	if action == signal.ActAddSmall || action == signal.ActOpenSmall {
-		leverage = 20
+
+	// 检查是否可以执行交易
+	canExecute := false
+	switch action {
+	case signal.ActOpen:
+		canExecute = se.tradeLimiter.CanOpen(symbol)
+		if !canExecute {
+			log.Printf("[StrategyEngine] %s 开仓被限制器阻止", symbol)
+		}
+	case signal.ActAdd:
+		canExecute = se.tradeLimiter.CanAdd(symbol)
+		if !canExecute {
+			log.Printf("[StrategyEngine] %s 加仓被限制器阻止", symbol)
+		}
+	default:
+		canExecute = true // 其他动作不受限制
 	}
+
+	if !canExecute {
+		return // 被限制器阻止，不执行交易
+	}
+
+	var leverage int64 = 50
 	if ctx.Pos != nil && ctx.Pos.Lever != "" {
 		leverage, _ = strconv.ParseInt(ctx.Pos.Lever, 10, 64)
 	} else {
+		// 对于非主流币种使用较低杠杆
 		if symbol != "BTC/USDT" && symbol != "ETH/USDT" && symbol != "SOL/USDT" {
 			leverage = 20
 		}
@@ -140,29 +249,39 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 		Side:      ctx.Sig.Side,
 		OrderType: "market",
 		TradeType: "swap",
-		Comment:   "",
+		Comment:   fmt.Sprintf("15min_complete_kline_action_%s", action), // 标记使用完整K线
 		Leverage:  int(leverage),
 		Level:     2,
 		Meta:      nil,
 		Timestamp: time.Now(),
 	}
+
+	// 更新信号
+	se.mu.Lock()
 	se.Signals[symbol] = sig15
+	se.mu.Unlock()
+
 	if se.isTesting {
 		return
 	}
-	// 5. 执行交易
+	// 5.执行交易逻辑
 	err = se.ps.ApplyAction(context.Background(), action, sig, pos)
 	if err != nil {
-		fmt.Printf("[StrategyEngine.run error: %v]\n", err.Error())
+		log.Printf("[StrategyEngine] 执行 %s 交易失败: %v", symbol, err)
+	} else {
+		switch action {
+		case signal.ActOpen:
+			se.tradeLimiter.RecordTrade(symbol, action, sig.Price, sig.Side)
+		case signal.ActAdd:
+			se.tradeLimiter.RecordTrade(symbol, action, sig.Price, sig.Side)
+		case signal.ActClose:
+			se.tradeLimiter.RecordClose(symbol, sig.Price, sig.Side)
+		}
 	}
-
 }
 
 // 定时检查盈利情况，防止系统的止盈止损太高未被触发
 func (tv *StrategyEngine) startPnLWatcher() {
-	if tv.ticker != nil {
-		return
-	}
 	ticker := time.NewTicker(checkInterval)
 
 	go func() {
@@ -217,4 +336,15 @@ func (tv *StrategyEngine) checkPnL() {
 
 	}
 
+}
+
+// 等K线完成再交易
+func (t *StrategyEngine) waitForKlineCompletion() {
+	now := time.Now()
+
+	// 计算下一个15分钟K线完成时间
+	next15min := now.Truncate(15 * time.Minute).Add(15 * time.Minute)
+
+	// 等到K线完成后再检查信号
+	time.Sleep(time.Until(next15min.Add(30 * time.Second))) // 多等30秒确保数据更新
 }

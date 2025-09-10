@@ -15,7 +15,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 )
 
 // 启动服务（监听webhook）
@@ -100,8 +99,7 @@ func main() {
 	// 信号管理
 	sm := signal.NewDefaultSignalManager(appCfg.Strategy)
 
-	//symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "AAVE/USDT", "DOGE/USDT", "XRP/USDT"}
-	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "AAVE/USDT", "XRP/USDT", "DOGE/USDT", "HYPE/USDT", "LTC/USDT"}
+	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT", "HYPE/USDT", "LTC/USDT"}
 	//symbols = symbols[len(symbols)-1:]
 	tm := trend.NewManager(okxEx, symbols)
 	tm.StartUpdater()
@@ -114,7 +112,7 @@ func main() {
 	sg := trend.NewSignalGenerator()
 
 	engine := strategy.NewStrategyEngine(tm, sg, ps, false)
-	engine.Run(time.Minute*5, symbols)
+	engine.Run(symbols)
 
 	hander := webhook.NewWebhookHandler(dispatcher, rc, sm, ps)
 

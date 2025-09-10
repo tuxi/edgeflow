@@ -294,13 +294,8 @@ func (ps *PositionService) ApplyAction(
 		return nil
 	case signal.ActOpen:
 		return ps.Open(ctx, sig, 1.5, 1.6, 0.21*0.3) // 开仓把资金控制小一些
-	case signal.ActOpenSmall:
-		return ps.Open(ctx, sig, 1.2, 1.3, 0.15*0.3)
 	case signal.ActAdd:
 		return ps.Open(ctx, sig, 1., 1.5, 0.18*0.3)
-	case signal.ActAddSmall:
-		return ps.Open(ctx, sig, 0.9, 0.9, 0.13*0.3)
-
 	case signal.ActReduce:
 		return ps.reducePosition(ctx, sig, state)
 
