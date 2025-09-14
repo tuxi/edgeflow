@@ -3,6 +3,7 @@ package trend
 import (
 	"edgeflow/internal/exchange"
 	model2 "edgeflow/internal/model"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -99,18 +100,21 @@ func (tm *Manager) computeTrend(symbol string) error {
 func (tm *Manager) GenerateTrend(symbol string) (state *TrendState, finalSlope *float64, err error) {
 	h4Klines, ok4 := tm.klineManager.Get(symbol, model.Kline_4h)
 	if ok4 == false {
-		log.Printf("[TrendManager] fetch 4hour kline error for %s", symbol)
-		return nil, nil, err
+		errStr := fmt.Sprintf("[TrendManager] fetch 4hour kline error for %s", symbol)
+		log.Println(errStr)
+		return nil, nil, errors.New(errStr)
 	}
 	h1Klines, ok1 := tm.klineManager.Get(symbol, model.Kline_1h)
 	if ok1 == false {
-		log.Printf("[TrendManager] fetch 1hour kline error for %s", symbol)
-		return nil, nil, err
+		errStr := fmt.Sprintf("[TrendManager] fetch 1hour kline error for %s", symbol)
+		log.Println(errStr)
+		return nil, nil, errors.New(errStr)
 	}
 	m30Klines, ok30 := tm.klineManager.Get(symbol, model.Kline_30min)
 	if ok30 == false {
-		log.Printf("[TrendManager] fetch 30m kline error for %s", symbol)
-		return nil, nil, err
+		errStr := fmt.Sprintf("[TrendManager] fetch 30m kline error for %s", symbol)
+		log.Println(errStr)
+		return nil, nil, errors.New(errStr)
 	}
 
 	//tm.genCSV(symbol, tm.interval, latestFirst)
@@ -133,20 +137,20 @@ func (tm *Manager) GenerateTrend(symbol string) (state *TrendState, finalSlope *
 		dir = TrendDown
 	}
 
-	closes1H := make([]float64, len(h1Klines))
-	highs1H := make([]float64, len(h1Klines))
-	lows1H := make([]float64, len(h1Klines))
+	closes30m := make([]float64, len(m30Klines))
+	highs30m := make([]float64, len(m30Klines))
+	low30m := make([]float64, len(m30Klines))
 
 	for i, line := range m30Klines {
-		closes1H[i] = line.Close
-		highs1H[i] = line.High
-		lows1H[i] = line.Low
+		closes30m[i] = line.Close
+		highs30m[i] = line.High
+		low30m[i] = line.Low
 	}
 
 	// ------------------ 5. 构建TrendState ------------------
-	atr1H := talib.Atr(highs1H, lows1H, closes1H, 14)
-	adx1H := talib.Adx(highs1H, lows1H, closes1H, 14)
-	rsi1H := talib.Rsi(closes1H, 14)
+	atr1H := talib.Atr(closes30m, low30m, closes30m, 14)
+	adx1H := talib.Adx(highs30m, low30m, closes30m, 14)
+	rsi1H := talib.Rsi(closes30m, 14)
 
 	last := h1Klines[len(m30Klines)-1]
 

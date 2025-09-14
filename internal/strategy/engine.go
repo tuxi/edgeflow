@@ -144,6 +144,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	timeframeData, ok := se.kLineManager.Get(symbol, model2.Kline_15min)
 	if ok == false {
 		log.Printf("[StrategyEngine] 获取%s K线数据失败", symbol)
+		return
 	}
 
 	// 验证K线数据质量
