@@ -222,7 +222,7 @@ func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 			strengthOK := ctx.Sig.Strength >= 0.35 && ctx.Sig.Strength <= 0.75 // 放宽强度范围
 			momentumOK := op.isMomentumPositive(ctx.Trend.Slope)
 
-			if strengthOK && momentumOK {
+			if strengthOK || momentumOK {
 				// 第二层：价格位置条件（三选一，增加灵活性）
 				if ctx.Sig.Side == "buy" {
 					// 多头开仓条件（任意满足一个即可）
