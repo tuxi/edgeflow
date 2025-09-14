@@ -23,17 +23,18 @@ type StrategyEngine struct {
 	mu           sync.Mutex
 	isTesting    bool
 	tradeLimiter *signal.TradeLimiter
+	kLineManager *trend.KlineManager
 }
 
 // 你可以把这些参数抽成配置
 const (
-	checkInterval   = 6 * time.Minute  // 定时检查间隔5分钟
-	maxHoldDuration = 35 * time.Minute // 最长持仓时间
-	takeProfit      = 0.2              // 达到 +20% 强制止盈
-	stopLoss        = -0.15            // 达到 -15% 强制止损
+	checkInterval   = 6 * time.Minute   // 定时检查间隔5分钟
+	maxHoldDuration = 100 * time.Minute // 最长持仓时间
+	takeProfit      = 0.2               // 达到 +20% 强制止盈
+	stopLoss        = -0.15             // 达到 -15% 强制止损
 )
 
-func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator, ps *position.PositionService, isTesting bool) *StrategyEngine {
+func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator, ps *position.PositionService, kLineManager *trend.KlineManager) *StrategyEngine {
 	config := signal.TradeLimiterConfig{
 		MaxConsecutiveOpens: 2,                // 最多连续开仓2次
 		MaxConsecutiveAdds:  2,                // 最多连续加仓2次
@@ -47,7 +48,7 @@ func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator
 		signalGen:    signalGen,
 		ps:           ps,
 		Signals:      make(map[string]*trend.Signal),
-		isTesting:    isTesting,
+		kLineManager: kLineManager,
 		tradeLimiter: signal.NewTradeLimiter(config),
 	}
 	if se.isTesting {
@@ -64,10 +65,9 @@ func (se *StrategyEngine) Run(symbols []string) {
 
 	if se.Signals == nil {
 		se.Signals = map[string]*trend.Signal{}
-	}
-
-	for _, symbol := range symbols {
-		se.Signals[symbol] = nil
+		for _, symbol := range symbols {
+			se.Signals[symbol] = nil
+		}
 	}
 	defer se.mu.Unlock()
 
@@ -77,44 +77,10 @@ func (se *StrategyEngine) Run(symbols []string) {
 
 // 启动策略引擎
 func (se *StrategyEngine) runScheduled(symbols []string) {
-	// 先等待到下一个15分钟k线完成
-	se.waitForNext15MinComplete()
 
 	// ✅ 立即执行一次，确保不会错过刚结束的K线
 	log.Printf("5分钟K线完成，开始分析信号... 时间: %s", time.Now().Format("15:04:05"))
 	se.runAllSymbols(symbols)
-
-	// 创建15分钟定时器
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	log.Println("引擎策略启动，等待5分钟k线完成执行交易")
-
-	for {
-		select {
-		case <-ticker.C:
-			// 每15分钟执行一次，使用完整K线
-			log.Printf("5分钟K线完成，开始分析信号... 时间: %s", time.Now().Format("15:04:05"))
-			se.runAllSymbols(symbols)
-		}
-	}
-}
-
-// 等待下一个15分钟K线完成
-func (se *StrategyEngine) waitForNext15MinComplete() {
-	now := time.Now()
-
-	// 计算下一个15分钟整点时间
-	next15min := now.Truncate(5 * time.Minute).Add(5 * time.Minute)
-
-	// 再加30秒确保交易所数据更新完成
-	waitUntil := next15min.Add(30 * time.Second)
-
-	waitDuration := time.Until(waitUntil)
-	if waitDuration > 0 {
-		log.Printf("等待5分钟K线完成... 将在 %s 后开始交易", waitDuration.Round(time.Second))
-		time.Sleep(waitDuration)
-	}
 }
 
 // 为所有交易对运行策略
@@ -175,11 +141,9 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	log.Printf("开始分析 %s", symbol)
 
 	// 2.获取完整的K线数据（不包含未完成的K线）
-	timeframeData, err := se.ps.Exchange.GetKlineRecords(symbol, model2.Kline_5min, 210, 0, model.OrderTradeSwap, true)
-
-	if err != nil {
-		log.Printf("[StrategyEngine] 获取%s K线数据失败: %v", symbol, err)
-		return
+	timeframeData, ok := se.kLineManager.Get(symbol, model2.Kline_15min)
+	if ok == false {
+		log.Printf("[StrategyEngine] 获取%s K线数据失败", symbol)
 	}
 
 	// 验证K线数据质量

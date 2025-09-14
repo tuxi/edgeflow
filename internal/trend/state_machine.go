@@ -1,6 +1,8 @@
 package trend
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // 趋势状态机
 type StateMachine struct {

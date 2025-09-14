@@ -3,6 +3,7 @@ package signal
 import (
 	"edgeflow/internal/model"
 	"edgeflow/internal/trend"
+	"log"
 	"math"
 	"strconv"
 )
@@ -214,25 +215,42 @@ func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 		return ActIgnore
 	}
 
-	// 2. 更严格的开仓条件
+	// 2. 更宽松的开仓条件
 	if op.isSignalWithTrend(model.OrderSide(ctx.Sig.Side), ctx.Trend.Direction) {
 		if ctx.Pos == nil {
-			// 提高开仓信号强度要求，缩小区间
-			if ctx.Sig.Strength >= 0.4 && ctx.Sig.Strength <= 0.7 && op.isMomentumPositive(ctx.Trend.Slope) {
-				// 更严格的价格位置要求
+			// 第一层：基础条件
+			strengthOK := ctx.Sig.Strength >= 0.35 && ctx.Sig.Strength <= 0.75 // 放宽强度范围
+			momentumOK := op.isMomentumPositive(ctx.Trend.Slope)
+
+			if strengthOK && momentumOK {
+				// 第二层：价格位置条件（三选一，增加灵活性）
 				if ctx.Sig.Side == "buy" {
-					// 多头：价格要明显低于均线或RSI超卖
-					if ctx.Sig.Price <= ema30*0.995 || rsiValue < 35 {
+					// 多头开仓条件（任意满足一个即可）
+					condition1 := ctx.Sig.Price <= ema30*0.998 // 价格略低于EMA30
+					condition2 := rsiValue < 40                // RSI偏低
+					condition3 := ctx.Sig.Strength >= 0.6      // 或者信号强度很高
+
+					if condition1 || condition2 || condition3 {
+						log.Printf("[TRADE] %s 多头开仓 - 价格: %.2f, EMA30: %.2f, RSI: %.1f, 强度: %.3f",
+							ctx.Sig.Symbol, ctx.Sig.Price, ema30, rsiValue, ctx.Sig.Strength)
 						return ActOpen
 					}
 				}
+
 				if ctx.Sig.Side == "sell" {
-					// 空头：价格要明显高于均线或RSI超买
-					if ctx.Sig.Price >= ema30*1.005 || rsiValue > 65 {
+					// 空头开仓条件（任意满足一个即可）
+					condition1 := ctx.Sig.Price >= ema30*1.002 // 价格略高于EMA30
+					condition2 := rsiValue > 60                // RSI偏高
+					condition3 := ctx.Sig.Strength >= 0.6      // 或者信号强度很高
+
+					if condition1 || condition2 || condition3 {
+						log.Printf("[TRADE] %s 空头开仓 - 价格: %.2f, EMA30: %.2f, RSI: %.1f, 强度: %.3f",
+							ctx.Sig.Symbol, ctx.Sig.Price, ema30, rsiValue, ctx.Sig.Strength)
 						return ActOpen
 					}
 				}
 			}
+
 		} else {
 			// 3. 更保守的加仓逻辑
 			uplRatio, _ := strconv.ParseFloat(ctx.Pos.UplRatio, 64)

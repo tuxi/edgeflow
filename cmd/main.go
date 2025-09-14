@@ -100,19 +100,22 @@ func main() {
 	sm := signal.NewDefaultSignalManager(appCfg.Strategy)
 
 	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT", "HYPE/USDT", "LTC/USDT"}
-	//symbols = symbols[len(symbols)-1:]
-	tm := trend.NewManager(okxEx, symbols)
-	tm.StartUpdater()
+	klineManger := trend.NewKlineManager(okxEx, symbols)
+	tm := trend.NewManager(okxEx, symbols, klineManger)
+	// 注册指标
+	sg := trend.NewSignalGenerator()
+	engine := strategy.NewStrategyEngine(tm, sg, ps, klineManger)
+
+	klineManger.RunScheduled(func() {
+		tm.RunScheduled()
+		engine.Run(symbols)
+	})
+
+	go tm.RunScheduled()
 
 	// 策略分发器：根据级别分发不同的策略
 	dispatcher := strategy.NewStrategyDispatcher()
 	dispatcher.Register("tv-level", strategy.NewTVLevelStrategy(sm, ps, tm))
-
-	// 注册指标
-	sg := trend.NewSignalGenerator()
-
-	engine := strategy.NewStrategyEngine(tm, sg, ps, false)
-	engine.Run(symbols)
 
 	hander := webhook.NewWebhookHandler(dispatcher, rc, sm, ps)
 

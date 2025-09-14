@@ -3,7 +3,6 @@ package trend
 import (
 	"edgeflow/internal/exchange"
 	model2 "edgeflow/internal/model"
-	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -20,49 +19,67 @@ type Manager struct {
 	mu       sync.RWMutex
 	machines map[string]*StateMachine
 
-	ex      exchange.Exchange // OKX 客户端
-	symbols []string
-	cfg     TrendCfg
+	ex           exchange.Exchange // OKX 客户端
+	symbols      []string
+	cfg          TrendCfg
+	klineManager *KlineManager
 }
 
-func NewManager(ex exchange.Exchange, symbols []string) *Manager {
+func NewManager(ex exchange.Exchange, symbols []string, klineManager *KlineManager) *Manager {
 	return &Manager{
-		machines: make(map[string]*StateMachine),
-		ex:       ex,
-		symbols:  symbols,
-		cfg:      DefaultTrendCfg(),
+		machines:     make(map[string]*StateMachine),
+		ex:           ex,
+		symbols:      symbols,
+		cfg:          DefaultTrendCfg(),
+		klineManager: klineManager,
 	}
 }
 
-// 启动自动更新（定时拉取 K 线）
-func (tm *Manager) StartUpdater() {
+// 启动调度：独立于 15min 信号
+func (tm *Manager) RunScheduled() {
 
-	for _, symbol := range tm.symbols {
-		// 1. 初始化所有币种的状态机
-		tm.machines[symbol] = NewStateMachine(symbol)
-
-		_ = tm._updateSymbol(symbol) // 保证在定时器触发时，先执行一次趋势更新
-
-		// 2. 为每个币种开启独立的 goroutine 和定时器
-		go tm.startSymbolTimer(symbol)
-	}
-
+	// 更新趋势
+	tm.computeTrends(tm.symbols)
 }
 
-// 为每一个币单独开启一个定时器
-func (tm *Manager) startSymbolTimer(symbol string) {
-	ticker := time.NewTicker(15 * time.Minute)
-	for range ticker.C {
-		err := tm._updateSymbol(symbol)
-		if err != nil {
-			continue
-		}
-
-		time.Sleep(time.Second * 3)
-	}
+// 等待第一个对齐点（比如整30m）
+func (tm *Manager) waitForNextAlignment() {
+	now := time.Now()
+	next := now.Truncate(15 * time.Minute).Add(15 * time.Minute)
+	// 再加30秒确保交易所数据更新完成
+	waitUntil := next.Add(30 * time.Second)
+	sleep := time.Until(waitUntil)
+	log.Printf("[Trend] 等待到 %s 开始调度", next.Format("15:04:05"))
+	time.Sleep(sleep)
 }
 
-func (tm *Manager) _updateSymbol(symbol string) error {
+// 为所有交易对计算趋势
+func (tm *Manager) computeTrends(symbols []string) {
+	var wg sync.WaitGroup
+
+	// 并发处理多个交易对，但限制并发数
+	semaphore := make(chan struct{}, 3) // 最多3个并发
+
+	for _, symbol := range symbols {
+		wg.Add(1)
+		go func(sym string) {
+			defer wg.Done()
+
+			semaphore <- struct{}{}        // 获取信号量
+			defer func() { <-semaphore }() // 释放信号量
+
+			err := tm.computeTrend(sym)
+			if err != nil {
+				log.Printf("[Trend] %s 计算趋势失败: %+v", sym, err)
+			}
+		}(symbol)
+	}
+
+	wg.Wait()
+	log.Println("本轮信号分析完成")
+}
+
+func (tm *Manager) computeTrend(symbol string) error {
 	// 在自己的 Goroutine 中处理
 	state, slope, err := tm.GenerateTrend(symbol)
 	if err != nil {
@@ -71,7 +88,8 @@ func (tm *Manager) _updateSymbol(symbol string) error {
 	// 获取状态机
 	machine := tm.GetStateMachine(symbol)
 	if machine == nil {
-		return errors.New("无效的状态机")
+		// 初始化币种的状态机
+		tm.machines[symbol] = NewStateMachine(symbol)
 	}
 	machine.Update(state.Scores.FinalScore, state.Scores.TrendScore, slope)
 	fmt.Println(state.Description())
@@ -79,22 +97,19 @@ func (tm *Manager) _updateSymbol(symbol string) error {
 }
 
 func (tm *Manager) GenerateTrend(symbol string) (state *TrendState, finalSlope *float64, err error) {
-	// ------------------ 1. 拉取多周期K线 ------------------
-	m30Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_30min, 210, 0, model2.OrderTradeSwap, false)
-	if err != nil {
-		log.Printf("[TrendManager] fetch 30m kline error for %s: %v", symbol, err)
+	h4Klines, ok4 := tm.klineManager.Get(symbol, model.Kline_4h)
+	if ok4 == false {
+		log.Printf("[TrendManager] fetch 4hour kline error for %s", symbol)
 		return nil, nil, err
 	}
-
-	h1Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_1h, 210, 0, model2.OrderTradeSwap, false)
-	if err != nil {
-		log.Printf("[TrendManager] fetch 1hour kline error for %s: %v", symbol, err)
+	h1Klines, ok1 := tm.klineManager.Get(symbol, model.Kline_1h)
+	if ok1 == false {
+		log.Printf("[TrendManager] fetch 1hour kline error for %s", symbol)
 		return nil, nil, err
 	}
-
-	h4Klines, err := tm.ex.GetKlineRecords(symbol, model.Kline_4h, 210, 0, model2.OrderTradeSwap, false)
-	if err != nil {
-		log.Printf("[TrendManager] fetch 4hour kline error for %s: %v", symbol, err)
+	m30Klines, ok30 := tm.klineManager.Get(symbol, model.Kline_30min)
+	if ok30 == false {
+		log.Printf("[TrendManager] fetch 30m kline error for %s", symbol)
 		return nil, nil, err
 	}
 
@@ -258,7 +273,7 @@ func (tm *Manager) calcTrendScores(s4h, s1h, s30 float64) TrendScores {
 
 // 计算周期趋势分数 -3 ~ +3（方向化 + 抖动抑制）
 func (tm *Manager) ScoreForPeriod(klines []model2.Kline) (float64, string) {
-	if len(klines) < 210 {
+	if len(klines) < 200 {
 		return 0, ""
 	}
 
@@ -411,12 +426,17 @@ func (tm *Manager) save(state *TrendState) {
 	defer tm.mu.Unlock()
 
 	stateMachine := tm.machines[state.Symbol]
+	if stateMachine == nil {
+		// 初始化币种的状态机
+		stateMachine = NewStateMachine(state.Symbol)
+	}
 	newStates := append(stateMachine.StatesCaches, state)
 	if len(newStates) >= 14 {
 		// 移除索引0的元素
 		newStates = newStates[1:]
 	}
-	tm.machines[state.Symbol].StatesCaches = newStates
+	stateMachine.StatesCaches = newStates
+	tm.machines[state.Symbol] = stateMachine
 }
 
 // 获取某币种趋势
