@@ -290,7 +290,7 @@ func (ps *PositionService) ApplyAction(
 ) error {
 	switch action {
 	case signal.ActIgnore:
-		fmt.Printf("[PositionService.ApplyAction: 忽略信号%v]\n", sig.Symbol)
+		fmt.Printf("[PositionService.ApplyAction %v: 忽略信号方向: %v]\n", sig.Symbol, sig.Side)
 		return nil
 	case signal.ActOpen:
 		return ps.Open(ctx, sig, 1.5, 1.6, 0.21*0.3) // 开仓把资金控制小一些
