@@ -193,9 +193,9 @@ func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 		}
 
 		// 更早的部分止盈
-		if uplRatio > 0.08 { // 从0.18改为0.08
-			return ActReduce
-		}
+		//if uplRatio > 0.08 { // 从0.18改为0.08
+		//	return ActReduce
+		//}
 
 		// 更严格的反转信号处理
 		if ctx.Sig.IsReversal && ctx.Sig.ReversalStrength >= 0.5 {

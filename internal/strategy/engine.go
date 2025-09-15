@@ -108,7 +108,7 @@ func (se *StrategyEngine) runAllSymbols(symbols []string) {
 func (se *StrategyEngine) _run() {
 	for k, _ := range se.Signals {
 		se.runForSymbol(k)
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 5)
 	}
 }
 
@@ -190,6 +190,8 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 		if !canExecute {
 			log.Printf("[StrategyEngine] %s 加仓被限制器阻止", symbol)
 		}
+	case signal.ActIgnore:
+		fmt.Printf("[StrategyEngine.run %v: 忽略信号方向: %v  强度:%.2f 趋势方向:%v]\n", sig15.Symbol, sig15.Side, sig15.Strength, ctx.Trend.Direction.Desc())
 	default:
 		canExecute = true // 其他动作不受限制
 	}
