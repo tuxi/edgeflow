@@ -28,10 +28,10 @@ type StrategyEngine struct {
 
 // 你可以把这些参数抽成配置
 const (
-	checkInterval   = 6 * time.Minute   // 定时检查间隔5分钟
-	maxHoldDuration = 100 * time.Minute // 最长持仓时间
-	takeProfit      = 0.2               // 达到 +20% 强制止盈
-	stopLoss        = -0.15             // 达到 -15% 强制止损
+	checkInterval   = 15 * time.Minute // 定时检查间隔15分钟
+	maxHoldDuration = 5 * time.Hour    // 最长持仓时间
+	takeProfit      = 0.2              // 达到 +20% 强制止盈
+	stopLoss        = -0.15            // 达到 -15% 强制止损
 )
 
 func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator, ps *position.PositionService, kLineManager *trend.KlineManager) *StrategyEngine {
@@ -209,12 +209,13 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 			leverage = 20
 		}
 	}
+
 	sig := signal.Signal{
 		Strategy:  "auto-Strategy-Engine",
 		Symbol:    ctx.Sig.Symbol,
 		Price:     ctx.Sig.Price,
 		Side:      ctx.Sig.Side,
-		OrderType: "market",
+		OrderType: string(model.Limit),
 		TradeType: "swap",
 		Comment:   fmt.Sprintf("15min_complete_kline_action_%s", action), // 标记使用完整K线
 		Leverage:  int(leverage),

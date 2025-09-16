@@ -166,7 +166,7 @@ func DefaultTrendCfg() TrendCfg {
 
 type Signal struct {
 	Symbol    string    `json:"symbol"`    // BTC/USDT
-	Price     float64   `json:"price"`     // 当前价格
+	Price     float64   `json:"price"`     // 进场价格价格
 	Side      string    `json:"side"`      // buy / sell
 	Timestamp time.Time `json:"timestamp"` // 触发时间
 	/*

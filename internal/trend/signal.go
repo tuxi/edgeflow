@@ -88,10 +88,25 @@ func (sg *SignalGenerator) Generate(klines []model.Kline, symbol string) (*Signa
 
 	// 当所有指标（EMA, MACD, RSI, ADX）处理完之后
 
+	// 计算波动
+	// 计算最近 14 根 15分钟K线的atr值
+	atr := CalcATR(klines, 14)
+	// 这里计算挂单价格，可以这样：
+	entryPrice := last.Close
+	price := last.Close
+	if finalAction == "buy" {
+		price = entryPrice * (1 - 0.2*atr/entryPrice) // 压低一点，留20%的ATR空间
+	} else if finalAction == "sell" {
+		// 开空时（抬高一点卖出）
+		price = entryPrice * (1 + 0.2*atr/entryPrice)
+	}
+
+	values["close"] = last.Close
+
 	// 步骤 1: 生成基于所有指标的“主要信号”
 	sig := &Signal{
 		Symbol:     symbol,
-		Price:      last.Close,
+		Price:      price,
 		Side:       finalAction, // finalAction 是 EMA/MACD/RSI/ADX 综合出的主要方向
 		Strength:   strength,    // strength 是 EMA/MACD/RSI/ADX 综合出的主要强度
 		IsReversal: false,       // 默认不是反转信号
@@ -196,4 +211,33 @@ func (sg *SignalGenerator) Generate(klines []model.Kline, symbol string) (*Signa
 	//}
 
 	//return sig, nil
+}
+
+// CalcATR 计算给定K线序列的ATR值
+// 参数 klines: K线数据（按时间升序排列）
+// 参数 period: ATR周期，比如14
+func CalcATR(klines []model.Kline, period int) float64 {
+	if len(klines) < period+1 {
+		return 0 // 数据不够
+	}
+
+	trs := make([]float64, 0, len(klines)-1)
+
+	for i := 1; i < len(klines); i++ {
+		high := klines[i].High
+		low := klines[i].Low
+		prevClose := klines[i-1].Close
+
+		// True Range = max(High-Low, |High-PrevClose|, |Low-PrevClose|)
+		tr := math.Max(high-low, math.Max(math.Abs(high-prevClose), math.Abs(low-prevClose)))
+		trs = append(trs, tr)
+	}
+
+	// 取最近 period 根的均值 (简单平均，或可改成EMA)
+	sum := 0.0
+	for i := len(trs) - period; i < len(trs); i++ {
+		sum += trs[i]
+	}
+
+	return sum / float64(period)
 }

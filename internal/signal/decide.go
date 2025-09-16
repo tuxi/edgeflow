@@ -183,19 +183,14 @@ func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 		uplRatio, _ := strconv.ParseFloat(ctx.Pos.UplRatio, 64)
 
 		// 更严格的止损：合约交易3-5%止损更合理
-		if uplRatio < -0.05 { // 从-0.10改为-0.05
+		if uplRatio < -0.05 && ctx.Sig.Strength <= 0.3 { // 从-0.10改为-0.05
 			return ActClose
 		}
 
 		// 更早的止盈：避免盈利回吐
-		if uplRatio > 0.15 { // 从0.30改为0.15
+		if uplRatio > 0.15 && ctx.Sig.Strength <= 0.3 { // 从0.30改为0.15
 			return ActClose
 		}
-
-		// 更早的部分止盈
-		//if uplRatio > 0.08 { // 从0.18改为0.08
-		//	return ActReduce
-		//}
 
 		// 更严格的反转信号处理
 		if ctx.Sig.IsReversal && ctx.Sig.ReversalStrength >= 0.5 {
@@ -223,52 +218,62 @@ func (de *DecisionEngine) handleTrend(op TrendOperator) Action {
 			momentumOK := op.isMomentumPositive(ctx.Trend.Slope)
 
 			if strengthOK || (momentumOK && ctx.Sig.Strength >= 0.3) {
-				// 第二层：价格位置条件（三选一，增加灵活性）
 				if ctx.Sig.Side == "buy" {
-					// 多头开仓条件（任意满足一个即可）
-					condition1 := ctx.Sig.Price <= ema30*0.998 // 价格略低于EMA30
-					condition2 := rsiValue < 40                // RSI偏低
-					condition3 := ctx.Sig.Strength >= 0.6      // 或者信号强度很高
-
-					if condition1 || condition2 || condition3 {
-						log.Printf("[TRADE] %s 多头开仓 - 价格: %.2f, EMA30: %.2f, RSI: %.1f, 强度: %.3f",
-							ctx.Sig.Symbol, ctx.Sig.Price, ema30, rsiValue, ctx.Sig.Strength)
-						return ActOpen
-					}
+					log.Printf("[TRADE] %s 多头开仓 - 价格: %.2f, EMA30: %.2f, RSI: %.1f, 强度: %.3f",
+						ctx.Sig.Symbol, ctx.Sig.Price, ema30, rsiValue, ctx.Sig.Strength)
+					return ActOpen
 				}
 
 				if ctx.Sig.Side == "sell" {
-					// 空头开仓条件（任意满足一个即可）
-					condition1 := ctx.Sig.Price >= ema30*1.002 // 价格略高于EMA30
-					condition2 := rsiValue > 60                // RSI偏高
-					condition3 := ctx.Sig.Strength >= 0.6      // 或者信号强度很高
-
-					if condition1 || condition2 || condition3 {
-						log.Printf("[TRADE] %s 空头开仓 - 价格: %.2f, EMA30: %.2f, RSI: %.1f, 强度: %.3f",
-							ctx.Sig.Symbol, ctx.Sig.Price, ema30, rsiValue, ctx.Sig.Strength)
-						return ActOpen
-					}
+					log.Printf("[TRADE] %s 空头开仓 - 价格: %.2f, EMA30: %.2f, RSI: %.1f, 强度: %.3f",
+						ctx.Sig.Symbol, ctx.Sig.Price, ema30, rsiValue, ctx.Sig.Strength)
+					return ActOpen
 				}
+
+				// 第二层：价格位置条件（三选一，增加灵活性）
+				//if ctx.Sig.Side == "buy" {
+				//	// 多头开仓条件（任意满足一个即可）
+				//	condition1 := ctx.Sig.Price <= ema30*0.998 // 价格略低于EMA30
+				//	condition2 := rsiValue < 40                // RSI偏低
+				//	condition3 := ctx.Sig.Strength >= 0.6      // 或者信号强度很高
+				//
+				//	if condition1 || condition2 || condition3 {
+				//		log.Printf("[TRADE] %s 多头开仓 - 价格: %.2f, EMA30: %.2f, RSI: %.1f, 强度: %.3f",
+				//			ctx.Sig.Symbol, ctx.Sig.Price, ema30, rsiValue, ctx.Sig.Strength)
+				//		return ActOpen
+				//	}
+				//}
+				//
+				//if ctx.Sig.Side == "sell" {
+				//	// 空头开仓条件（任意满足一个即可）
+				//	condition1 := ctx.Sig.Price >= ema30*1.002 // 价格略高于EMA30
+				//	condition2 := rsiValue > 60                // RSI偏高
+				//	condition3 := ctx.Sig.Strength >= 0.6      // 或者信号强度很高
+				//
+				//	if condition1 || condition2 || condition3 {
+				//		log.Printf("[TRADE] %s 空头开仓 - 价格: %.2f, EMA30: %.2f, RSI: %.1f, 强度: %.3f",
+				//			ctx.Sig.Symbol, ctx.Sig.Price, ema30, rsiValue, ctx.Sig.Strength)
+				//		return ActOpen
+				//	}
+				//}
 			}
 
 		} else {
 			// 3. 更保守的加仓逻辑
 			uplRatio, _ := strconv.ParseFloat(ctx.Pos.UplRatio, 64)
 
-			// 只在盈利状态下考虑加仓
-			if uplRatio > 0.01 {
-				// 提高加仓信号强度要求
-				if ctx.Sig.Strength > 0.5 && op.isMomentumPositive(ctx.Trend.Slope) {
-					// 回调加仓：要求更明显的回调
+			// 允许小幅亏损或盈利状态下加仓
+			if uplRatio > -0.05 {
+				if ctx.Sig.Strength > 0.35 && op.isMomentumPositive(ctx.Trend.Slope) {
 					if ctx.LastSig != nil && ctx.LastSig.Price > 0 {
 						priceChangeRatio := math.Abs(ctx.LastSig.Price-ctx.Sig.Price) / ctx.LastSig.Price
-
-						// 回调幅度要在0.5%-2%之间（避免噪音和大跌）
-						if priceChangeRatio >= 0.005 && priceChangeRatio <= 0.02 {
-							if !op.isPriceHigher(ctx.Sig.Price, ctx.LastSig.Price) {
-								return ActAdd
-							}
+						// 放宽回调幅度
+						if priceChangeRatio >= 0.003 && priceChangeRatio <= 0.03 {
+							return ActAdd
 						}
+					} else {
+						// 没有上一次信号，也可以尝试加仓
+						return ActAdd
 					}
 				}
 			}
