@@ -6,6 +6,6 @@ import (
 )
 
 func TestWebhookHandler_HandleWebhook(t *testing.T) {
-	str := FormatTVSymbol("BTC/USDC")
+	str := FormatSymbol("BTC/USDC")
 	fmt.Println(str) // BTC/USDC
 }

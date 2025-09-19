@@ -1,4 +1,4 @@
-package strategy
+package kline
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"edgeflow/internal/position"
 	"edgeflow/internal/signal"
 	"edgeflow/internal/trend"
+	"edgeflow/pkg/utils"
 	"fmt"
 	model2 "github.com/nntaoli-project/goex/v2/model"
 	"strconv"
@@ -15,7 +16,9 @@ import (
 	"time"
 )
 
-type StrategyEngine struct {
+// k线策略
+
+type SignalStrategy struct {
 	trendMgr     *trend.Manager
 	signalGen    *trend.SignalGenerator
 	ps           *position.PositionService
@@ -34,7 +37,7 @@ const (
 	stopLoss        = -0.15            // 达到 -15% 强制止损
 )
 
-func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator, ps *position.PositionService, kLineManager *trend.KlineManager) *StrategyEngine {
+func NewSignalStrategy(trendMgr *trend.Manager, ps *position.PositionService, kLineManager *trend.KlineManager) *SignalStrategy {
 	config := signal.TradeLimiterConfig{
 		MaxConsecutiveOpens: 2,                // 最多连续开仓2次
 		MaxConsecutiveAdds:  2,                // 最多连续加仓2次
@@ -43,9 +46,9 @@ func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator
 		MaxOpensPerDay:      8,                // 每日最多开仓6次
 		MaxAddsPerDay:       16,               // 每日最多加仓10次
 	}
-	se := &StrategyEngine{
+	se := &SignalStrategy{
 		trendMgr:     trendMgr,
-		signalGen:    signalGen,
+		signalGen:    trend.NewSignalGenerator(),
 		ps:           ps,
 		Signals:      make(map[string]*trend.Signal),
 		kLineManager: kLineManager,
@@ -59,24 +62,28 @@ func NewStrategyEngine(trendMgr *trend.Manager, signalGen *trend.SignalGenerator
 	return se
 }
 
-func (se *StrategyEngine) Run(symbols []string) {
+func (se *SignalStrategy) Run(symbols []string) {
+	newSymbols := make([]string, len(symbols))
+	for i, symbol := range symbols {
+		newSymbols[i] = utils.FormatSymbol(symbol)
+	}
 	// 初始化信号存储
 	se.mu.Lock()
 
 	if se.Signals == nil {
 		se.Signals = map[string]*trend.Signal{}
-		for _, symbol := range symbols {
+		for _, symbol := range newSymbols {
 			se.Signals[symbol] = nil
 		}
 	}
 	defer se.mu.Unlock()
 
 	// 启动策略引擎
-	go se.runScheduled(symbols)
+	go se.runScheduled(newSymbols)
 }
 
 // 启动策略引擎
-func (se *StrategyEngine) runScheduled(symbols []string) {
+func (se *SignalStrategy) runScheduled(symbols []string) {
 
 	// ✅ 立即执行一次，确保不会错过刚结束的K线
 	log.Printf("5分钟K线完成，开始分析信号... 时间: %s", time.Now().Format("15:04:05"))
@@ -84,7 +91,7 @@ func (se *StrategyEngine) runScheduled(symbols []string) {
 }
 
 // 为所有交易对运行策略
-func (se *StrategyEngine) runAllSymbols(symbols []string) {
+func (se *SignalStrategy) runAllSymbols(symbols []string) {
 	var wg sync.WaitGroup
 
 	// 并发处理多个交易对，但限制并发数
@@ -105,7 +112,7 @@ func (se *StrategyEngine) runAllSymbols(symbols []string) {
 	wg.Wait()
 	log.Println("本轮信号分析完成")
 }
-func (se *StrategyEngine) _run() {
+func (se *SignalStrategy) _run() {
 	for k, _ := range se.Signals {
 		se.runForSymbol(k)
 		time.Sleep(time.Second * 5)
@@ -113,7 +120,7 @@ func (se *StrategyEngine) _run() {
 }
 
 // 为单个交易对运行策略
-func (se *StrategyEngine) runForSymbol(symbol string) {
+func (se *SignalStrategy) runForSymbol(symbol string) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("交易对 %s 处理出错: %v", symbol, r)
@@ -123,7 +130,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	// 0.获取交易所仓位
 	long, short, err := se.ps.Exchange.GetPosition(symbol, model.OrderTradeSwap)
 	if err != nil {
-		log.Printf("[StrategyEngine.runForSymbol] 获取%s仓位失败: %v", symbol, err)
+		log.Printf("[SignalStrategy.runForSymbol] 获取%s仓位失败: %v", symbol, err)
 		return
 	}
 	pos := long
@@ -134,7 +141,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	// 1. 获取大趋势
 	state := se.trendMgr.GetState(symbol)
 	if state == nil {
-		log.Printf("[StrategyEngine] 获取%v大趋势失败\n", symbol)
+		log.Printf("[SignalStrategy] 获取%v大趋势失败\n", symbol)
 		return
 	}
 
@@ -143,24 +150,24 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	// 2.获取完整的K线数据（不包含未完成的K线）
 	timeframeData, ok := se.kLineManager.Get(symbol, model2.Kline_15min)
 	if ok == false {
-		log.Printf("[StrategyEngine] 获取%s K线数据失败", symbol)
+		log.Printf("[SignalStrategy] 获取%s K线数据失败", symbol)
 		return
 	}
 
 	// 验证K线数据质量
 	if len(timeframeData) < 200 {
-		log.Printf("[StrategyEngine] %s K线数据不足，需要至少200根，当前:%d", symbol, len(timeframeData))
+		log.Printf("[SignalStrategy] %s K线数据不足，需要至少200根，当前:%d", symbol, len(timeframeData))
 		return
 	}
 
 	// 3.分析信号
 	sig15, err := se.signalGen.Generate(timeframeData, symbol)
 	if err != nil {
-		log.Printf("[StrategyEngine] %s 信号生成失败: %v", symbol, err)
+		log.Printf("[SignalStrategy] %s 信号生成失败: %v", symbol, err)
 		return
 	}
 	if sig15 == nil {
-		log.Printf("[StrategyEngine] %s 未生成有效信号", symbol)
+		log.Printf("[SignalStrategy] %s 未生成有效信号", symbol)
 		return
 	}
 
@@ -183,15 +190,15 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	case signal.ActOpen:
 		canExecute = se.tradeLimiter.CanOpen(symbol)
 		if !canExecute {
-			log.Printf("[StrategyEngine] %s 开仓被限制器阻止", symbol)
+			log.Printf("[SignalStrategy] %s 开仓被限制器阻止", symbol)
 		}
 	case signal.ActAdd:
 		canExecute = se.tradeLimiter.CanAdd(symbol)
 		if !canExecute {
-			log.Printf("[StrategyEngine] %s 加仓被限制器阻止", symbol)
+			log.Printf("[SignalStrategy] %s 加仓被限制器阻止", symbol)
 		}
 	case signal.ActIgnore:
-		fmt.Printf("[StrategyEngine.run %v: 忽略信号方向: %v  强度:%.2f 趋势方向:%v]\n", sig15.Symbol, sig15.Side, sig15.Strength, ctx.Trend.Direction.Desc())
+		fmt.Printf("[SignalStrategy.run %v: 忽略信号方向: %v  强度:%.2f 趋势方向:%v]\n", sig15.Symbol, sig15.Side, sig15.Strength, ctx.Trend.Direction.Desc())
 	default:
 		canExecute = true // 其他动作不受限制
 	}
@@ -217,7 +224,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 		Side:      ctx.Sig.Side,
 		OrderType: string(model.Limit),
 		TradeType: "swap",
-		Comment:   fmt.Sprintf("15min_complete_kline_action_%s", action), // 标记使用完整K线
+		Comment:   fmt.Sprintf("15min_complete_kline_action_%v", action), // 标记使用完整K线
 		Leverage:  int(leverage),
 		Level:     2,
 		Meta:      nil,
@@ -235,7 +242,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 	// 5.执行交易逻辑
 	err = se.ps.ApplyAction(context.Background(), action, sig, pos)
 	if err != nil {
-		log.Printf("[StrategyEngine] 执行 %s 交易失败: %v", symbol, err)
+		log.Printf("[SignalStrategy] 执行 %s 交易失败: %v", symbol, err)
 	} else {
 		switch action {
 		case signal.ActOpen:
@@ -249,7 +256,7 @@ func (se *StrategyEngine) runForSymbol(symbol string) {
 }
 
 // 定时检查盈利情况，防止系统的止盈止损太高未被触发
-func (tv *StrategyEngine) startPnLWatcher() {
+func (tv *SignalStrategy) startPnLWatcher() {
 	ticker := time.NewTicker(checkInterval)
 
 	go func() {
@@ -259,7 +266,7 @@ func (tv *StrategyEngine) startPnLWatcher() {
 	}()
 }
 
-func (tv *StrategyEngine) checkPnL() {
+func (tv *SignalStrategy) checkPnL() {
 
 	tv.mu.Lock()
 	defer tv.mu.Unlock()
@@ -307,7 +314,7 @@ func (tv *StrategyEngine) checkPnL() {
 }
 
 // 等K线完成再交易
-func (t *StrategyEngine) waitForKlineCompletion() {
+func (t *SignalStrategy) waitForKlineCompletion() {
 	now := time.Now()
 
 	// 计算下一个15分钟K线完成时间

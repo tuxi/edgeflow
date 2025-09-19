@@ -3,6 +3,7 @@ package trend
 import (
 	"edgeflow/internal/exchange"
 	model2 "edgeflow/internal/model"
+	"edgeflow/pkg/utils"
 	"errors"
 	"fmt"
 	"log"
@@ -27,10 +28,14 @@ type Manager struct {
 }
 
 func NewManager(ex exchange.Exchange, symbols []string, klineManager *KlineManager) *Manager {
+	newSymbols := make([]string, len(symbols))
+	for i, symbol := range symbols {
+		newSymbols[i] = utils.FormatSymbol(symbol)
+	}
 	return &Manager{
 		machines:     make(map[string]*StateMachine),
 		ex:           ex,
-		symbols:      symbols,
+		symbols:      newSymbols,
 		cfg:          DefaultTrendCfg(),
 		klineManager: klineManager,
 	}
@@ -152,7 +157,7 @@ func (tm *Manager) GenerateTrend(symbol string) (state *TrendState, finalSlope *
 	adx1H := talib.Adx(highs30m, low30m, closes30m, 14)
 	rsi1H := talib.Rsi(closes30m, 14)
 
-	last := h1Klines[len(m30Klines)-1]
+	last := m30Klines[len(m30Klines)-1]
 
 	state = &TrendState{
 		Symbol:    symbol,
@@ -448,6 +453,9 @@ func (tm *Manager) GetState(symbol string) *TrendState {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	machine := tm.machines[symbol]
+	if machine == nil {
+		return nil
+	}
 	states := machine.StatesCaches
 	if len(states) > 0 {
 		// 返回最新的

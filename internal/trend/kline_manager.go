@@ -3,6 +3,7 @@ package trend
 import (
 	"edgeflow/internal/exchange"
 	"edgeflow/internal/model"
+	"edgeflow/pkg/utils"
 	model2 "github.com/nntaoli-project/goex/v2/model"
 	"log"
 	"sync"
@@ -17,11 +18,16 @@ type KlineManager struct {
 }
 
 func NewKlineManager(ex exchange.Exchange, symbols []string) *KlineManager {
+	newSymbols := make([]string, len(symbols))
+	for i, symbol := range symbols {
+		newSymbols[i] = utils.FormatSymbol(symbol)
+	}
+
 	return &KlineManager{
 		cache:   make(map[string]map[model2.KlinePeriod][]model.Kline),
 		mu:      sync.RWMutex{},
 		ex:      ex,
-		symbols: symbols,
+		symbols: newSymbols,
 	}
 }
 
@@ -122,7 +128,7 @@ func (tm *KlineManager) updateKlines(symbols []string, timeframe model2.KlinePer
 		}
 		tm.cache[symbol][timeframe] = kLines
 		tm.mu.Unlock()
-		log.Printf("[Trend] %s 更新 %s K线，条数=%d", symbol, timeframe, len(kLines))
+		//log.Printf("[Trend] %s 更新 %s K线，条数=%d", symbol, timeframe, len(kLines))
 	}
 	return nil
 }

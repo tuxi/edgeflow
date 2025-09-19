@@ -9,13 +9,13 @@ import (
 	"edgeflow/internal/service"
 	"edgeflow/internal/signal"
 	"edgeflow/internal/strategy"
+	"edgeflow/pkg/utils"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"strings"
 )
 
 type WebhookHandler struct {
@@ -79,7 +79,7 @@ func (wh *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Invalid JSON empty symbol", http.StatusBadRequest)
 		return
 	}
-	sig.Symbol = FormatTVSymbol(sig.Symbol)
+	sig.Symbol = utils.FormatSymbol(sig.Symbol)
 	if sig.Strategy == "" {
 		http.Error(w, "Invalid JSON empty strategy", http.StatusBadRequest)
 		return
@@ -130,23 +130,4 @@ func verifySignature(body []byte, signatureHeader string) bool {
 		return false
 	}
 	return hmac.Equal(providedMAC, expectedMAC)
-}
-
-// FormatTVSymbol 将 TradingView ticker 转换为服务端可识别的 symbol
-func FormatTVSymbol(tvSymbol string) string {
-	// 后缀 quote 币种列表
-	quotes := []string{"USDT", "USD", "USDC"}
-
-	for _, q := range quotes {
-		if strings.HasSuffix(tvSymbol, q) {
-			base := strings.TrimSuffix(tvSymbol, q)
-
-			if strings.HasSuffix(base, "/") {
-				return base + q
-			}
-			return base + "/" + q
-		}
-	}
-	// 没匹配到就返回原始值
-	return tvSymbol
 }

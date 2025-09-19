@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,21 @@ func Retry(retries int, delay time.Duration, backoff bool, fn func() error) erro
 	return fmt.Errorf("after %d attempts, last error: %w", retries, err)
 }
 
-/*
+// FormatSymbol 将 TradingView ticker 转换为服务端可识别的 symbol
+func FormatSymbol(tvSymbol string) string {
+	// 后缀 quote 币种列表
+	quotes := []string{"USDT", "USD", "USDC"}
 
- */
+	for _, q := range quotes {
+		if strings.HasSuffix(tvSymbol, q) {
+			base := strings.TrimSuffix(tvSymbol, q)
+
+			if strings.HasSuffix(base, "/") {
+				return base + q
+			}
+			return base + "/" + q
+		}
+	}
+	// 没匹配到就返回原始值
+	return tvSymbol
+}
