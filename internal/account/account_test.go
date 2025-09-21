@@ -2,7 +2,7 @@ package account
 
 import (
 	"context"
-	"edgeflow/internal/config"
+	"edgeflow/conf"
 	"github.com/nntaoli-project/goex/v2"
 	"github.com/nntaoli-project/goex/v2/options"
 	"log"
@@ -33,12 +33,12 @@ func TestAccountService_GetBalance(t *testing.T) {
 	log.Printf("USDT 可用余额: %.6f", avail.Available)
 }
 
-func loadOkxConf() (*config.Okx, error) {
+func loadOkxConf() (*conf.Okx, error) {
 	// 加载配置文件
-	err := config.LoadConfig("../../conf/config.yaml")
+	err := conf.LoadConfig("../../conf/config.yaml")
 	if err != nil {
 		return nil, err
 	}
 
-	return &config.AppConfig.Okx, nil
+	return &conf.AppConfig.Okx, nil
 }

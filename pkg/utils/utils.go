@@ -2,6 +2,8 @@ package utils
 
 import (
 	"fmt"
+	"github.com/spf13/cast"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -44,4 +46,10 @@ func FormatSymbol(tvSymbol string) string {
 	}
 	// 没匹配到就返回原始值
 	return tvSymbol
+}
+
+// FloatToString 保留的小数点位数,去除末尾多余的0(StripTrailingZeros)
+func FloatToString(v float64, n int) string {
+	ret := strconv.FormatFloat(v, 'f', n, 64)
+	return strconv.FormatFloat(cast.ToFloat64(ret), 'f', -1, 64) //StripTrailingZeros
 }

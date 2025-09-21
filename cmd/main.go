@@ -1,21 +1,13 @@
 package main
 
 import (
-	"edgeflow/internal/config"
-	"edgeflow/internal/dao"
-	"edgeflow/internal/exchange"
-	"edgeflow/internal/position"
-	"edgeflow/internal/service"
-	"edgeflow/internal/signal"
-	"edgeflow/internal/strategy"
-	"edgeflow/internal/strategy/hype"
-	"edgeflow/internal/strategy/tradingview"
-	"edgeflow/internal/trend"
-	"edgeflow/internal/webhook"
+	"edgeflow/cmd/edgeflow"
+	"edgeflow/conf"
+	"edgeflow/internal/middleware"
 	"edgeflow/pkg/db"
+	"edgeflow/pkg/logger"
 	"github.com/nntaoli-project/goex/v2"
 	"log"
-	"net/http"
 	"os"
 )
 
@@ -55,12 +47,13 @@ curl -X POST http://localhost:12180/webhook \
 func main() {
 
 	// 加载配置文件
-	err := config.LoadConfig("conf/config.yaml")
+	err := conf.LoadConfig("conf/config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
-
-	if config.AppConfig.Simulated {
+	appCfg := conf.AppConfig
+	logger.InitLogger(&appCfg.Log, appCfg.AppName)
+	if conf.AppConfig.Simulated {
 		// 设置为模拟环境
 		goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1")
 	}
@@ -71,11 +64,11 @@ func main() {
 	dbPort := os.Getenv("DB_PORT")
 	dbName := os.Getenv("DB_NAME")
 	if dbUser == "" || dbPass == "" || dbHost == "" {
-		dbUser = config.AppConfig.Username
-		dbPass = config.AppConfig.Db.Password
-		dbHost = config.AppConfig.Host
-		dbPort = config.AppConfig.Port
-		dbName = config.AppConfig.DbName
+		dbUser = conf.AppConfig.Username
+		dbPass = conf.AppConfig.Db.Password
+		dbHost = conf.AppConfig.Host
+		dbPort = conf.AppConfig.Port
+		dbName = conf.AppConfig.DbName
 	}
 
 	// 初始化数据库
@@ -88,48 +81,20 @@ func main() {
 		DBName:    dbName,
 		ParseTime: true,
 	})
-	d := dao.NewOrderDao(datasource)
-	rc := service.NewRiskService(d)
 
-	log.Println("WEBHOOK_SECRET = ", config.AppConfig.Webhook.Secret)
+	// 创建并启动服务
+	srv := api.NewServer(&appCfg)
+	srv.RegisterOnShutdown(func() {
+		if datasource != nil {
+			// 关闭主库链接
+			m, err := datasource.DB()
+			if err != nil {
+				_ = m.Close()
+			}
+		}
 
-	appCfg := config.AppConfig
-	okxEx := exchange.NewOkxExchange(appCfg.Okx.ApiKey, appCfg.Okx.SecretKey, appCfg.Okx.Password)
-
-	// 仓位管理服务
-	ps := position.NewPositionService(okxEx, d)
-	// 信号管理
-	sm := signal.NewDefaultSignalManager(appCfg.Strategy)
-
-	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT", "HYPE/USDT", "LTC/USDT"}
-	klineManger := trend.NewKlineManager(okxEx, symbols)
-	tm := trend.NewManager(okxEx, symbols, klineManger)
-
-	// k线策略
-	//engine := kline.NewSignalStrategy(tm, ps, klineManger)
-
-	klineManger.RunScheduled(func() {
-		tm.RunScheduled()
-		//engine.Run(symbols)
 	})
+	srvRouter := api.InitRouter(datasource)
 
-	// hype跟单策略
-	h := hype.NewHypeTrackStrategy(ps, tm)
-	h.Run()
-
-	go tm.RunScheduled()
-
-	// 策略分发器：根据级别分发不同的策略
-	dispatcher := strategy.NewStrategyDispatcher()
-	dispatcher.Register("tv-level", tradingview.NewTVLevelStrategy(sm, ps, tm))
-
-	hander := webhook.NewWebhookHandler(dispatcher, rc, sm, ps)
-
-	http.HandleFunc("/webhook", hander.HandleWebhook)
-
-	addr := ":12180"
-	log.Printf("EdgeFlow Webhook server listening on %s\n", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Server failed: %v", err)
-	}
+	srv.Run(middleware.NewMiddleware(), srvRouter)
 }

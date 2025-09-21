@@ -4,6 +4,7 @@ import (
 	"context"
 	"edgeflow/internal/account"
 	model2 "edgeflow/internal/model"
+	"edgeflow/pkg/utils"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -136,6 +137,10 @@ func (e *OkxSwap) PlaceOrder(ctx context.Context, order *model2.Order) (*model2.
 		// 0.98 是最大仓位的容差，防止价差导致余额不足
 		sz := CalcSzWithLeverage(acc.Available*order.QuantityPct*0.98, order.Price, pair.ContractVal, leverage)
 		order.Quantity = sz
+		szStr := utils.FloatToString(sz, pair.QtyPrecision)
+		if szStr == "0" {
+			return nil, errors.New(fmt.Sprintf("您的账户余额不足，Quantity:%v 不足以开仓", sz))
+		}
 	}
 	order.MgnMode = mgnMode
 

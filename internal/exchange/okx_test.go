@@ -2,7 +2,7 @@ package exchange
 
 import (
 	"context"
-	"edgeflow/internal/config"
+	"edgeflow/conf"
 	"edgeflow/internal/exchange/okx"
 	"edgeflow/internal/model"
 	"fmt"
@@ -11,14 +11,14 @@ import (
 	"testing"
 )
 
-func loadOkxConf() (*config.Okx, error) {
+func loadOkxConf() (*conf.Okx, error) {
 	// 加载配置文件
-	err := config.LoadConfig("../../conf/config.yaml")
+	err := conf.LoadConfig("../../conf/config.yaml")
 	if err != nil {
 		return nil, err
 	}
 
-	return &config.AppConfig.Okx, nil
+	return &conf.AppConfig.Okx, nil
 }
 
 func TestOkxExchange_GetLastPrice(t *testing.T) {
@@ -93,7 +93,7 @@ func TestOkxExchange_PlaceOrderSpot(t *testing.T) {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
-	if config.AppConfig.Simulated {
+	if conf.AppConfig.Simulated {
 		goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
 	}
 	okxEx := NewOkxExchange(okxConf.ApiKey, okxConf.SecretKey, okxConf.Password)
@@ -143,7 +143,7 @@ func TestOkxExchange_PlaceOrderSwap(t *testing.T) {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	if config.AppConfig.Simulated {
+	if conf.AppConfig.Simulated {
 		goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1") // 设置为模拟环境
 	}
 

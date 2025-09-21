@@ -1,7 +1,7 @@
 package signal
 
 import (
-	"edgeflow/internal/config"
+	"edgeflow/conf"
 	"log"
 	"time"
 )
@@ -67,7 +67,7 @@ type Decision struct {
 	ReducePercent float64 // ActReduce 时使用
 }
 
-func (d Decision) Log(sig Signal, cfg *config.StrategyConfig) {
+func (d Decision) Log(sig Signal, cfg *conf.StrategyConfig) {
 	if !cfg.EnableDebugLog {
 		return
 	}

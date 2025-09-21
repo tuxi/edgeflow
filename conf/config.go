@@ -1,4 +1,4 @@
-package config
+package conf
 
 import (
 	"fmt"
@@ -44,12 +44,49 @@ type StrategyConfig struct {
 	EnableDebugLog bool `yaml:"EnableDebugLog"` // 是否打印 Debug 日志
 }
 
+type LogConfig struct {
+	Level      string `yaml:"level"`
+	FileName   string `yaml:"file-name"`
+	TimeFormat string `yaml:"time-format"`
+	MaxSize    int    `yaml:"max-size"`
+	MaxBackups int    `yaml:"max-backups"`
+	MaxAge     int    `yaml:"max-age"`
+	Compress   bool   `yaml:"compress"`
+	LocalTime  bool   `yaml:"local-time"`
+	Console    bool   `yaml:"console"`
+}
+
+// RedisConfig is used to configure redis
+type RedisConfig struct {
+	Addr         string `yaml:"address"`
+	Password     string `yaml:"password"`
+	Db           int    `yaml:"db"`
+	PoolSize     int    `yaml:"pool-size"`
+	MinIdleConns int    `yaml:"min-idle-conns"`
+	IdleTimeout  int    `yaml:"idle-timeout"`
+}
+
+type JwtConfig struct {
+	Secret                  string `yaml:"secret"`
+	JwtTtl                  int64  `yaml:"ttl"`              // token 有效期（秒）
+	JwtBlacklistGracePeriod int64  `yaml:"blacklistperiod" ` // 黑名单宽限时间（秒）
+}
+
 type Config struct {
+	AppName      string `yaml:"app_name"`
+	Listen       string `yaml:"listen"`
+	Mode         string `yaml:"mode"`
+	Language     string `yaml:"language"`
+	MaxPingCount int    `yaml:"max-ping-count"`
+
 	Webhook   WebhookConfig `yaml:"webhook"`
 	Okx       `yaml:"okx"`
 	Db        `yaml:"database"`
 	Simulated bool           `yaml:"simulated"`
 	Strategy  StrategyConfig `yaml:"strategy"`
+	Log       LogConfig      `yaml:"log"`
+	Jwt       JwtConfig      `yaml:"jwt"`
+	Redis     RedisConfig    `yaml:"redis"`
 }
 
 var AppConfig Config

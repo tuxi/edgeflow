@@ -22,3 +22,13 @@ strategy:
   RequireTrendFilter: true
   L3ReduceAtRMultiple: 2.0
   L3ReducePercent: 0.5
+log:
+  level: "info"
+  file-name: "app.log"
+  time-format: "2006-01-02 15:04:05"
+  max-size: 100
+  max-backups: 7
+  max-age: 30
+  compress: true
+  local-time: true
+  console: true

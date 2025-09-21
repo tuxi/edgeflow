@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"edgeflow/internal/config"
+	"edgeflow/conf"
 	"edgeflow/internal/dao"
 	"edgeflow/internal/model"
 	"edgeflow/pkg/db"
@@ -12,7 +12,7 @@ import (
 
 func TestRiskControl_OrderCreateNew(t *testing.T) {
 	// 加载配置文件
-	err := config.LoadConfig("../../conf/config.yaml")
+	err := conf.LoadConfig("../../conf/config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -20,11 +20,11 @@ func TestRiskControl_OrderCreateNew(t *testing.T) {
 	// 初始化数据库
 	// main.go or app bootstrap
 	datasource := db.Init(db.Config{
-		User:      config.AppConfig.Username,
-		Password:  config.AppConfig.Db.Password,
-		Host:      config.AppConfig.Host,
-		Port:      config.AppConfig.Port,
-		DBName:    config.AppConfig.DbName,
+		User:      conf.AppConfig.Username,
+		Password:  conf.AppConfig.Db.Password,
+		Host:      conf.AppConfig.Host,
+		Port:      conf.AppConfig.Port,
+		DBName:    conf.AppConfig.DbName,
 		ParseTime: true,
 	})
 	rc := NewRiskService(dao.NewOrderDao(datasource))

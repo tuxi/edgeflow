@@ -1,7 +1,7 @@
 package hype
 
 import (
-	"edgeflow/internal/config"
+	"edgeflow/conf"
 	"edgeflow/internal/dao"
 	"edgeflow/internal/exchange"
 	"edgeflow/internal/position"
@@ -16,14 +16,14 @@ import (
 	"time"
 )
 
-func loadOkxConf() (*config.Okx, error) {
+func loadOkxConf() (*conf.Okx, error) {
 	// 加载配置文件
-	err := config.LoadConfig("../../../conf/config.yaml")
+	err := conf.LoadConfig("../../../conf/config.yaml")
 	if err != nil {
 		return nil, err
 	}
 
-	return &config.AppConfig.Okx, nil
+	return &conf.AppConfig.Okx, nil
 }
 
 func TestTradeOrders(t *testing.T) {
@@ -34,7 +34,7 @@ func TestTradeOrders(t *testing.T) {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	if config.AppConfig.Simulated {
+	if conf.AppConfig.Simulated {
 		// 设置为模拟环境
 		goex.DefaultHttpCli.SetHeaders("x-simulated-trading", "1")
 	}
@@ -45,11 +45,11 @@ func TestTradeOrders(t *testing.T) {
 	dbPort := os.Getenv("DB_PORT")
 	dbName := os.Getenv("DB_NAME")
 	if dbUser == "" || dbPass == "" || dbHost == "" {
-		dbUser = config.AppConfig.Username
-		dbPass = config.AppConfig.Db.Password
-		dbHost = config.AppConfig.Host
-		dbPort = config.AppConfig.Port
-		dbName = config.AppConfig.DbName
+		dbUser = conf.AppConfig.Username
+		dbPass = conf.AppConfig.Db.Password
+		dbHost = conf.AppConfig.Host
+		dbPort = conf.AppConfig.Port
+		dbName = conf.AppConfig.DbName
 	}
 
 	// 初始化数据库
@@ -64,7 +64,7 @@ func TestTradeOrders(t *testing.T) {
 	})
 	d := dao.NewOrderDao(datasource)
 
-	log.Println("WEBHOOK_SECRET = ", config.AppConfig.Webhook.Secret)
+	log.Println("WEBHOOK_SECRET = ", conf.AppConfig.Webhook.Secret)
 
 	appCfg := okxConf
 	okxEx := exchange.NewOkxExchange(appCfg.ApiKey, appCfg.SecretKey, appCfg.Password)
@@ -78,7 +78,8 @@ func TestTradeOrders(t *testing.T) {
 	h := NewHypeTrackStrategy(ps, tm)
 	h.Run()
 
-	raw := []byte(`{"channel":"orderUpdates","data":[{"order":{"coin":"BTC","side":"B","limitPx":"126192.0","sz":"5.0","oid":166873653063,"timestamp":1758238143369,"origSz":"5.0"},"status":"open","statusTimestamp":1758238143369},{"order":{"coin":"BTC","side":"B","limitPx":"126192.0","sz":"0.0","oid":166873653063,"timestamp":1758238143369,"origSz":"5.0"},"status":"filled","statusTimestamp":1758238143369}]}`)
+	//raw := []byte(`{"channel":"orderUpdates","data":[{"order":{"coin":"BTC","side":"B","limitPx":"126192.0","sz":"5.0","oid":166873653063,"timestamp":1758238143369,"origSz":"5.0"},"status":"open","statusTimestamp":1758238143369},{"order":{"coin":"BTC","side":"B","limitPx":"126192.0","sz":"0.0","oid":166873653063,"timestamp":1758238143369,"origSz":"5.0"},"status":"filled","statusTimestamp":1758238143369}]}`)
+	raw := []byte(`{"channel":"orderUpdates","data":[{"order":{"coin":"BTC","side":"B","limitPx":"126192.0","sz":"5.0","oid":166873653063,"timestamp":1758238143369,"origSz":"5.0"},"status":"open","statusTimestamp":1758238143369},{"order":{"coin":"HYPE","side":"B","limitPx":"126192.0","sz":"0.0","oid":166873653063,"timestamp":1758238143369,"origSz":"5.0"},"status":"filled","statusTimestamp":1758238143369}]}`)
 
 	var res types.OrderUpdatesMessage
 

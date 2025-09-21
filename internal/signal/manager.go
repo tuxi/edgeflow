@@ -1,7 +1,7 @@
 package signal
 
 import (
-	"edgeflow/internal/config"
+	"edgeflow/conf"
 	"edgeflow/internal/model"
 	"edgeflow/internal/trend"
 	"log"
@@ -33,10 +33,10 @@ type defaultSignalManager struct {
 	// 保存tradingView的信号状态
 	state        map[string]*State
 	level3Buffer []Signal
-	cfg          config.StrategyConfig
+	cfg          conf.StrategyConfig
 }
 
-func NewDefaultSignalManager(cfg config.StrategyConfig) Manager {
+func NewDefaultSignalManager(cfg conf.StrategyConfig) Manager {
 	return &defaultSignalManager{
 		state:        make(map[string]*State),
 		level3Buffer: []Signal{},

@@ -1,21 +1,21 @@
 package trend
 
 import (
-	"edgeflow/internal/config"
+	"edgeflow/conf"
 	"edgeflow/internal/exchange"
 	"log"
 	"testing"
 	"time"
 )
 
-func loadOkxConf() (*config.Okx, error) {
+func loadOkxConf() (*conf.Okx, error) {
 	// 加载配置文件
-	err := config.LoadConfig("../../conf/config.yaml")
+	err := conf.LoadConfig("../../conf/config.yaml")
 	if err != nil {
 		return nil, err
 	}
 
-	return &config.AppConfig.Okx, nil
+	return &conf.AppConfig.Okx, nil
 }
 
 func TestTrend(t *testing.T) {

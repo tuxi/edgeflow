@@ -39,7 +39,7 @@ func NewHypeTrackStrategy(ps *position.PositionService, trendMgr *trend.Manager)
 }
 
 func (h *HypeTrackStrategy) Run() {
-	h.coins = []string{"BTC", "ETH", "SOL", "DOGE", "HYPE", "LTC", "BNB", "PUMP", "XRP"}
+	h.coins = []string{"BTC", "ETH", "SOL", "DOGE", "HYPE", "LTC", "BNB", "PUMP", "XRP", ""}
 	log.Println("[HypeTrackStrategy run] 开启hype交易跟单")
 	websocketClient, _ := stream.NewHyperliquidWebsocketClient(wsURL)
 	webSocketErr := websocketClient.StreamOrderUpdates(targetAddress)
@@ -51,8 +51,6 @@ func (h *HypeTrackStrategy) Run() {
 
 	go func() {
 		for orders := range websocketClient.OrderChan {
-			//fmt.Printf("接收到新订单：%v", order)
-
 			h.ReceiveOrders(orders)
 		}
 	}()
