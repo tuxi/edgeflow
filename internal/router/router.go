@@ -2,6 +2,7 @@ package router
 
 import (
 	"edgeflow/internal/handler/coin"
+	"edgeflow/internal/handler/ticker"
 	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/middleware"
 	"github.com/gin-gonic/gin"
@@ -10,10 +11,11 @@ import (
 type ApiRouter struct {
 	coinHandler *coin.Handler
 	wh          *webhook.Handler
+	th          *ticker.Handler
 }
 
-func NewApiRouter(ch *coin.Handler, wh *webhook.Handler) *ApiRouter {
-	return &ApiRouter{coinHandler: ch, wh: wh}
+func NewApiRouter(ch *coin.Handler, wh *webhook.Handler, th *ticker.Handler) *ApiRouter {
+	return &ApiRouter{coinHandler: ch, wh: wh, th: th}
 }
 
 func (api *ApiRouter) Load(g *gin.Engine) {
@@ -25,6 +27,14 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 	{
 		// 获取币种列表
 		c.GET("/list", api.coinHandler.CoinsGetList())
+	}
+
+	p := base.Group("/ticker", middleware.RequestValidationMiddleware())
+	{
+		p.GET("/ticker", api.th.TickerGet())   // 单币种
+		p.GET("/tickers", api.th.TickersGet()) // 批量
+		p.GET("/ws", api.th.ServeWS)           // 通过websocket连接获取价格
+
 	}
 
 	base.POST("/webhook", middleware.RequestValidationMiddleware(), api.wh.HandlerWebhook())

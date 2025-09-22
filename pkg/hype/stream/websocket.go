@@ -72,9 +72,13 @@ func NewHyperliquidWebsocketClient(rawUrl string, connectSuccess func(*Hypeliqui
 }
 
 func (c *HypeliquidWebsocketClient) reconnect() {
+	// 关闭旧的连接
+	_ = c.conn.Close()
+
 	for {
 		fmt.Println("HypeliquidWebsocketClient attempting to reconnect...")
 
+		// 建立新的连接
 		conn, _, err := websocket.DefaultDialer.Dial(c.websocketUrl, nil)
 		if err != nil {
 			fmt.Println("HypeliquidWebsocketClient reconnect failed:", err)
@@ -83,7 +87,7 @@ func (c *HypeliquidWebsocketClient) reconnect() {
 		}
 
 		fmt.Println("HypeliquidWebsocketClient reconnected successfully!")
-		_ = conn.Close()
+
 		c.mutex.Lock()
 		c.conn = conn
 		c.mutex.Unlock()

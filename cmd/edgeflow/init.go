@@ -6,6 +6,7 @@ import (
 	"edgeflow/internal/dao/query"
 	"edgeflow/internal/exchange"
 	"edgeflow/internal/handler/coin"
+	"edgeflow/internal/handler/ticker"
 	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/position"
 	"edgeflow/internal/router"
@@ -61,7 +62,13 @@ func InitRouter(db *gorm.DB) Router {
 
 	wh := webhook.NewHandler(dispatcher, rc, sm, ps)
 
-	apiRouter := router.NewApiRouter(coinH, wh)
+	tickerService, _ := service.NewOKXTickerService()
+	tickerHandler := ticker.NewHandler(tickerService)
+
+	apiRouter := router.NewApiRouter(coinH, wh, tickerHandler)
+
+	// 开始广播价格
+	go tickerHandler.BroadcastPrices()
 
 	return apiRouter
 
