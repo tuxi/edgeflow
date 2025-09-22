@@ -97,7 +97,6 @@ func (h *Handler) BroadcastPrices() {
 
 	for range ticker.C {
 		h.mu.RLock()
-		defer h.mu.RUnlock()
 		for client, symbolsMap := range h.clientSymbols {
 			// 转成 slice 方便服务端获取行情
 			symbolsSlice := make([]string, 0, len(symbolsMap))
@@ -125,6 +124,7 @@ func (h *Handler) BroadcastPrices() {
 				// 队列满就丢掉或记录
 			}
 		}
+		h.mu.RUnlock()
 	}
 }
 
