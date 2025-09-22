@@ -41,13 +41,22 @@ func NewHypeTrackStrategy(ps *position.PositionService, trendMgr *trend.Manager)
 func (h *HypeTrackStrategy) Run() {
 	h.coins = []string{"BTC", "ETH", "SOL", "DOGE", "HYPE", "LTC", "BNB", "PUMP", "XRP", ""}
 	log.Println("[HypeTrackStrategy run] 开启hype交易跟单")
-	websocketClient, _ := stream.NewHyperliquidWebsocketClient(wsURL)
-	webSocketErr := websocketClient.StreamOrderUpdates(targetAddress)
-	if webSocketErr != nil {
-		fmt.Println("Error streaming all mids:", webSocketErr)
-		return
-	}
-	websocketClient.StreamAllMids()
+
+	websocketClient, _ := stream.NewHyperliquidWebsocketClient(wsURL, func(websocketClient *stream.HypeliquidWebsocketClient) {
+		// 订阅订单更新
+		webSocketErr := websocketClient.StreamOrderUpdates(targetAddress)
+		if webSocketErr != nil {
+			fmt.Println("Error streaming Order Updates:", webSocketErr)
+			return
+		}
+		// 订阅价格变化
+		err := websocketClient.StreamAllMids()
+		if err != nil {
+			// 订阅价格变化失败
+			fmt.Println("Error streaming all mids:", webSocketErr)
+			return
+		}
+	})
 
 	go func() {
 		for orders := range websocketClient.OrderChan {

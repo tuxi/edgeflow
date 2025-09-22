@@ -4,6 +4,7 @@ import "time"
 
 type CoinOne struct {
 	CoinId     int64     `gorm:"column:id" json:"coin_id"`
+	Coin       string    `gorm:"column:coin" json:"coin"`
 	CategoryId int64     `gorm:"column:category_id" json:"category_id"`
 	Name       string    `gorm:"column:name" json:"name"`
 	NameEN     string    `gorm:"column:name_en" json:"name_en"`
@@ -13,6 +14,7 @@ type CoinOne struct {
 
 type CoinCreateNewRes struct {
 	CoinId     string    `json:"coin_id"`
+	Coin       string    `json:"coin"`
 	CategoryId string    `json:"category_id"`
 	Name       string    `json:"name"`
 	NameEN     string    `json:"name_en"`
@@ -22,6 +24,7 @@ type CoinCreateNewRes struct {
 
 type CoinOneRes struct {
 	CoinId     string    `json:"coin_id"`
+	Coin       string    `json:"coin"`
 	CategoryId string    `json:"category_id"`
 	Name       string    `json:"name"`
 	NameEN     string    `json:"name_en"`
@@ -35,5 +38,8 @@ type CoinListRes struct {
 
 // 查找币种请求体
 type CoinListReq struct {
-	CategoryId string `form:"category_id"  validate:"required"`
+	CategoryId string `json:"category_id" form:"category_id" validate:"required"`
+	Limit      int    `json:"limit" form:"limit" uri:"limit"`
+	Page       int    `json:"page" form:"page" uri:"page"`
+	Sort       string `json:"sort" form:"sort" uri:"sort"`
 }

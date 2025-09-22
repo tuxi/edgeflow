@@ -13,7 +13,7 @@ type Coin struct {
 	Status     int       `gorm:"column:status" json:"status"`
 	Source     string    `gorm:"column:source" json:"source"`
 	CreatedAt  time.Time `gorm:"column:created_at" json:"created_at"`
-	UpdateAt   time.Time `gorm:"column:update_at" json:"update_at"`
+	UpdatedAt  time.Time `gorm:"column:updated_at" json:"updated_at"`
 }
 
 func (Coin) TableName() string {
@@ -27,7 +27,7 @@ type CoinCategory struct {
 	LogoUrl   string    `gorm:"column:logo_url" json:"logo_url"`
 	Status    int       `gorm:"column:status" json:"status"`
 	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
-	UpdateAt  time.Time `gorm:"column:update_at" json:"update_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at" json:"updated_at"`
 }
 
 func (CoinCategory) TableName() string {

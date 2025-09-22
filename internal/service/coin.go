@@ -12,7 +12,7 @@ var _ CoinService = (*coinService)(nil)
 
 type CoinService interface {
 	CoinCreateNew(ctx context.Context, coin, name, nameEn string, categoryId int64, priceScale int, logoUrl string) (res model.CoinCreateNewRes, err error)
-	CoinListGetByCategory(ctx context.Context, categoryId int64) (model.CoinListRes, error)
+	CoinListGetByCategory(ctx context.Context, categoryId int64, page, limit int) (model.CoinListRes, error)
 }
 
 type coinService struct {
@@ -43,15 +43,16 @@ func (c *coinService) CoinCreateNew(ctx context.Context, coin, name, nameEn stri
 	res.CategoryId = strconv.FormatInt(co.CategoryID, 10)
 	res.NameEN = co.NameEn
 	res.Name = co.Name
+	res.Coin = co.Coin
 	res.LogoUrl = co.LogoUrl
 
 	return
 
 }
 
-func (c *coinService) CoinListGetByCategory(ctx context.Context, categoryId int64) (res model.CoinListRes, err error) {
+func (c *coinService) CoinListGetByCategory(ctx context.Context, categoryId int64, page, limit int) (res model.CoinListRes, err error) {
 
-	coinList, err := c.d.CoinGetListByCategory(ctx, categoryId)
+	coinList, err := c.d.CoinGetListByCategory(ctx, categoryId, page, limit)
 	if err != nil {
 		return
 	}
@@ -64,6 +65,7 @@ func (c *coinService) CoinListGetByCategory(ctx context.Context, categoryId int6
 		temp.LogoUrl = v.LogoUrl
 		temp.NameEN = v.NameEN
 		temp.Name = v.Name
+		temp.Coin = v.Coin
 		listRes = append(listRes, temp)
 	}
 

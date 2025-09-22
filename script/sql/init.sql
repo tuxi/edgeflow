@@ -43,7 +43,7 @@ VALUES ('主流币', 'Mainstream', 'https://example.com/logo/mainstream.png', 1)
 
 CREATE TABLE `coins` (
                          `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-                         `coin` VARCHAR(50) NOT NULL COMMENT '币符号（BTC）',
+                         `coin` VARCHAR(50) NOT NULL UNIQUE COMMENT '币符号（BTC）',
                          `name` VARCHAR(50) DEFAULT NULL COMMENT '中文名称 (比特币)',
                          `name_en` VARCHAR(50) DEFAULT NULL COMMENT '英文名称 (Bitcoin)',
                          `logo_url` VARCHAR(255) COMMENT '图标',
@@ -54,7 +54,7 @@ CREATE TABLE `coins` (
                          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
                          `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
                          PRIMARY KEY (`id`),
-                         KEY `idx_coin_symbol` (`coin`),
+                         KEY `idx_coin` (`coin`),
                          CONSTRAINT `fk_coins_category` FOREIGN KEY (`category_id`) REFERENCES `coin_categories` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='币种表';
 

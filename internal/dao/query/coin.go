@@ -33,10 +33,14 @@ func (c *coinDao) CoinGetByCoin(ctx context.Context, coin string) (res model.Coi
 	return
 }
 
-func (c *coinDao) CoinGetListByCategory(ctx context.Context, categoryId int64) ([]model.CoinOne, error) {
+func (c *coinDao) CoinGetListByCategory(ctx context.Context, categoryId int64, page, limit int) ([]model.CoinOne, error) {
+	offset := (page - 1) * limit
 	var arr []model.CoinOne
 	err := c.db.WithContext(ctx).Model(&entity.Coin{}).Where("category_id = ?", categoryId).
+		Where("status = ? ", 1).
 		Order("id").
+		Limit(limit).
+		Offset(offset).
 		Find(&arr).
 		Error
 	return arr, err

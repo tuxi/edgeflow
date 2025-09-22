@@ -16,5 +16,5 @@ type CoinDao interface {
 	// 根据coin标识获取coin
 	CoinGetByCoin(ctx context.Context, coin string) (model.CoinOne, error)
 	// 获取分类id获取coin列表
-	CoinGetListByCategory(ctx context.Context, categoryId int64) ([]model.CoinOne, error)
+	CoinGetListByCategory(ctx context.Context, categoryId int64, page, limit int) ([]model.CoinOne, error)
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type HyperliquidWebsocketClient struct {
+type HypeliquidWebsocketClient struct {
 	websocketUrl string
 	conn         *websocket.Conn
 	AllMidsChan  chan map[string]float64 // 价格变化的通道
@@ -21,9 +21,11 @@ type HyperliquidWebsocketClient struct {
 	ErrorChan    chan error              // 错误通道
 	mutex        sync.Mutex
 	lastRequest  time.Time
+
+	ConnectSuccess func(*HypeliquidWebsocketClient)
 }
 
-func NewHyperliquidWebsocketClient(rawUrl string) (*HyperliquidWebsocketClient, error) {
+func NewHyperliquidWebsocketClient(rawUrl string, connectSuccess func(*HypeliquidWebsocketClient)) (*HypeliquidWebsocketClient, error) {
 	if _, err := url.ParseRequestURI(rawUrl); err != nil {
 		return nil, errors.New("Invalid websocket URL")
 	}
@@ -32,62 +34,99 @@ func NewHyperliquidWebsocketClient(rawUrl string) (*HyperliquidWebsocketClient, 
 		return nil, err
 	}
 
-	client := &HyperliquidWebsocketClient{
+	client := &HypeliquidWebsocketClient{
 		websocketUrl: rawUrl,
 		conn:         conn,
 		AllMidsChan:  make(chan map[string]float64),
 		OrderChan:    make(chan []types.Order),
 		ErrorChan:    make(chan error),
 	}
+	client.ConnectSuccess = connectSuccess
 
+	// 定时 ping
 	go func() {
 		ticker := time.NewTicker(50 * time.Second)
 		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				client.mutex.Lock()
-				pingMessage := map[string]interface{}{
-					"method": "ping",
-				}
-				if err := client.sendMessage(pingMessage); err != nil {
-					fmt.Println("Error sending ping:", err)
-					client.ErrorChan <- err
-				}
-				client.mutex.Unlock()
+		for range ticker.C {
+			client.mutex.Lock()
+			pingMessage := map[string]interface{}{
+				"method": "ping",
 			}
+			if err := client.sendMessage(pingMessage); err != nil {
+				fmt.Println("Error sending ping:", err)
+				client.ErrorChan <- err
+				client.reconnect() // ping 失败也触发重连
+			}
+			client.mutex.Unlock()
 		}
 	}()
 
-	go func() {
-		for {
-			_, msg, err := client.conn.ReadMessage()
-			if err != nil {
-				fmt.Println("Read error:", err)
-				client.ErrorChan <- err
-				return
-			}
+	if connectSuccess != nil {
+		connectSuccess(client)
+	}
 
-			var response types.GenericMessage
-			if err := json.Unmarshal(msg, &response); err != nil {
-				fmt.Println("Unmarshal error:", err)
-				client.ErrorChan <- err
-				continue
-			}
-
-			switch response.Channel {
-			case "allMids":
-				client.handleAllMidsMessage(msg)
-			case "orderUpdates":
-				client.handleOrderUpdatesMessage(msg)
-			}
-		}
-	}()
+	// 启动读协程
+	go client.readLoop()
 
 	return client, nil
 }
 
-func (client *HyperliquidWebsocketClient) handleAllMidsMessage(msg json.RawMessage) {
+func (c *HypeliquidWebsocketClient) reconnect() {
+	for {
+		fmt.Println("HypeliquidWebsocketClient attempting to reconnect...")
+
+		conn, _, err := websocket.DefaultDialer.Dial(c.websocketUrl, nil)
+		if err != nil {
+			fmt.Println("HypeliquidWebsocketClient reconnect failed:", err)
+			time.Sleep(5 * time.Second) // 等待后重试
+			continue
+		}
+
+		fmt.Println("HypeliquidWebsocketClient reconnected successfully!")
+		_ = conn.Close()
+		c.mutex.Lock()
+		c.conn = conn
+		c.mutex.Unlock()
+
+		// 因为重新连接后connect变成了另外一个新的连接，所以这里要回调给调用者，重新订阅
+		// 回调重连成功
+		if c.ConnectSuccess != nil {
+			c.ConnectSuccess(c)
+		}
+
+		// 重新启动读协程
+		go c.readLoop()
+		break
+	}
+}
+
+func (c *HypeliquidWebsocketClient) readLoop() {
+	for {
+		_, msg, err := c.conn.ReadMessage()
+		if err != nil {
+			fmt.Println("Read error:", err)
+			c.ErrorChan <- err
+			c.reconnect() // 出错时尝试重连
+			return
+		}
+
+		var response types.GenericMessage
+		if err := json.Unmarshal(msg, &response); err != nil {
+			fmt.Println("Unmarshal error:", err)
+			c.ErrorChan <- err
+			continue
+		}
+
+		switch response.Channel {
+		case "allMids":
+			c.handleAllMidsMessage(msg)
+		case "orderUpdates":
+			c.handleOrderUpdatesMessage(msg)
+		}
+	}
+}
+
+func (client *HypeliquidWebsocketClient) handleAllMidsMessage(msg json.RawMessage) {
 	var midsResponse types.AllMidsMessage
 	if err := json.Unmarshal(msg, &midsResponse); err != nil {
 		fmt.Println("Unmarshal error:", err)
@@ -106,7 +145,7 @@ func (client *HyperliquidWebsocketClient) handleAllMidsMessage(msg json.RawMessa
 	client.AllMidsChan <- prices
 }
 
-func (client *HyperliquidWebsocketClient) handleOrderUpdatesMessage(msg json.RawMessage) {
+func (client *HypeliquidWebsocketClient) handleOrderUpdatesMessage(msg json.RawMessage) {
 	var orderResponse types.OrderUpdatesMessage
 	if err := json.Unmarshal(msg, &orderResponse); err != nil {
 		fmt.Println("Unmarshal error:", err)
@@ -117,7 +156,7 @@ func (client *HyperliquidWebsocketClient) handleOrderUpdatesMessage(msg json.Raw
 	client.OrderChan <- orderResponse.Data
 }
 
-func (client *HyperliquidWebsocketClient) sendMessage(message interface{}) error {
+func (client *HypeliquidWebsocketClient) sendMessage(message interface{}) error {
 	// Ensure at least 50ms between requests
 	timeSinceLastRequest := time.Since(client.lastRequest)
 	if timeSinceLastRequest < 50*time.Millisecond {
@@ -128,7 +167,7 @@ func (client *HyperliquidWebsocketClient) sendMessage(message interface{}) error
 	return client.conn.WriteJSON(message)
 }
 
-func (client *HyperliquidWebsocketClient) StreamAllMids() error {
+func (client *HypeliquidWebsocketClient) StreamAllMids() error {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
 
@@ -146,7 +185,7 @@ func (client *HyperliquidWebsocketClient) StreamAllMids() error {
 	return nil
 }
 
-func (client *HyperliquidWebsocketClient) StreamOrderUpdates(userId string) error {
+func (client *HypeliquidWebsocketClient) StreamOrderUpdates(userId string) error {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
 
