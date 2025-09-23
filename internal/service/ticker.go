@@ -40,7 +40,7 @@ type TickerService interface {
 	GetPrice(ctx context.Context, symbol string) (*TickerData, error)
 
 	// GetPrices 获取多个币种的最新行情数据
-	GetPrices(ctx context.Context, symbols []string) ([]*TickerData, error)
+	GetPrices(ctx context.Context, symbols []string) (map[string]*TickerData, error)
 
 	// Close 关闭行情服务连接（例如 WebSocket）
 	Close() error
@@ -72,11 +72,29 @@ func NewOKXTickerService() (*OKXTickerService, error) {
 		url:        url,
 		closeCh:    make(chan struct{}),
 	}
-
+	// 需要保持没有空白的响应，不然会被okx断开
 	err = s.SubscribeSymbols(context.Background(), []string{"BTC-USDT"})
 	if err != nil {
 		log.Println(err)
 	}
+	ticker := time.NewTicker(15 * time.Second)
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				if s.conn == nil {
+					s.reconnect()
+					return
+				}
+				if err := s.conn.WriteMessage(websocket.TextMessage, []byte("ping")); err != nil {
+					log.Println("OKXTickerService Ping failed, reconnecting...", err)
+					s.reconnect()
+				}
+			}
+		}
+	}()
+
 	go s.readLoop()
 	return s, nil
 }
@@ -126,23 +144,35 @@ func (s *OKXTickerService) reconnect() {
 		log.Println("OKXTickerService reconnected to OKX WebSocket")
 
 		// 重新订阅之前的币种
-		s.subscribeAll()
+		s.resubscribeAll()
 		break
 	}
 }
 
-func (s *OKXTickerService) subscribeAll() {
+// 重新订阅之前的币种
+func (s *OKXTickerService) resubscribeAll() {
 	symbols := make([]string, 0, len(s.subscribed))
 	for sym := range s.subscribed {
 		symbols = append(symbols, sym)
 	}
+
+	// 一直有订阅，保持连接，防止错误websocket: close 4004: No data received in 30s.
+	if len(symbols) == 0 {
+		symbols = append(symbols, "BTC-USDT")
+	}
+
 	if len(symbols) > 0 {
+		s.subscribed = make(map[string]struct{})
 		_ = s.SubscribeSymbols(context.Background(), symbols)
 	}
 }
 
 // handleMessage 处理 OKX 推送消息
 func (s *OKXTickerService) handleMessage(msg []byte) {
+	if pong := string(msg); pong == "pong" {
+		//log.Println("OKXTickerService 接收到 pong")
+		return
+	}
 	var raw map[string]interface{}
 	if err := json.Unmarshal(msg, &raw); err != nil {
 		log.Println("OKXTickerService json unmarshal error:", err)
@@ -151,16 +181,6 @@ func (s *OKXTickerService) handleMessage(msg []byte) {
 
 	if evt, ok := raw["event"].(string); ok { // {"event":"subscribe","arg":{"channel":"tickers","instId":"BTC-USDT"},"connId":"6b422e60"}
 		switch evt {
-		case "ping":
-			// OKX 发了心跳请求，回 pong
-			pong := map[string]string{"event": "pong"}
-			data, _ := json.Marshal(pong)
-			if err := s.conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				log.Printf("write pong error: %v", err)
-			}
-			log.Println("Received ping, sent pong")
-			return
-
 		case "error":
 			log.Printf("Error from OKX: %v", raw)
 			return
@@ -173,14 +193,21 @@ func (s *OKXTickerService) handleMessage(msg []byte) {
 	}
 
 	channel, ok := arg["channel"].(string)
-	if !ok || channel != "tickers" {
+	if !ok {
 		return
 	}
-
 	dataArr, ok := raw["data"].([]interface{})
 	if !ok {
 		return
 	}
+	switch channel {
+	case "tickers":
+		s.handleTickers(dataArr)
+	}
+
+}
+
+func (s *OKXTickerService) handleTickers(dataArr []interface{}) {
 
 	s.Lock()
 	defer s.Unlock()
@@ -273,6 +300,9 @@ func (s *OKXTickerService) UnsubscribeSymbols(ctx context.Context, symbols []str
 	args := []map[string]string{}
 	s.Lock()
 	for _, sym := range symbols {
+		if sym == "BTC-USDT" {
+			continue
+		}
 		delete(s.subscribed, sym)
 		args = append(args, map[string]string{
 			"channel": "tickers",
@@ -280,6 +310,9 @@ func (s *OKXTickerService) UnsubscribeSymbols(ctx context.Context, symbols []str
 		})
 	}
 	s.Unlock()
+	if len(args) == 0 {
+		return nil
+	}
 
 	unsubMsg := map[string]interface{}{
 		"op":   "unsubscribe",
@@ -300,15 +333,15 @@ func (s *OKXTickerService) GetPrice(ctx context.Context, symbol string) (*Ticker
 }
 
 // GetPrices 获取多个币种行情
-func (s *OKXTickerService) GetPrices(ctx context.Context, symbols []string) ([]*TickerData, error) {
+func (s *OKXTickerService) GetPrices(ctx context.Context, symbols []string) (map[string]*TickerData, error) {
 	s.RLock()
 	defer s.RUnlock()
-	//result := make(map[string]*TickerData)
-	var result []*TickerData
+	result := make(map[string]*TickerData)
+	//var result []*TickerData
 	for _, sym := range symbols {
 		if data, ok := s.prices[sym]; ok {
-			//result[sym] = data
-			result = append(result, data)
+			result[sym] = data
+			//result = append(result, data)
 		}
 	}
 	return result, nil

@@ -42,7 +42,7 @@ func (h *HypeTrackStrategy) Run() {
 	h.coins = []string{"BTC", "ETH", "SOL", "DOGE", "HYPE", "LTC", "BNB", "PUMP", "XRP", ""}
 	log.Println("[HypeTrackStrategy run] 开启hype交易跟单")
 
-	websocketClient, _ := stream.NewHyperliquidWebsocketClient(wsURL, func(websocketClient *stream.HypeliquidWebsocketClient) {
+	websocketClient, err := stream.NewHyperliquidWebsocketClient(wsURL, func(websocketClient *stream.HypeliquidWebsocketClient) {
 		// 订阅订单更新
 		webSocketErr := websocketClient.StreamOrderUpdates(targetAddress)
 		if webSocketErr != nil {
@@ -57,6 +57,11 @@ func (h *HypeTrackStrategy) Run() {
 			return
 		}
 	})
+
+	if err != nil {
+		log.Println("初始化NewHyperliquidWebsocketClient失败")
+		return
+	}
 
 	go func() {
 		for orders := range websocketClient.OrderChan {

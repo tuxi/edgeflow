@@ -203,7 +203,10 @@ func (c *ClientConn) readPump(h *Handler) {
 				if _, ok := h.symbolSubscribers[s]; !ok {
 					h.symbolSubscribers[s] = make(map[*ClientConn]struct{})
 					// 第一次订阅，向 OKX 发请求
-					h.service.SubscribeSymbols(context.Background(), clientMsg.Symbols)
+					err := h.service.SubscribeSymbols(context.Background(), clientMsg.Symbols)
+					if err != nil {
+						log.Printf("订阅okx ws失败 : %v\n", err)
+					}
 				}
 				h.symbolSubscribers[s][c] = struct{}{}
 				h.clientSymbols[c][s] = struct{}{}
