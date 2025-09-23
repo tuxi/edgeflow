@@ -14,18 +14,18 @@ import (
 
 // TickerData 封装单个币种的实时行情数据
 type TickerData struct {
-	InstId    string  `json:"inst_id"`    // 币种符号，例如 BTC-USDT
-	LastPrice float64 `json:"last_price"` // 最新成交价格
-	Volume24h float64 `json:"volume_24h"` // 24小时成交量
-	MarketCap float64 `json:"market_cap"` // 市值
-	High24h   float64 `json:"high_24h"`   // 24小时最高价
-	Low24h    float64 `json:"low_24h"`    // 24小时最低价
-	Open24h   float64 `json:"open_24h"`   // 24小时开盘价格
-	Change24h float64 `json:"change_24h"` // 24小时涨跌幅（%）
-	AskPx     float64 `json:"ask_px"`     // 卖一价（最低的卖单价）
-	AskSz     float64 `json:"ask_sz"`     // 卖一量
-	BidPx     float64 `json:"bid_px"`     // 买一价（最高的买单价）
-	BidSz     float64 `json:"bid_sz"`     // 买一量
+	InstId    string  `json:"inst_id"`     // 币种符号，例如 BTC-USDT
+	LastPrice float64 `json:"last_price"`  // 最新成交价格
+	Vol24h    float64 `json:"vol_24h"`     // 24小时成交量单位币
+	VolCcy24h float64 `json:"vol_ccy_24h"` // 24小时成交量
+	High24h   float64 `json:"high_24h"`    // 24小时最高价
+	Low24h    float64 `json:"low_24h"`     // 24小时最低价
+	Open24h   float64 `json:"open_24h"`    // 24小时开盘价格
+	Change24h float64 `json:"change_24h"`  // 24小时涨跌幅（%）
+	AskPx     float64 `json:"ask_px"`      // 卖一价（最低的卖单价）
+	AskSz     float64 `json:"ask_sz"`      // 卖一量
+	BidPx     float64 `json:"bid_px"`      // 买一价（最高的买单价）
+	BidSz     float64 `json:"bid_sz"`      // 买一量
 }
 
 // TickerService 定义行情服务接口
@@ -207,8 +207,8 @@ func (s *OKXTickerService) handleMessage(msg []byte) {
 		s.prices[instId] = &TickerData{
 			InstId:    instId,
 			LastPrice: lastPrice,
-			Volume24h: vol24h,
-			MarketCap: volCcy24h,
+			Vol24h:    vol24h,
+			VolCcy24h: volCcy24h,
 			High24h:   high24h,
 			Low24h:    low24h,
 			Open24h:   open24h,

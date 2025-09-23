@@ -5,7 +5,7 @@ import (
 	"edgeflow/internal/dao"
 	"edgeflow/internal/dao/query"
 	"edgeflow/internal/exchange"
-	"edgeflow/internal/handler/coin"
+	"edgeflow/internal/handler/currency"
 	"edgeflow/internal/handler/ticker"
 	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/position"
@@ -21,10 +21,10 @@ import (
 
 func InitRouter(db *gorm.DB) Router {
 	//tk := tokenize.NewTokenizer("./dict")
-	cd := query.NewCoinDao(db)
+	cd := query.NewCurrenciesDao(db)
 	ds := service.NewCoinService(cd)
 
-	coinH := coin.NewHandler(ds)
+	coinH := currency.NewHandler(ds)
 
 	appCfg := conf.AppConfig
 

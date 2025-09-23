@@ -1,7 +1,7 @@
 package router
 
 import (
-	"edgeflow/internal/handler/coin"
+	"edgeflow/internal/handler/currency"
 	"edgeflow/internal/handler/ticker"
 	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/middleware"
@@ -9,12 +9,12 @@ import (
 )
 
 type ApiRouter struct {
-	coinHandler *coin.Handler
+	coinHandler *currency.Handler
 	wh          *webhook.Handler
 	th          *ticker.Handler
 }
 
-func NewApiRouter(ch *coin.Handler, wh *webhook.Handler, th *ticker.Handler) *ApiRouter {
+func NewApiRouter(ch *currency.Handler, wh *webhook.Handler, th *ticker.Handler) *ApiRouter {
 	return &ApiRouter{coinHandler: ch, wh: wh, th: th}
 }
 
@@ -23,7 +23,7 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 	// auth
 	base := g.Group("/api/v1")
 
-	c := base.Group("/coins", middleware.RequestValidationMiddleware())
+	c := base.Group("/currencies", middleware.RequestValidationMiddleware())
 	{
 		// 获取币种列表
 		c.GET("/list", api.coinHandler.CoinsGetList())

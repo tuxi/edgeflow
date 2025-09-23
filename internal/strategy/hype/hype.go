@@ -266,5 +266,8 @@ func mapSide(side string) string {
 	if side == "S" {
 		return "sell"
 	}
+	if side == "A" {
+		return "sell" // 当交易者卖某些币时收到了A
+	}
 	return "unknown"
 }
