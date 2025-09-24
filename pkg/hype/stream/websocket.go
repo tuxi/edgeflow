@@ -18,7 +18,8 @@ type HypeliquidWebsocketClient struct {
 	conn         *websocket.Conn
 	AllMidsChan  chan map[string]float64 // 价格变化的通道
 	OrderChan    chan []types.Order      // 订单变化的通道
-	ErrorChan    chan error              // 错误通道
+	L2bookChain  chan map[string]interface{}
+	ErrorChan    chan error // 错误通道
 	mutex        sync.Mutex
 	lastRequest  time.Time
 
@@ -39,6 +40,7 @@ func NewHyperliquidWebsocketClient(rawUrl string, connectSuccess func(*Hypeliqui
 		conn:         conn,
 		AllMidsChan:  make(chan map[string]float64),
 		OrderChan:    make(chan []types.Order),
+		L2bookChain:  make(chan map[string]interface{}),
 		ErrorChan:    make(chan error),
 	}
 	client.ConnectSuccess = connectSuccess
@@ -126,6 +128,8 @@ func (c *HypeliquidWebsocketClient) readLoop() {
 			c.handleAllMidsMessage(msg)
 		case "orderUpdates":
 			c.handleOrderUpdatesMessage(msg)
+		case "trades":
+			c.handle12bookMessage(msg)
 		}
 	}
 }
@@ -160,6 +164,10 @@ func (client *HypeliquidWebsocketClient) handleOrderUpdatesMessage(msg json.RawM
 	client.OrderChan <- orderResponse.Data
 }
 
+func (client *HypeliquidWebsocketClient) handle12bookMessage(msg json.RawMessage) {
+	//fmt.Println(msg)
+}
+
 func (client *HypeliquidWebsocketClient) sendMessage(message interface{}) error {
 	// Ensure at least 50ms between requests
 	timeSinceLastRequest := time.Since(client.lastRequest)
@@ -186,6 +194,25 @@ func (client *HypeliquidWebsocketClient) StreamAllMids() error {
 		client.ErrorChan <- err
 		return fmt.Errorf("Subscription error: %w", err)
 	}
+	return nil
+}
+
+func (client *HypeliquidWebsocketClient) Stream12Book() error {
+	//client.mutex.Lock()
+	//defer client.mutex.Unlock()
+	//
+	//subscriptionMessage := map[string]interface{}{
+	//	"method": "subscribe",
+	//	"subscription": map[string]interface{}{
+	//		"type": "trades",
+	//		"coin": "BTC",
+	//	},
+	//}
+	//if err := client.sendMessage(subscriptionMessage); err != nil {
+	//	close(client.L2bookChain)
+	//	client.ErrorChan <- err
+	//	return fmt.Errorf("Subscription error: %w", err)
+	//}
 	return nil
 }
 

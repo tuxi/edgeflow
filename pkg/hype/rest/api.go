@@ -117,7 +117,7 @@ func (rest *HyperliquidRestClient) PerpetualsAccountSummary(user string) (types.
 	return marginData, nil
 }
 
-// 获取排行榜数据
+// 获取收益率排行榜数据
 func (rest *HyperliquidRestClient) LeaderboardCall() ([]types.TraderPerformance, error) {
 	req, err := http.NewRequest("GET", rest.leaderboardURL, nil)
 	if err != nil {
@@ -149,7 +149,9 @@ func (rest *HyperliquidRestClient) LeaderboardCall() ([]types.TraderPerformance,
 		accountValue := parseStringToFloat(item.AccountValue)
 		windowPerformances := item.WindowPerformances
 		traderPerformance := types.TraderPerformance{
-			EthAddress: item.EthAddress,
+			EthAddress:  item.EthAddress,
+			Prize:       item.Prize,
+			DisplayName: item.DisplayName,
 			Day: types.PeriodPerformance{
 				Pnl: parseStringToFloat(windowPerformances[0][1].(map[string]interface{})["pnl"].(string)),
 				Roi: parseStringToFloat(windowPerformances[0][1].(map[string]interface{})["roi"].(string)),

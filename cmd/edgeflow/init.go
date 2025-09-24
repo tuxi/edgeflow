@@ -6,6 +6,7 @@ import (
 	"edgeflow/internal/dao/query"
 	"edgeflow/internal/exchange"
 	"edgeflow/internal/handler/currency"
+	"edgeflow/internal/handler/hyperliquid"
 	"edgeflow/internal/handler/ticker"
 	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/position"
@@ -65,11 +66,14 @@ func InitRouter(db *gorm.DB) Router {
 	tickerService, _ := service.NewOKXTickerService()
 	tickerHandler := ticker.NewHandler(tickerService)
 
-	apiRouter := router.NewApiRouter(coinH, wh, tickerHandler)
+	hyperDao := query.NewHyperLiquidDao(db)
+
+	hyperHandler := hyperliquid.NewHandler(service.NewHyperLiquidService(hyperDao))
+
+	apiRouter := router.NewApiRouter(coinH, wh, tickerHandler, hyperHandler)
 
 	// 开始广播价格
 	go tickerHandler.BroadcastPrices()
 
 	return apiRouter
-
 }

@@ -61,3 +61,43 @@ CREATE TABLE `exchange_currencies` (
                                        CONSTRAINT `fk_currency` FOREIGN KEY (`currency_id`) REFERENCES `currencies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
                                        CONSTRAINT `fk_exchange` FOREIGN KEY (`exchange_id`) REFERENCES `exchanges`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='币种和交易所关联表';
+
+CREATE TABLE `whale` (
+                       id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                       address VARCHAR(64) NOT NULL UNIQUE,
+                       display_name VARCHAR(100),
+                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+                       UNIQUE KEY `uniq_address` (`address`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='鲸鱼';
+
+
+CREATE TABLE `hyper_whale_leaderboard` (
+                                   id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                                   address VARCHAR(64) NOT NULL,
+                                   account_value DECIMAL(32,10) NOT NULL,     -- 账户价值
+    -- PnL 数据
+                                   pnl_day DECIMAL(32,10),
+                                   pnl_week DECIMAL(32,10),
+                                   pnl_month DECIMAL(32,10),
+                                   pnl_all_time DECIMAL(32,10),
+
+    -- ROI 数据
+                                   roi_day DECIMAL(16,10),
+                                   roi_week DECIMAL(16,10),
+                                   roi_month DECIMAL(16,10),
+                                   roi_all_time DECIMAL(16,10),
+
+    -- VLM 数据（交易量）
+                                   vlm_day DECIMAL(32,10),
+                                   vlm_week DECIMAL(32,10),
+                                   vlm_month DECIMAL(32,10),
+                                   vlm_all_time DECIMAL(32,10),
+
+                                   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+
+                                    UNIQUE KEY `uniq_address` (`address`)
+#                                    FOREIGN KEY (address) REFERENCES whale(address) -- 不需要外键
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='hyper鲸鱼排行';

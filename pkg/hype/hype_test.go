@@ -16,7 +16,9 @@ func Test_stream(t *testing.T) {
 
 	ethAddress := "0x880ac484a1743862989a441d6d867238c7aa311c"
 
-	websocketClient, _ := stream.NewHyperliquidWebsocketClient("wss://api.hyperliquid.xyz/ws")
+	websocketClient, _ := stream.NewHyperliquidWebsocketClient("wss://api.hyperliquid.xyz/ws", func(client *stream.HypeliquidWebsocketClient) {
+
+	})
 	webSocketErr := websocketClient.StreamOrderUpdates(ethAddress)
 	if webSocketErr != nil {
 		fmt.Println("Error streaming all mids:", webSocketErr)
@@ -57,4 +59,17 @@ func Test_Rest(t *testing.T) {
 	}
 
 	log.Printf("当前仓位 : %v", accountSummary.AssetPositions)
+}
+
+func Test_leaderboard(t *testing.T) {
+	restClient, _ := rest.NewHyperliquidRestClient(
+		"https://api.hyperliquid.xyz",
+		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
+	)
+
+	data, err := restClient.LeaderboardCall()
+	if err != nil {
+		panic(err)
+	}
+	log.Println(data)
 }

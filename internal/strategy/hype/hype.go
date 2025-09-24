@@ -56,6 +56,11 @@ func (h *HypeTrackStrategy) Run() {
 			fmt.Println("Error streaming all mids:", webSocketErr)
 			return
 		}
+
+		err = websocketClient.Stream12Book()
+		if err != nil {
+			return
+		}
 	})
 
 	if err != nil {
@@ -263,16 +268,13 @@ func (h *HypeTrackStrategy) runForSignal(hypeSig HypeTradeSignal) {
 	}
 }
 
-// 辅助函数：把 "B"/"S" 转成 "buy"/"sell"
+// B = Bid = 买入，A = Ask = 卖出。此方为交易的主动方。
 func mapSide(side string) string {
 	if side == "B" {
 		return "buy"
 	}
-	if side == "S" {
-		return "sell"
-	}
 	if side == "A" {
-		return "sell" // 当交易者卖某些币时收到了A
+		return "sell"
 	}
 	return "unknown"
 }

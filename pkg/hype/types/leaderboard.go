@@ -7,6 +7,8 @@ type TraderPerformance struct {
 	Week         PeriodPerformance
 	Month        PeriodPerformance
 	AllTime      PeriodPerformance
+	Prize        int64
+	DisplayName  string
 }
 
 type PeriodPerformance struct {
@@ -19,6 +21,8 @@ type LeaderboardRow struct {
 	EthAddress         string          `json:"ethAddress"`
 	AccountValue       string          `json:"accountValue"`
 	WindowPerformances [][]interface{} `json:"windowPerformances"`
+	Prize              int64           `json:"prize"`
+	DisplayName        string          `json:"displayName"`
 }
 
 type RawLeaderboardResponse struct {
