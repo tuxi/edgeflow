@@ -4,7 +4,7 @@ import "time"
 
 // 币
 type Currency struct {
-	Id         int64     `gorm:"column:id;primary_key;" json:"id"`
+	Id         int64     `gorm:"column:id;primary_key;autoIncrement" json:"id"`
 	Ccy        string    `gorm:"column:ccy" json:"ccy"`
 	Name       string    `gorm:"column:name" json:"name"`
 	NameEn     string    `gorm:"column:name_en" json:"name_en"`

@@ -17,6 +17,7 @@ import (
 	"edgeflow/internal/strategy/hype"
 	"edgeflow/internal/strategy/tradingview"
 	"edgeflow/internal/trend"
+	"edgeflow/pkg/cache"
 	"gorm.io/gorm"
 )
 
@@ -68,7 +69,8 @@ func InitRouter(db *gorm.DB) Router {
 
 	hyperDao := query.NewHyperLiquidDao(db)
 
-	hyperHandler := hyperliquid.NewHandler(service.NewHyperLiquidService(hyperDao))
+	rds := cache.GetRedisClient()
+	hyperHandler := hyperliquid.NewHandler(service.NewHyperLiquidService(hyperDao, rds))
 
 	apiRouter := router.NewApiRouter(coinH, wh, tickerHandler, hyperHandler)
 

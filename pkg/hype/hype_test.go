@@ -1,6 +1,7 @@
 package hype
 
 import (
+	"context"
 	"edgeflow/pkg/hype/rest"
 	"edgeflow/pkg/hype/stream"
 	"fmt"
@@ -51,7 +52,7 @@ func Test_Rest(t *testing.T) {
 	}
 
 	user := "0xa715dbb56dc8c1a6a2d84bfcb0f45bf4da07ad14"
-	accountSummary, err := client.PerpetualsAccountSummary(user)
+	accountSummary, err := client.PerpetualsAccountSummary(context.Background(), user)
 	if err != nil {
 		// handle error
 		log.Printf("PerpetualsAccountSummary err: %v", err)
@@ -67,9 +68,15 @@ func Test_leaderboard(t *testing.T) {
 		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
 	)
 
-	data, err := restClient.LeaderboardCall()
+	//data, err := restClient.LeaderboardCall()
+	//if err != nil {
+	//	panic(err)
+	//}
+	//log.Println(data)
+
+	items, err := restClient.UserNonFundingLedgerUpdates(context.Background(), "0x880ac484a1743862989a441d6d867238c7aa311c")
 	if err != nil {
 		panic(err)
 	}
-	log.Println(data)
+	log.Println(items)
 }

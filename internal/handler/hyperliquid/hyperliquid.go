@@ -1,7 +1,10 @@
 package hyperliquid
 
 import (
+	"edgeflow/internal/model"
 	"edgeflow/internal/service"
+	"edgeflow/pkg/errors"
+	"edgeflow/pkg/errors/ecode"
 	"edgeflow/pkg/response"
 	"github.com/gin-gonic/gin"
 	"time"
@@ -12,7 +15,7 @@ type Handler struct {
 }
 
 func NewHandler(service *service.HyperLiquidService) *Handler {
-	service.StartLeaderboardUpdater(time.Minute * 1)
+	service.StartLeaderboardUpdater(time.Minute * 5)
 	return &Handler{
 		service: service,
 	}
@@ -21,12 +24,101 @@ func NewHandler(service *service.HyperLiquidService) *Handler {
 func (h *Handler) WhaleLeaderboardGet() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 
-		res, err := h.service.GetTopWhales(ctx, 100)
+		var req model.HyperWhaleLeaderBoardReq
+		if err := ctx.ShouldBind(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+
+		res, err := h.service.GetTopWhales(ctx, req.Limit, req.Period)
 		if err != nil {
 			response.JSON(ctx, err, nil)
 		} else {
 			response.JSON(ctx, nil, res)
 		}
+	}
+}
 
+// 获取鲸鱼的账户信息：包含仓位
+func (h *Handler) WhaleAccountSummaryGet() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req model.HyperWhaleAccountReq
+		if err := ctx.ShouldBind(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+
+		res, err := h.service.WhaleAccountSummaryGet(ctx, req.Address)
+		if err != nil {
+			response.JSON(ctx, err, nil)
+		} else {
+			response.JSON(ctx, nil, res)
+		}
+	}
+}
+
+func (h *Handler) WhaleUserFillOrderHistoryGet() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req model.HyperWhaleFillOrdersReq
+		if err := ctx.ShouldBindQuery(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+
+		if req.Address == "" {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, "address 不能为空"), nil)
+			return
+		}
+
+		res, err := h.service.WhaleUserFillOrdersHistory(ctx, req.Address)
+		if err != nil {
+			response.JSON(ctx, err, nil)
+		} else {
+			response.JSON(ctx, nil, res)
+		}
+	}
+}
+
+func (h *Handler) WhaleUserOpenOrderHistoryGet() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req model.HyperWhaleOpenOrdersReq
+		if err := ctx.ShouldBindQuery(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+
+		if req.Address == "" {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, "address 不能为空"), nil)
+			return
+		}
+
+		res, err := h.service.WhaleUserOpenOrdersHistory(ctx, req.Address)
+		if err != nil {
+			response.JSON(ctx, err, nil)
+		} else {
+			response.JSON(ctx, nil, res)
+		}
+	}
+}
+
+func (h *Handler) WhaleUserNonFundingLedgerGet() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req model.WhaleUserNonFundingLedgerReq
+		if err := ctx.ShouldBindQuery(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+
+		if req.Address == "" {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, "address 不能为空"), nil)
+			return
+		}
+
+		res, err := h.service.WhaleUserNonFundingLedgerGet(ctx, req.Address)
+		if err != nil {
+			response.JSON(ctx, err, nil)
+		} else {
+			response.JSON(ctx, nil, res)
+		}
 	}
 }

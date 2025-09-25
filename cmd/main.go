@@ -4,6 +4,7 @@ import (
 	"edgeflow/cmd/edgeflow"
 	"edgeflow/conf"
 	"edgeflow/internal/middleware"
+	"edgeflow/pkg/cache"
 	"edgeflow/pkg/db"
 	"edgeflow/pkg/logger"
 	"github.com/nntaoli-project/goex/v2"
@@ -82,6 +83,9 @@ func main() {
 		ParseTime: true,
 	})
 
+	// 初始化redis缓存
+	cache.InitRedis(appCfg.Redis)
+
 	// 创建并启动服务
 	srv := api.NewServer(&appCfg)
 	srv.RegisterOnShutdown(func() {
@@ -92,6 +96,8 @@ func main() {
 				_ = m.Close()
 			}
 		}
+
+		cache.CloseRedis()
 
 	})
 	srvRouter := api.InitRouter(datasource)

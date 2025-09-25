@@ -37,7 +37,7 @@ func (c *currencyService) CurrencyCreateNew(ctx context.Context, ccy, name, name
 	co.PriceScale = priceScale
 	co.LogoUrl = logoUrl
 
-	err = c.d.CurrencyCreateNew(ctx, &co)
+	err = c.d.CurrencyUpsert(ctx, &co)
 	if err != nil {
 		return
 	}

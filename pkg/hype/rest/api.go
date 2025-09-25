@@ -2,12 +2,14 @@ package rest
 
 import (
 	"bytes"
+	"context"
 	"edgeflow/pkg/hype/types"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 type HyperliquidRestClient struct {
@@ -38,8 +40,8 @@ func NewHyperliquidRestClient(rawUrl string, leaderboardUrl string) (*Hyperliqui
 	}, nil
 }
 
-func (rest *HyperliquidRestClient) doRequest(endpoint string, requestType string, additionalParams map[string]string, result interface{}) error {
-	reqBody := map[string]string{"type": requestType}
+func (rest *HyperliquidRestClient) doRequestWithContext(ctx context.Context, endpoint string, requestType string, additionalParams map[string]interface{}, result interface{}) error {
+	reqBody := map[string]interface{}{"type": requestType}
 	for key, value := range additionalParams {
 		reqBody[key] = value
 	}
@@ -47,8 +49,7 @@ func (rest *HyperliquidRestClient) doRequest(endpoint string, requestType string
 	if err != nil {
 		return fmt.Errorf("failed to marshal request body: %w", err)
 	}
-
-	req, err := http.NewRequest("POST", rest.url+endpoint, bytes.NewBuffer(reqBodyJSON))
+	req, err := http.NewRequestWithContext(ctx, "POST", rest.url+endpoint, bytes.NewBuffer(reqBodyJSON))
 	if err != nil {
 		return fmt.Errorf("failed to create new request: %w", err)
 	}
@@ -73,6 +74,10 @@ func (rest *HyperliquidRestClient) doRequest(endpoint string, requestType string
 		return fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 	return nil
+}
+
+func (rest *HyperliquidRestClient) doRequest(endpoint string, requestType string, additionalParams map[string]interface{}, result interface{}) error {
+	return rest.doRequestWithContext(context.Background(), endpoint, requestType, additionalParams, rest)
 }
 
 // New method for fetching metadata
@@ -108,13 +113,65 @@ func (rest *HyperliquidRestClient) PerpetualAssetContexts() ([]types.UniverseIte
 
 // 获取账号信息
 // New method for fetching a user's perpetuals account summary
-func (rest *HyperliquidRestClient) PerpetualsAccountSummary(user string) (types.MarginData, error) {
+func (rest *HyperliquidRestClient) PerpetualsAccountSummary(ctx context.Context, user string) (types.MarginData, error) {
 	var marginData types.MarginData
-	params := map[string]string{"user": user}
-	if err := rest.doRequest("/info", "clearinghouseState", params, &marginData); err != nil {
+	params := map[string]interface{}{"user": user}
+	if err := rest.doRequestWithContext(ctx, "/info", "clearinghouseState", params, &marginData); err != nil {
 		return types.MarginData{}, err
 	}
 	return marginData, nil
+}
+
+// 获取用户24小时内的成交历史
+func (rest *HyperliquidRestClient) UserFillOrdersIn24Hours(ctx context.Context, userAddress string) (orders []*types.UserFillOrder, err error) {
+
+	// 只查询获取24小时内的交易记录
+	// 只调用一次 time.Now()，避免两次调用间的时间差
+	now := time.Now()
+	startTime := now.Add(-24 * time.Hour).UnixMilli()
+	//endTime := now.UnixMilli()
+
+	params := map[string]interface{}{
+		"user":      userAddress,
+		"startTime": startTime,
+		//"endTime":   endTime,
+	}
+	if err := rest.doRequestWithContext(ctx, "/info", "userFillsByTime", params, &orders); err != nil {
+		return nil, err
+	}
+	return orders, nil
+}
+
+func (rest *HyperliquidRestClient) UserOpenOrders(ctx context.Context, userAddress string) (orders []*types.UserOpenOrder, err error) {
+
+	params := map[string]interface{}{
+		"user": userAddress,
+	}
+	if err := rest.doRequestWithContext(ctx, "/info", "frontendOpenOrders", params, &orders); err != nil {
+		return nil, err
+	}
+
+	return orders, nil
+}
+
+// 获取用户非资金分类账更新包括存款、转账和提款
+func (rest *HyperliquidRestClient) UserNonFundingLedgerGet(ctx context.Context, userAddress string) (orders []*types.UserNonFunding, err error) {
+
+	// 只查询获取24小时内的交易记录
+	// 只调用一次 time.Now()，避免两次调用间的时间差
+	now := time.Now()
+	startTime := now.Add(-24 * time.Hour).UnixMilli()
+	//endTime := now.UnixMilli()
+
+	params := map[string]interface{}{
+		"user":      userAddress,
+		"startTime": startTime,
+		//"endTime":   endTime,
+	}
+	if err := rest.doRequestWithContext(ctx, "/info", "userNonFundingLedgerUpdates", params, &orders); err != nil {
+		return nil, err
+	}
+	return orders, nil
 }
 
 // 获取收益率排行榜数据

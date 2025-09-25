@@ -2,11 +2,15 @@ package service
 
 import (
 	"context"
+	"edgeflow/internal/consts"
 	"edgeflow/internal/dao"
 	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
 	"edgeflow/pkg/hype/rest"
 	"edgeflow/pkg/hype/types"
+	"edgeflow/pkg/logger"
+	"encoding/json"
+	"github.com/go-redis/redis/v8"
 	"log"
 	"sort"
 	"time"
@@ -14,14 +18,68 @@ import (
 
 type HyperLiquidService struct {
 	dao dao.HyperLiquidDao
+	rc  *redis.Client
 }
 
-func NewHyperLiquidService(dao dao.HyperLiquidDao) *HyperLiquidService {
-	return &HyperLiquidService{dao: dao}
+func NewHyperLiquidService(dao dao.HyperLiquidDao, rc *redis.Client) *HyperLiquidService {
+	return &HyperLiquidService{dao: dao, rc: rc}
 }
 
-func (h *HyperLiquidService) GetTopWhales(ctx context.Context, limit int) (*model.WhaleEntryListRes, error) {
-	list, err := h.dao.GetTopWhales(ctx, "all", limit)
+func (h *HyperLiquidService) WhaleAccountSummaryGet(ctx context.Context, address string) (*types.MarginData, error) {
+
+	// 先从redis缓存中查找
+	rdsKey := consts.WhaleAccountSummaryKey + ":1:" + address
+	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
+
+	var res types.MarginData
+	if err == nil {
+		err = json.Unmarshal(bytes, &res)
+		if err == nil {
+			return &res, nil
+		}
+	} else {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
+	}
+
+	restClient, err := rest.NewHyperliquidRestClient(
+		"https://api.hyperliquid.xyz",
+		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	res, err = restClient.PerpetualsAccountSummary(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+
+	bytes, err = json.Marshal(&res)
+	if err != nil {
+		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+		return &res, nil
+	}
+
+	// 存储redis中，30秒过期
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*15).Err()
+	if err != nil {
+		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+
+	}
+	return &res, nil
+}
+
+func (h *HyperLiquidService) GetTopWhales(ctx context.Context, limit int, period string) (*model.WhaleEntryListRes, error) {
+	if period == "" {
+		period = "all"
+	}
+	if limit == 0 {
+		limit = 100
+	}
+	list, err := h.dao.GetTopWhales(ctx, period, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +135,139 @@ func (h *HyperLiquidService) fetchLeaderboard() ([]types.TraderPerformance, erro
 	}
 
 	return data, nil
+}
+
+// 用户交易成交订单历史
+func (h *HyperLiquidService) WhaleUserFillOrdersHistory(ctx context.Context, userAddress string) (orders []*types.UserFillOrder, err error) {
+	rdsKey := consts.UserFillOrderKey + ":1:" + userAddress
+	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
+
+	var res []*types.UserFillOrder
+	if err == nil {
+		err = json.Unmarshal(bytes, &res)
+		if err == nil {
+			return res, nil
+		}
+	} else {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
+	}
+
+	restClient, _ := rest.NewHyperliquidRestClient(
+		"https://api.hyperliquid.xyz",
+		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
+	)
+
+	res, err = restClient.UserFillOrdersIn24Hours(ctx, userAddress)
+	if err != nil {
+		log.Printf("HyperLiquidService fetchUserFillOrdersHistory error: %v", err)
+		return nil, err
+	}
+
+	bytes, err = json.Marshal(&res)
+	if err != nil {
+		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+		return res, nil
+	}
+
+	// 存储redis中，30秒过期
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*30).Err()
+	if err != nil {
+		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+
+	}
+
+	return res, nil
+}
+
+func (h *HyperLiquidService) WhaleUserOpenOrdersHistory(ctx context.Context, userAddress string) (orders []*types.UserOpenOrder, err error) {
+	// 先从redis缓存中查找
+	rdsKey := consts.UserOpenOrderKey + ":1:" + userAddress
+	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
+
+	var res []*types.UserOpenOrder
+	if err == nil {
+		err = json.Unmarshal(bytes, &res)
+		if err == nil {
+			return res, nil
+		}
+	} else {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
+	}
+
+	restClient, _ := rest.NewHyperliquidRestClient(
+		"https://api.hyperliquid.xyz",
+		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
+	)
+
+	res, err = restClient.UserOpenOrders(ctx, userAddress)
+	if err != nil {
+		log.Printf("HyperLiquidService fetchUserOpenOrdersHistory error: %v", err)
+		return nil, err
+	}
+
+	bytes, err = json.Marshal(&res)
+	if err != nil {
+		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+		return res, nil
+	}
+
+	// 存储redis中，30秒过期
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*30).Err()
+	if err != nil {
+		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+
+	}
+
+	return res, nil
+}
+
+// 获取鲸鱼转账、提现记录
+func (h *HyperLiquidService) WhaleUserNonFundingLedgerGet(ctx context.Context, userAddress string) (orders []*types.UserNonFunding, err error) {
+	// 先从redis缓存中查找
+	rdsKey := consts.UserNonFundingLedger + ":1:" + userAddress
+	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
+
+	var res []*types.UserNonFunding
+	if err == nil {
+		err = json.Unmarshal(bytes, &res)
+		if err == nil {
+			return res, nil
+		}
+	} else {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
+	}
+
+	restClient, _ := rest.NewHyperliquidRestClient(
+		"https://api.hyperliquid.xyz",
+		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
+	)
+
+	res, err = restClient.UserNonFundingLedgerGet(ctx, userAddress)
+	if err != nil {
+		log.Printf("HyperLiquidService fetchUserOpenOrdersHistory error: %v", err)
+		return nil, err
+	}
+
+	bytes, err = json.Marshal(&res)
+	if err != nil {
+		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+		return res, nil
+	}
+
+	// 存储redis中，30秒过期
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*30).Err()
+	if err != nil {
+		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+
+	}
+
+	return res, nil
 }
 
 func (h *HyperLiquidService) updateWhaleLeaderboard(rawLeaderboard []types.TraderPerformance, dayVlmThreshold float64, minAccountValue float64, topN int) error {

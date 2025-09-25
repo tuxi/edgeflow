@@ -96,7 +96,7 @@ func (h *HypeTrackStrategy) ReceiveOrders(orders []types.Order) {
 		log.Printf("初始化HyperliquidRestClient失败：%v", err)
 	}
 	h.mu.Lock()
-	accountSummary, err := client.PerpetualsAccountSummary(targetAddress)
+	accountSummary, err := client.PerpetualsAccountSummary(context.Background(), targetAddress)
 	if err != nil {
 		log.Printf("获取交易者仓位失败: %v", err)
 		h.mu.Unlock()

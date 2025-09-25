@@ -26,3 +26,10 @@ const (
 	TimeLayout   = "2006-01-02 15:04:05"
 	TimeLayoutMs = "2006-01-02 15:04:05.000"
 )
+
+const (
+	WhaleAccountSummaryKey = "WhaleAccountSummary"
+	UserOpenOrderKey       = "UserOpenOrder"
+	UserFillOrderKey       = "UserFillOrder"
+	UserNonFundingLedger   = "UserNonFundingLedger"
+)

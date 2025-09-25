@@ -11,6 +11,10 @@ type CurrenciesDao interface {
 	CurrencyCreateNew(ctx context.Context, coin *entity.Currency) error
 	// 创建货币 并关联到交易所
 	CurrencyCreateNewWithExchange(ctx context.Context, exchangeId int64, currency *entity.Currency) error
+	// 更新币种：没有就创建、存在就更新
+	CurrencyUpsert(ctx context.Context, w *entity.Currency) error
+	CurrencyUpsertBatch(ctx context.Context, currencies []*entity.Currency) error
+
 	// 批量创建货币 并关联到交易所
 	CurrencyCreateBatchWithExchange(ctx context.Context, exchangeId int64, currencies []entity.Currency) error
 	// 更新币种

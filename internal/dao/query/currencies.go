@@ -5,6 +5,7 @@ import (
 	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type currenciesDao struct {
@@ -16,10 +17,43 @@ func NewCurrenciesDao(db *gorm.DB) *currenciesDao {
 }
 
 func (c *currenciesDao) CurrencyCreateNew(ctx context.Context, coin *entity.Currency) error {
+	if coin == nil {
+		return gorm.ErrInvalidData
+	}
 	return c.db.WithContext(ctx).Create(coin).Error
 }
 
+func (dao *currenciesDao) CurrencyUpsert(ctx context.Context, w *entity.Currency) error {
+
+	if w == nil {
+		return gorm.ErrInvalidData
+	}
+	return dao.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "ccy"}},
+			UpdateAll: true,
+		}).
+		Create(w).Error
+
+}
+
+// 批量 Upsert Whale
+func (dao *currenciesDao) CurrencyUpsertBatch(ctx context.Context, currencies []*entity.Currency) error {
+	if len(currencies) == 0 {
+		return nil
+	}
+	return dao.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "ccy"}},
+			UpdateAll: true,
+		}).
+		CreateInBatches(currencies, 100).Error
+}
+
 func (c *currenciesDao) CurrencyUpdate(ctx context.Context, coin *entity.Currency) error {
+	if coin == nil {
+		return gorm.ErrInvalidData
+	}
 	return c.db.WithContext(ctx).Updates(coin).Error
 }
 

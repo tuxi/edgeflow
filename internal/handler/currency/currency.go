@@ -32,6 +32,7 @@ func (h *Handler) CoinsGetList() gin.HandlerFunc {
 		var req model.CurrencyListReq
 		if err := ctx.ShouldBindQuery(&req); err != nil {
 			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
 		}
 
 		exId, err := strconv.ParseInt(req.ExId, 10, 64)
