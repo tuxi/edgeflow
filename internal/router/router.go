@@ -48,6 +48,7 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		h.GET("/whales/open-orders", api.hyperHandler.WhaleUserOpenOrderHistoryGet())
 		h.GET("/whales/nonfunding", api.hyperHandler.WhaleUserNonFundingLedgerGet())
 		h.GET("/whales/top-positions", api.hyperHandler.TopWhalePositionsGet())
+		h.GET("/whales/positions-analyze", api.hyperHandler.TopWhalePositionsAnalyze())
 
 	}
 

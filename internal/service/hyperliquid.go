@@ -308,6 +308,7 @@ func (h *HyperLiquidService) WhaleUserNonFundingLedgerGet(ctx context.Context, u
 	return res, nil
 }
 
+// 更新排行数据到数据库
 func (h *HyperLiquidService) updateWhaleLeaderboard(rawLeaderboard []types.TraderPerformance, dayVlmThreshold float64, minAccountValue float64, topN int) error {
 	if len(rawLeaderboard) == 0 {
 		return nil
@@ -399,7 +400,7 @@ func (s *HyperLiquidService) StartScheduler(ctx context.Context, interval time.D
 	}
 }
 
-// 拉取+存储
+// 获取前100个鲸鱼地址的仓位
 func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 	// 1. 获取前100鲸鱼
 	topWhales, err := h.dao.GetTopWhales(ctx, "pnl_day", 100)
@@ -408,7 +409,7 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 		return err
 	}
 
-	var snapshots []entity.HyperWhalePosition
+	var snapshots []*entity.HyperWhalePosition
 
 	// 2. 遍历查询持仓 (clearinghouseState)
 	for _, whale := range topWhales {
@@ -427,7 +428,7 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 				side = "short"
 			}
 
-			ps := entity.HyperWhalePosition{
+			ps := &entity.HyperWhalePosition{
 				Address:        whale,
 				Coin:           pos.Position.Coin,
 				Type:           pos.Type,
@@ -438,6 +439,8 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 				ReturnOnEquity: pos.Position.ReturnOnEquity,
 				LeverageType:   pos.Position.Leverage.Type,
 				LeverageValue:  pos.Position.Leverage.Value,
+				MarginUsed:     pos.Position.MarginUsed,
+				FundingFee:     pos.Position.CumFunding.AllTime,
 				Side:           side,
 				UpdatedAt:      now,
 				CreatedAt:      now,
@@ -454,12 +457,34 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 		}
 	}
 
+	// 4.对仓位进行分析
+	analyzePos := h.analyzePositions(snapshots)
+
+	// 把分析的结果缓存到redis
+	rdsKey := consts.WhalePositionsAnalyze
+
+	bytes, err := json.Marshal(&analyzePos)
+	if err != nil {
+		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+		return nil
+	}
+
+	// 存储redis中，1分钟过期
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Minute*10).Err()
+	if err != nil {
+		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+
+	}
 	return nil
 }
 
 func (h *HyperLiquidService) GetTopWhalePositions(ctx context.Context) ([]*entity.HyperWhalePosition, error) {
+	return h.getTopWhalePositions(ctx, 100)
+}
+
+func (h *HyperLiquidService) getTopWhalePositions(ctx context.Context, limit int) ([]*entity.HyperWhalePosition, error) {
 	// 先从redis缓存中查找
-	rdsKey := consts.WhalePositionsTop100
+	rdsKey := fmt.Sprintf("%v:%v", consts.WhalePositionsTop, limit)
 	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
 
 	var res []*entity.HyperWhalePosition
@@ -475,7 +500,7 @@ func (h *HyperLiquidService) GetTopWhalePositions(ctx context.Context) ([]*entit
 	}
 
 	// 从数据库获取
-	res, err = h.dao.GetTopWhalePositions(ctx, 50)
+	res, err = h.dao.GetTopWhalePositions(ctx, limit)
 	if err != nil {
 		log.Printf("HyperLiquidService GetTopWhalePositions error: %v", err)
 		return nil, err
@@ -531,4 +556,108 @@ func (h *HyperLiquidService) GetLongShortRatio(ctx context.Context) (*model.Whal
 
 	}
 	return res, err
+}
+
+// 获取最新仓位数据分析
+func (h *HyperLiquidService) AnalyzeTopPositions(ctx context.Context) (*model.WhalePositionAnalysis, error) {
+	rdsKey := consts.WhalePositionsAnalyze
+	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
+
+	var res model.WhalePositionAnalysis
+	if err == nil {
+		err = json.Unmarshal(bytes, &res)
+		if err == nil {
+			return &res, nil
+		}
+	} else {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
+	}
+
+	posList, err := h.getTopWhalePositions(ctx, 1000)
+	if err != nil {
+		return nil, err
+	}
+	res = h.analyzePositions(posList)
+
+	if err != nil {
+		log.Printf("HyperLiquidService AnalyzeTopPositions error: %v", err)
+		return nil, err
+	}
+	bytes, err = json.Marshal(&res)
+	if err != nil {
+		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+		return &res, nil
+	}
+
+	// 存储redis中，30秒过期
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Minute*1).Err()
+	if err != nil {
+		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+
+	}
+
+	return &res, nil
+}
+
+// 对仓位进行分析
+func (h *HyperLiquidService) analyzePositions(positions []*entity.HyperWhalePosition) model.WhalePositionAnalysis {
+	var analysis model.WhalePositionAnalysis
+
+	for _, pos := range positions {
+		// 基础汇总
+		posValue, _ := strconv.ParseFloat(pos.PositionValue, 64)
+		marginUsed, _ := strconv.ParseFloat(pos.MarginUsed, 64)
+		upnl, _ := strconv.ParseFloat(pos.UnrealizedPnl, 64)
+		fundingFee, _ := strconv.ParseFloat(pos.FundingFee, 64)
+		analysis.TotalValue += posValue
+		analysis.TotalMargin += marginUsed
+		analysis.TotalPnl += upnl
+		analysis.TotalFundingFee += fundingFee
+
+		if pos.Side == "long" {
+			analysis.LongValue += posValue
+			analysis.LongMargin += marginUsed
+			analysis.LongPnl += upnl
+			analysis.LongFundingFee += fundingFee
+			analysis.LongCount++
+		} else if pos.Side == "short" {
+			analysis.ShortValue += posValue
+			analysis.ShortMargin += marginUsed
+			analysis.ShortPnl += upnl
+			analysis.ShortFundingFee += fundingFee
+			analysis.ShortCount++
+		}
+
+		// 潜在爆仓判断（简单示例: Margin / Value < 0.1）
+		if posValue > 0 && marginUsed/posValue < 0.1 {
+			analysis.HighRiskValue += posValue
+		}
+	}
+
+	// 平均值与杠杆
+	if analysis.LongCount > 0 {
+		analysis.LongAvgValue = analysis.LongValue / float64(analysis.LongCount)
+		analysis.LongAvgLeverage = analysis.LongValue / analysis.LongMargin
+		analysis.LongProfitRate = analysis.LongPnl / analysis.LongMargin
+	}
+	if analysis.ShortCount > 0 {
+		analysis.ShortAvgValue = analysis.ShortValue / float64(analysis.ShortCount)
+		analysis.ShortAvgLeverage = analysis.ShortValue / analysis.ShortMargin
+		analysis.ShortProfitRate = analysis.ShortPnl / analysis.ShortMargin
+	}
+
+	// 多空占比
+	if analysis.TotalValue > 0 {
+		analysis.LongPercentage = analysis.LongValue / analysis.TotalValue
+		analysis.ShortPercentage = analysis.ShortValue / analysis.TotalValue
+	}
+
+	// 仓位倾斜指数 [-1,1]
+	if analysis.TotalValue > 0 {
+		analysis.PositionSkew = (analysis.LongValue - analysis.ShortValue) / analysis.TotalValue
+	}
+
+	return analysis
 }

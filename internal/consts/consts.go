@@ -32,7 +32,8 @@ const (
 	UserOpenOrderKey                   = "UserOpenOrder"
 	UserFillOrderKey                   = "UserFillOrder"
 	UserNonFundingLedger               = "UserNonFundingLedger"
-	WhalePositionsTop100               = "whale:positions:top100"
+	WhalePositionsTop                  = "whale:positions:top"
 	WhaleLongShortRatio                = "whale:longshort:ratio"
 	HyperWhaleLeaderBoardInfoByAddress = "whale:boardInfo:address"
+	WhalePositionsAnalyze              = "WhalePositionsAnalyze"
 )

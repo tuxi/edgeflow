@@ -155,3 +155,15 @@ func (h *Handler) TopWhalePositionsGet() gin.HandlerFunc {
 		}
 	}
 }
+
+func (h *Handler) TopWhalePositionsAnalyze() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+
+		res, err := h.service.AnalyzeTopPositions(ctx)
+		if err != nil {
+			response.JSON(ctx, err, nil)
+		} else {
+			response.JSON(ctx, nil, res)
+		}
+	}
+}

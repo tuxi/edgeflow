@@ -59,3 +59,36 @@ type WhaleLongShortRatio struct {
 	ShortValue float64 `json:"short_value"`
 	Ratio      float64 `json:"ratio"` // LongValue / ShortValue
 }
+
+// 鲸鱼仓位分析数据
+type WhalePositionAnalysis struct {
+	// 基础汇总
+	TotalValue      float64 `json:"totalValue"`
+	LongValue       float64 `json:"longValue"`
+	ShortValue      float64 `json:"shortValue"`
+	TotalMargin     float64 `json:"totalMargin"`
+	LongMargin      float64 `json:"longMargin"`
+	ShortMargin     float64 `json:"shortMargin"`
+	TotalPnl        float64 `json:"totalPnl"`
+	LongPnl         float64 `json:"longPnl"`
+	ShortPnl        float64 `json:"shortPnl"`
+	TotalFundingFee float64 `json:"totalFundingFee"`
+	LongFundingFee  float64 `json:"longFundingFee"`
+	ShortFundingFee float64 `json:"shortFundingFee"`
+
+	// 扩展分析
+	LongCount        int     `json:"longCount"`
+	ShortCount       int     `json:"shortCount"`
+	LongAvgValue     float64 `json:"longAvgValue"`
+	ShortAvgValue    float64 `json:"shortAvgValue"`
+	LongAvgLeverage  float64 `json:"longAvgLeverage"`
+	ShortAvgLeverage float64 `json:"shortAvgLeverage"`
+	LongProfitRate   float64 `json:"longProfitRate"`
+	ShortProfitRate  float64 `json:"shortProfitRate"`
+
+	LongPercentage  float64 `json:"longPercentage"`  // 多单价值占总价值比例
+	ShortPercentage float64 `json:"shortPercentage"` // 空单价值占总价值比例
+
+	PositionSkew  float64 `json:"positionSkew"`  // 仓位倾斜指数 [-1,1]
+	HighRiskValue float64 `json:"highRiskValue"` // 潜在爆仓仓位价值
+}

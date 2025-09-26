@@ -23,7 +23,7 @@ type HyperLiquidDao interface {
 	// 获取前N名鲸鱼
 	GetTopWhales(ctx context.Context, period string, limit int) ([]string, error)
 	// 创建鲸鱼仓位快照
-	CreatePositionInBatches(ctx context.Context, items []entity.HyperWhalePosition) error
+	CreatePositionInBatches(ctx context.Context, items []*entity.HyperWhalePosition) error
 	// 获取前100仓位
 	GetTopWhalePositions(ctx context.Context, limit int) ([]*entity.HyperWhalePosition, error)
 	// 获取仓位多空

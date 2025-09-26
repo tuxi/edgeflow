@@ -69,10 +69,11 @@ type HyperWhalePosition struct {
 	LeverageType  string `gorm:"size:20;not null;column:leverage_type;comment:杠杆类型" json:"leverage_type"`
 	LeverageValue int    `gorm:"not null;column:leverage_value;comment:杠杆倍数" json:"leverage_value"`
 
-	Side string `gorm:"size:20;not null;column:side;comment:仓位方向(long/short)" json:"side"`
-
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	Side       string    `gorm:"size:20;not null;column:side;comment:仓位方向(long/short)" json:"side"`
+	MarginUsed string    `gorm:"type:DECIMAL(40, 18);column:margin_used;comment:保证金" json:"margin_used"`
+	FundingFee string    `gorm:"type:DECIMAL(40, 18);column:funding_fee;comment:资金费用" json:"funding_fee"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	CreatedAt  time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
 
 func (HyperWhalePosition) TableName() string {

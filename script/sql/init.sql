@@ -111,6 +111,8 @@ CREATE TABLE `hyper_whale_position` (
                                    `side` VARCHAR(20) NOT NULL COMMENT '仓位方向(long/short)',
                                    `entry_px` VARCHAR(50) DEFAULT NULL COMMENT '开仓价格',
                                    `position_value` DECIMAL(40, 18) DEFAULT NULL COMMENT '仓位价值',
+                                   `margin_used` DECIMAL(40, 18) DEFAULT NULL COMMENT '保证金',
+                                   `funding_fee` DECIMAL(40, 18) DEFAULT NULL COMMENT '资金费',
                                    `szi` DECIMAL(40, 18) DEFAULT NULL COMMENT '仓位数量',
                                    `unrealized_pnl` VARCHAR(50) DEFAULT NULL COMMENT '未实现盈亏',
                                    `return_on_equity` VARCHAR(50) DEFAULT NULL COMMENT 'ROE',

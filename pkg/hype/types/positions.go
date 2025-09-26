@@ -1,9 +1,9 @@
 package types
 
 type CumFunding struct {
-	AllTime     string `json:"allTime"`
-	SinceChange string `json:"sinceChange"`
-	SinceOpen   string `json:"sinceOpen"`
+	AllTime     string `json:"allTime"`     // 总资金费（可能正或负）
+	SinceChange string `json:"sinceChange"` // 自最近价格变动后的资金费
+	SinceOpen   string `json:"sinceOpen"`   // 自开仓以来累计资金费
 }
 
 type Leverage struct {

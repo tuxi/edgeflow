@@ -188,7 +188,7 @@ func (h *hyperLiquidDao) GetTopWhales(ctx context.Context, period string, limit 
 	return
 }
 
-func (h *hyperLiquidDao) CreatePositionInBatches(ctx context.Context, positions []entity.HyperWhalePosition) error {
+func (h *hyperLiquidDao) CreatePositionInBatches(ctx context.Context, positions []*entity.HyperWhalePosition) error {
 
 	if len(positions) == 0 {
 		return nil
@@ -214,7 +214,7 @@ func (s *hyperLiquidDao) GetTopWhalePositions(ctx context.Context, limit int) ([
 	var positions []*entity.HyperWhalePosition
 	err := s.db.WithContext(ctx).
 		Order("position_value DESC"). // 按仓位价值降序
-		Limit(limit). // 取前N名
+		Limit(limit).                 // 取前N名
 		Find(&positions).Error
 	if err != nil {
 		return nil, err
