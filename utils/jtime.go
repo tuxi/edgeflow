@@ -1,8 +1,8 @@
 package utils
 
 import (
-	"chat-api/internal/consts"
 	"database/sql/driver"
+	"edgeflow/internal/consts"
 	"fmt"
 	"time"
 )

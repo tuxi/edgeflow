@@ -101,3 +101,23 @@ CREATE TABLE `hyper_whale_leaderboard` (
                                     UNIQUE KEY `uniq_address` (`address`)
 #                                    FOREIGN KEY (address) REFERENCES whale(address) -- 不需要外键
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='hyper鲸鱼排行';
+
+
+CREATE TABLE `hyper_whale_position` (
+                                   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+                                   `address` VARCHAR(100) NOT NULL COMMENT '用户地址',
+                                   `coin` VARCHAR(50) NOT NULL COMMENT '币种',
+                                   `type` VARCHAR(20) NOT NULL COMMENT '仓位类型(oneWay单向/twoWay双向)',
+                                   `side` VARCHAR(20) NOT NULL COMMENT '仓位方向(long/short)',
+                                   `entry_px` VARCHAR(50) DEFAULT NULL COMMENT '开仓价格',
+                                   `position_value` DECIMAL(40, 18) DEFAULT NULL COMMENT '仓位价值',
+                                   `szi` DECIMAL(40, 18) DEFAULT NULL COMMENT '仓位数量',
+                                   `unrealized_pnl` VARCHAR(50) DEFAULT NULL COMMENT '未实现盈亏',
+                                   `return_on_equity` VARCHAR(50) DEFAULT NULL COMMENT 'ROE',
+                                   `leverage_type` VARCHAR(20) NOT NULL COMMENT '杠杆模式( isolated / cross )',
+                                   `leverage_value` INT NOT NULL COMMENT '杠杆倍数',
+                                   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                                   PRIMARY KEY (`id`),
+                                   UNIQUE KEY `idx_whale_position_unique` (`address`, `coin`, `side`, `leverage_type`, `leverage_value`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='鲸鱼仓位表';

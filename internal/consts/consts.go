@@ -28,8 +28,11 @@ const (
 )
 
 const (
-	WhaleAccountSummaryKey = "WhaleAccountSummary"
-	UserOpenOrderKey       = "UserOpenOrder"
-	UserFillOrderKey       = "UserFillOrder"
-	UserNonFundingLedger   = "UserNonFundingLedger"
+	WhaleAccountSummaryKey             = "WhaleAccountSummary"
+	UserOpenOrderKey                   = "UserOpenOrder"
+	UserFillOrderKey                   = "UserFillOrder"
+	UserNonFundingLedger               = "UserNonFundingLedger"
+	WhalePositionsTop100               = "whale:positions:top100"
+	WhaleLongShortRatio                = "whale:longshort:ratio"
+	HyperWhaleLeaderBoardInfoByAddress = "whale:boardInfo:address"
 )

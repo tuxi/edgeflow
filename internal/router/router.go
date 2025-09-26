@@ -41,11 +41,14 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 
 	h := base.Group("/hyperliquid", middleware.RequestValidationMiddleware())
 	{
+		h.GET("/whales/address", api.hyperHandler.WhaleInfoGetByAddress())
 		h.POST("/whales/leaderboard", api.hyperHandler.WhaleLeaderboardGet())
 		h.POST("/whales/account", api.hyperHandler.WhaleAccountSummaryGet())
 		h.GET("/whales/fills-orders", api.hyperHandler.WhaleUserFillOrderHistoryGet())
 		h.GET("/whales/open-orders", api.hyperHandler.WhaleUserOpenOrderHistoryGet())
 		h.GET("/whales/nonfunding", api.hyperHandler.WhaleUserNonFundingLedgerGet())
+		h.GET("/whales/top-positions", api.hyperHandler.TopWhalePositionsGet())
+
 	}
 
 	base.POST("/webhook", middleware.RequestValidationMiddleware(), api.wh.HandlerWebhook())

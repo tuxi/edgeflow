@@ -10,9 +10,11 @@ import (
 	"edgeflow/pkg/hype/types"
 	"edgeflow/pkg/logger"
 	"encoding/json"
+	"fmt"
 	"github.com/go-redis/redis/v8"
 	"log"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -72,6 +74,42 @@ func (h *HyperLiquidService) WhaleAccountSummaryGet(ctx context.Context, address
 	return &res, nil
 }
 
+// 查询用户在排行榜中的收益数据
+func (h *HyperLiquidService) WhaleLeaderBoardInfoGetByAddress(ctx context.Context, address string) (*model.HyperWhaleLeaderBoard, error) {
+
+	// 先从redis缓存中查找
+	rdsKey := consts.HyperWhaleLeaderBoardInfoByAddress + ":1:" + address
+	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
+
+	var res *model.HyperWhaleLeaderBoard
+	if err == nil {
+		err = json.Unmarshal(bytes, &res)
+		if err == nil {
+			return res, nil
+		}
+	} else {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
+	}
+
+	res, err = h.dao.WhaleLeaderBoardInfoGetByAddress(ctx, address)
+
+	bytes, err = json.Marshal(&res)
+	if err != nil {
+		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+		return res, nil
+	}
+
+	// 存储redis中，30秒过期
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*15).Err()
+	if err != nil {
+		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+
+	}
+	return res, nil
+}
+
 func (h *HyperLiquidService) GetTopWhales(ctx context.Context, limit int, period string) (*model.WhaleEntryListRes, error) {
 	if period == "" {
 		period = "all"
@@ -79,7 +117,7 @@ func (h *HyperLiquidService) GetTopWhales(ctx context.Context, limit int, period
 	if limit == 0 {
 		limit = 100
 	}
-	list, err := h.dao.GetTopWhales(ctx, period, limit)
+	list, err := h.dao.GetTopWhalesLeaderBoard(ctx, period, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -344,4 +382,153 @@ func (h *HyperLiquidService) updateWhaleLeaderboard(rawLeaderboard []types.Trade
 
 	// 6️⃣ 批量 Upsert WhaleStat 排行榜数据
 	return h.dao.WhaleStatUpsertBatch(ctx, whaleStats)
+}
+
+// 定时任务：每隔N分钟更新一次鲸鱼持仓
+func (s *HyperLiquidService) StartScheduler(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	for {
+		select {
+		case <-ticker.C:
+			if err := s.updatePositions(ctx); err != nil {
+				fmt.Println("HyperLiquidService updateSnapshots error:", err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// 拉取+存储
+func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
+	// 1. 获取前100鲸鱼
+	topWhales, err := h.dao.GetTopWhales(ctx, "pnl_day", 100)
+
+	if err != nil {
+		return err
+	}
+
+	var snapshots []entity.HyperWhalePosition
+
+	// 2. 遍历查询持仓 (clearinghouseState)
+	for _, whale := range topWhales {
+		state, err := h.WhaleAccountSummaryGet(ctx, whale)
+
+		if err != nil {
+			continue
+		}
+
+		now := time.Now()
+		for _, pos := range state.AssetPositions {
+
+			side := "long"
+			szi, _ := strconv.ParseFloat(pos.Position.Szi, 64)
+			if szi < 0 {
+				side = "short"
+			}
+
+			ps := entity.HyperWhalePosition{
+				Address:        whale,
+				Coin:           pos.Position.Coin,
+				Type:           pos.Type,
+				EntryPx:        pos.Position.EntryPx,
+				PositionValue:  pos.Position.PositionValue,
+				Szi:            pos.Position.Szi,
+				UnrealizedPnl:  pos.Position.UnrealizedPnl,
+				ReturnOnEquity: pos.Position.ReturnOnEquity,
+				LeverageType:   pos.Position.Leverage.Type,
+				LeverageValue:  pos.Position.Leverage.Value,
+				Side:           side,
+				UpdatedAt:      now,
+				CreatedAt:      now,
+			}
+
+			snapshots = append(snapshots, ps)
+		}
+	}
+
+	// 3. 存数据库
+	if len(snapshots) > 0 {
+		if err := h.dao.CreatePositionInBatches(ctx, snapshots); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *HyperLiquidService) GetTopWhalePositions(ctx context.Context) ([]*entity.HyperWhalePosition, error) {
+	// 先从redis缓存中查找
+	rdsKey := consts.WhalePositionsTop100
+	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
+
+	var res []*entity.HyperWhalePosition
+	if err == nil {
+		err = json.Unmarshal(bytes, &res)
+		if err == nil {
+			return res, nil
+		}
+	} else {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
+	}
+
+	// 从数据库获取
+	res, err = h.dao.GetTopWhalePositions(ctx, 50)
+	if err != nil {
+		log.Printf("HyperLiquidService GetTopWhalePositions error: %v", err)
+		return nil, err
+	}
+
+	bytes, err = json.Marshal(&res)
+	if err != nil {
+		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+		return res, nil
+	}
+
+	// 存储redis中，30秒过期
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*10).Err()
+	if err != nil {
+		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+
+	}
+
+	return res, nil
+}
+
+func (h *HyperLiquidService) GetLongShortRatio(ctx context.Context) (*model.WhaleLongShortRatio, error) {
+	rdsKey := consts.WhaleLongShortRatio
+	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
+
+	var res *model.WhaleLongShortRatio
+	if err == nil {
+		err = json.Unmarshal(bytes, &res)
+		if err == nil {
+			return res, nil
+		}
+	} else {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
+	}
+
+	res, err = h.dao.GetWhaleLongShortRatio(ctx)
+	if err != nil {
+		log.Printf("HyperLiquidService GetLongShortRatio error: %v", err)
+		return nil, err
+	}
+	bytes, err = json.Marshal(&res)
+	if err != nil {
+		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+		return res, nil
+	}
+
+	// 存储redis中，30秒过期
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*10).Err()
+	if err != nil {
+		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+
+	}
+	return res, err
 }

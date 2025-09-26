@@ -57,6 +57,27 @@ func (h *Handler) WhaleAccountSummaryGet() gin.HandlerFunc {
 	}
 }
 
+// 根据地址获取鲸鱼信息
+func (h *Handler) WhaleInfoGetByAddress() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req struct {
+			Address string `form:"address" json:"address"`
+		}
+
+		if err := ctx.ShouldBindQuery(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+
+		res, err := h.service.WhaleLeaderBoardInfoGetByAddress(ctx, req.Address)
+		if err != nil {
+			response.JSON(ctx, err, nil)
+		} else {
+			response.JSON(ctx, nil, res)
+		}
+	}
+}
+
 func (h *Handler) WhaleUserFillOrderHistoryGet() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		var req model.HyperWhaleFillOrdersReq
@@ -115,6 +136,18 @@ func (h *Handler) WhaleUserNonFundingLedgerGet() gin.HandlerFunc {
 		}
 
 		res, err := h.service.WhaleUserNonFundingLedgerGet(ctx, req.Address)
+		if err != nil {
+			response.JSON(ctx, err, nil)
+		} else {
+			response.JSON(ctx, nil, res)
+		}
+	}
+}
+
+func (h *Handler) TopWhalePositionsGet() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+
+		res, err := h.service.GetTopWhalePositions(ctx)
 		if err != nil {
 			response.JSON(ctx, err, nil)
 		} else {

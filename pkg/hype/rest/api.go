@@ -111,7 +111,7 @@ func (rest *HyperliquidRestClient) PerpetualAssetContexts() ([]types.UniverseIte
 	return universeData.Universe, assetContexts, nil
 }
 
-// 获取账号信息
+// 获取账号信息: 主要包含永续合约持仓、盈亏、资金费
 // New method for fetching a user's perpetuals account summary
 func (rest *HyperliquidRestClient) PerpetualsAccountSummary(ctx context.Context, user string) (types.MarginData, error) {
 	var marginData types.MarginData
@@ -125,21 +125,46 @@ func (rest *HyperliquidRestClient) PerpetualsAccountSummary(ctx context.Context,
 // 获取用户24小时内的成交历史
 func (rest *HyperliquidRestClient) UserFillOrdersIn24Hours(ctx context.Context, userAddress string) (orders []*types.UserFillOrder, err error) {
 
-	// 只查询获取24小时内的交易记录
-	// 只调用一次 time.Now()，避免两次调用间的时间差
+	// 查询获取24小时内的交易记录
+	// 由于数据量太大会导致，请求的数据缺失最新的部分，所以这里使用反向递归拉取
 	now := time.Now()
-	startTime := now.Add(-24 * time.Hour).UnixMilli()
-	//endTime := now.UnixMilli()
+	end := now.UnixMilli()
+	start := now.Add(-3 * time.Hour).UnixMilli()
 
-	params := map[string]interface{}{
-		"user":      userAddress,
-		"startTime": startTime,
-		//"endTime":   endTime,
+	// 最少查询100条数据
+	minRecords := 100
+	// 最多查询5次
+	maxLoops := 5
+	loops := 0
+
+	var results []*types.UserFillOrder
+
+	for start >= now.Add(-24*time.Hour).UnixMilli() && loops < maxLoops {
+		params := map[string]interface{}{
+			"user":      userAddress,
+			"startTime": start,
+			"endTime":   end,
+		}
+
+		var orders []*types.UserFillOrder
+		if err := rest.doRequestWithContext(ctx, "/info", "userFillsByTime", params, &orders); err != nil {
+			return nil, err
+		}
+
+		results = append(results, orders...)
+		loops++
+
+		// 条件满足就结束
+		if len(results) >= minRecords {
+			break
+		}
+
+		// 条件不足，往前推3小时继续查询
+		end = start
+		start = start - int64(3*time.Hour/time.Millisecond)
 	}
-	if err := rest.doRequestWithContext(ctx, "/info", "userFillsByTime", params, &orders); err != nil {
-		return nil, err
-	}
-	return orders, nil
+
+	return results, nil
 }
 
 func (rest *HyperliquidRestClient) UserOpenOrders(ctx context.Context, userAddress string) (orders []*types.UserOpenOrder, err error) {
@@ -160,7 +185,7 @@ func (rest *HyperliquidRestClient) UserNonFundingLedgerGet(ctx context.Context, 
 	// 只查询获取24小时内的交易记录
 	// 只调用一次 time.Now()，避免两次调用间的时间差
 	now := time.Now()
-	startTime := now.Add(-24 * time.Hour).UnixMilli()
+	startTime := now.Add(-24 * 7 * time.Hour).UnixMilli()
 	//endTime := now.UnixMilli()
 
 	params := map[string]interface{}{

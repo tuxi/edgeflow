@@ -50,3 +50,31 @@ type HyperLiquidWhaleStat struct {
 func (HyperLiquidWhaleStat) TableName() string {
 	return "hyper_whale_leaderboard"
 }
+
+// 鲸鱼仓位快照
+//
+//	确保一个仓位唯一的关键要素：(address, coin, leverage_type, leverage_value)
+type HyperWhalePosition struct {
+	ID      uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	Address string `gorm:"size:100;not null;column:address;comment:用户地址" json:"address"`
+	Coin    string `gorm:"size:50;not null;column:coin;comment:币种" json:"coin"`
+	Type    string `gorm:"size:20;not null;column:type;comment:仓位类型(oneWay单向/TwoWay双向)" json:"type"`
+
+	EntryPx        string `gorm:"size:50;column:entry_px;comment:进场价格" json:"entry_px"`
+	PositionValue  string `gorm:"type:DECIMAL(40, 18);column:position_value;comment:仓位价值" json:"position_value"`
+	Szi            string `gorm:"type:DECIMAL(40, 18);column:szi;comment:仓位数量，当为负时是开空、为正开多" json:"szi"`
+	UnrealizedPnl  string `gorm:"size:50;column:unrealized_pnl;comment:未实现盈亏" json:"unrealized_pnl"`
+	ReturnOnEquity string `gorm:"size:50;column:return_on_equity;comment:股本回报率" json:"return_on_equity"`
+
+	LeverageType  string `gorm:"size:20;not null;column:leverage_type;comment:杠杆类型" json:"leverage_type"`
+	LeverageValue int    `gorm:"not null;column:leverage_value;comment:杠杆倍数" json:"leverage_value"`
+
+	Side string `gorm:"size:20;not null;column:side;comment:仓位方向(long/short)" json:"side"`
+
+	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+}
+
+func (HyperWhalePosition) TableName() string {
+	return "hyper_whale_position"
+}

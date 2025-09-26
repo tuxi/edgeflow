@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"edgeflow/conf"
 	"edgeflow/internal/dao"
 	"edgeflow/internal/dao/query"
@@ -19,6 +20,7 @@ import (
 	"edgeflow/internal/trend"
 	"edgeflow/pkg/cache"
 	"gorm.io/gorm"
+	"time"
 )
 
 func InitRouter(db *gorm.DB) Router {
@@ -70,12 +72,14 @@ func InitRouter(db *gorm.DB) Router {
 	hyperDao := query.NewHyperLiquidDao(db)
 
 	rds := cache.GetRedisClient()
-	hyperHandler := hyperliquid.NewHandler(service.NewHyperLiquidService(hyperDao, rds))
+	hyperService := service.NewHyperLiquidService(hyperDao, rds)
+	hyperHandler := hyperliquid.NewHandler(hyperService)
 
 	apiRouter := router.NewApiRouter(coinH, wh, tickerHandler, hyperHandler)
 
 	// 开始广播价格
 	go tickerHandler.BroadcastPrices()
+	go hyperService.StartScheduler(context.Background(), 30*time.Second)
 
 	return apiRouter
 }

@@ -1,8 +1,8 @@
 package utils
 
 import (
-	"chat-api/internal/consts"
 	"context"
+	"edgeflow/internal/consts"
 	"errors"
 	"io"
 	"math/rand"
