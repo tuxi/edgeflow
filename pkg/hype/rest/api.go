@@ -151,7 +151,7 @@ func (rest *HyperliquidRestClient) UserFillOrdersIn24Hours(ctx context.Context, 
 			return nil, err
 		}
 
-		results = append(results, orders...)
+		results = append(orders, results...)
 		loops++
 
 		// 条件满足就结束
