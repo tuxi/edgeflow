@@ -23,8 +23,9 @@ type HyperWhale struct {
 }
 
 type HyperWhaleLeaderBoardReq struct {
-	Limit  int    `json:"limit"`
-	Period string `json:"period"`
+	Limit        int    `json:"limit"`
+	FilterPeriod string `json:"filterPeriod"`
+	DatePeriod   string `json:"datePeriod"`
 }
 
 type HyperWhaleAccountReq struct {

@@ -10,6 +10,7 @@ import (
 	"edgeflow/pkg/hype/types"
 	"edgeflow/pkg/logger"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v8"
 	"log"
@@ -110,10 +111,14 @@ func (h *HyperLiquidService) WhaleLeaderBoardInfoGetByAddress(ctx context.Contex
 	return res, nil
 }
 
-func (h *HyperLiquidService) GetTopWhales(ctx context.Context, limit int, period string) (*model.WhaleEntryListRes, error) {
-	if period == "" {
-		period = "all"
+func (h *HyperLiquidService) GetTopWhales(ctx context.Context, limit int, datePeriod, filterPeriod string) (*model.WhaleEntryListRes, error) {
+	if datePeriod == "all" {
+		datePeriod = "all_time"
 	}
+	if datePeriod == "" || filterPeriod == "" {
+		return nil, errors.New("筛选条件不能空")
+	}
+	period := fmt.Sprintf("%v_%v", filterPeriod, datePeriod)
 	if limit == 0 {
 		limit = 100
 	}

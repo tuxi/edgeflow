@@ -30,7 +30,7 @@ func (h *Handler) WhaleLeaderboardGet() gin.HandlerFunc {
 			return
 		}
 
-		res, err := h.service.GetTopWhales(ctx, req.Limit, req.Period)
+		res, err := h.service.GetTopWhales(ctx, req.Limit, req.DatePeriod, req.FilterPeriod)
 		if err != nil {
 			response.JSON(ctx, err, nil)
 		} else {

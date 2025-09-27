@@ -84,14 +84,6 @@ func (dao *hyperLiquidDao) GetTopWhalesLeaderBoard(ctx context.Context, period s
 		limit = 100
 	}
 
-	if period == "" {
-		period = "pnl_week"
-	}
-
-	if period == "all" {
-		period = "all_time"
-	}
-
 	// 防止sql注入
 	allowSortFileds := map[string]bool{
 		"pnl_day":      true,
