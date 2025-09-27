@@ -92,4 +92,8 @@ type WhalePositionAnalysis struct {
 
 	PositionSkew  float64 `json:"positionSkew"`  // 仓位倾斜指数 [-1,1]
 	HighRiskValue float64 `json:"highRiskValue"` // 潜在爆仓仓位价值
+
+	// 这个信号分析模块是基于持仓数据的，不能替代专业的 K 线技术分析。 这是一个情绪指标，而不是一个完整的交易策略。
+	SignalScore      float64 `json:"signalScore"`      // 合约开单信号评分: [-100, 100]
+	SignalSuggestion string  `json:"signalSuggestion"` // 建议文本
 }

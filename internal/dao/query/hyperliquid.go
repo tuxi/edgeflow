@@ -197,7 +197,9 @@ func (h *hyperLiquidDao) CreatePositionInBatches(ctx context.Context, positions 
 			},
 			UpdateAll: true, // 冲突时更新所有字段
 		}).
-		CreateInBatches(positions, 100).Error
+		// SkipDefaultTransaction跳过默认的事物，省去了事务开启和提交的开销
+		Session(&gorm.Session{SkipDefaultTransaction: true}).
+		CreateInBatches(positions, 200).Error
 
 	return err
 }

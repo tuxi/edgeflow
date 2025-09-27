@@ -66,7 +66,8 @@ func InitRouter(db *gorm.DB) Router {
 
 	wh := webhook.NewHandler(dispatcher, rc, sm, ps)
 
-	tickerService, _ := service.NewOKXTickerService()
+	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "PUMP", "AAVE", "AVAX", "ADA", "LINK", "SHIB", "TRX"}
+	tickerService := service.NewOKXTickerService(defaultsCoins)
 	tickerHandler := ticker.NewHandler(tickerService)
 
 	hyperDao := query.NewHyperLiquidDao(db)

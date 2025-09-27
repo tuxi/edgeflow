@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"github.com/go-redis/redis/v8"
 	"log"
+	"math"
 	"sort"
 	"strconv"
 	"time"
@@ -432,6 +433,11 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 			if szi < 0 {
 				side = "short"
 			}
+			// 检查强平价格是否为空，如果为空设置为0，不然报错 Incorrect decimal value: '' for column 'liquidation_px' at row 8
+			_, err := strconv.ParseFloat(pos.Position.LiquidationPx, 64)
+			if err != nil {
+				pos.Position.LiquidationPx = "0.0"
+			}
 
 			ps := &entity.HyperWhalePosition{
 				Address:        whale,
@@ -446,6 +452,7 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 				LeverageValue:  pos.Position.Leverage.Value,
 				MarginUsed:     pos.Position.MarginUsed,
 				FundingFee:     pos.Position.CumFunding.AllTime,
+				LiquidationPx:  pos.Position.LiquidationPx,
 				Side:           side,
 				UpdatedAt:      now,
 				CreatedAt:      now,
@@ -463,7 +470,7 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 	}
 
 	// 4.对仓位进行分析
-	analyzePos := h.analyzePositions(snapshots)
+	analyzePos := h.analyzePositions(snapshots, nil)
 
 	// 把分析的结果缓存到redis
 	rdsKey := consts.WhalePositionsAnalyze
@@ -584,7 +591,7 @@ func (h *HyperLiquidService) AnalyzeTopPositions(ctx context.Context) (*model.Wh
 	if err != nil {
 		return nil, err
 	}
-	res = h.analyzePositions(posList)
+	res = h.analyzePositions(posList, nil)
 
 	if err != nil {
 		log.Printf("HyperLiquidService AnalyzeTopPositions error: %v", err)
@@ -607,15 +614,33 @@ func (h *HyperLiquidService) AnalyzeTopPositions(ctx context.Context) (*model.Wh
 }
 
 // 对仓位进行分析
-func (h *HyperLiquidService) analyzePositions(positions []*entity.HyperWhalePosition) model.WhalePositionAnalysis {
+func (h *HyperLiquidService) analyzePositions(positions []*entity.HyperWhalePosition, currentPriceMap map[string]float64) model.WhalePositionAnalysis {
 	var analysis model.WhalePositionAnalysis
+	// 设定高风险的杠杆阈值，适用于 LiquidationPx 存在时的风险提示。
 
 	for _, pos := range positions {
 		// 基础汇总
-		posValue, _ := strconv.ParseFloat(pos.PositionValue, 64)
-		marginUsed, _ := strconv.ParseFloat(pos.MarginUsed, 64)
-		upnl, _ := strconv.ParseFloat(pos.UnrealizedPnl, 64)
-		fundingFee, _ := strconv.ParseFloat(pos.FundingFee, 64)
+		posValue, err := strconv.ParseFloat(pos.PositionValue, 64)
+		if err != nil {
+			logger.Errorf("Failed to parse PositionValue for position %s: %v", pos.ID, err)
+			continue
+		}
+		marginUsed, err := strconv.ParseFloat(pos.MarginUsed, 64)
+		if err != nil {
+			logger.Errorf("Failed to parse MarginUsed for position %s: %v", pos.ID, err)
+			continue
+		}
+
+		upnl, err := strconv.ParseFloat(pos.UnrealizedPnl, 64)
+		if err != nil {
+			logger.Errorf("Failed to parse UnrealizedPnl for position %s: %v", pos.ID, err)
+			continue
+		}
+		fundingFee, err := strconv.ParseFloat(pos.FundingFee, 64)
+		if err != nil {
+			logger.Errorf("Failed to parse FundingFee for position %s: %v", pos.ID, err)
+			continue
+		}
 		analysis.TotalValue += posValue
 		analysis.TotalMargin += marginUsed
 		analysis.TotalPnl += upnl
@@ -635,34 +660,147 @@ func (h *HyperLiquidService) analyzePositions(positions []*entity.HyperWhalePosi
 			analysis.ShortCount++
 		}
 
-		// 潜在爆仓判断（简单示例: Margin / Value < 0.1）
-		if posValue > 0 && marginUsed/posValue < 0.1 {
+		liqPx, _ := strconv.ParseFloat(pos.LiquidationPx, 64)
+
+		// 获取当前价格
+		currentPrice := 0.0
+		if currentPriceMap != nil {
+			currentPrice, _ = currentPriceMap[pos.Coin] // 假设 pos.Symbol 是币种标识符
+		}
+
+		// 潜在爆仓判断
+		// 高风险判断逻辑根据 MarginMode 区分 ✨
+		isHighRisk := false
+
+		// 核心判断：如果 LiquidationPx 为 0，说明很安全，不计入高风险
+		if liqPx == 0 {
+			isHighRisk = false // 明确标记为安全
+		} else {
+			// 存在当前币价，按照爆仓价格计算
+			if currentPrice > 0 {
+				distance := math.Abs(currentPrice - liqPx)
+				riskPercentage := distance / currentPrice // 距离当前价格的百分比
+
+				if riskPercentage < 0.05 {
+					// 风险缓冲距离小于 5%，视为高风险
+					isHighRisk = true
+				}
+			} else {
+				// LiquidationPx 存在（非零），说明头寸存在强平风险线，必须进一步检查。
+				if marginUsed > 0 && posValue > 0 {
+					effectiveLeverage := posValue / marginUsed //计算杠杆倍数
+
+					// 逐仓模式10x认为是高风险、全仓20仓认为是高杠杆
+					if pos.LeverageType == "isolated" {
+						// 逐仓：LiquidationPx 存在且杠杆高于阈值，则有风险。
+						if effectiveLeverage >= 10 {
+							isHighRisk = true
+						}
+					} else if pos.LeverageType == "cross" {
+						// 全仓：LiquidationPx 存在且杠杆高于阈值，说明该头寸对整体账户风险贡献较大。
+						if effectiveLeverage >= 20 {
+							isHighRisk = true
+						}
+					}
+				}
+			}
+		}
+
+		if isHighRisk {
 			analysis.HighRiskValue += posValue
 		}
 	}
 
-	// 平均值与杠杆
+	// 2. 平均值与杠杆：增加对 MarginUsed 为零的检查 (关键优化)
 	if analysis.LongCount > 0 {
 		analysis.LongAvgValue = analysis.LongValue / float64(analysis.LongCount)
-		analysis.LongAvgLeverage = analysis.LongValue / analysis.LongMargin
-		analysis.LongProfitRate = analysis.LongPnl / analysis.LongMargin
-	}
-	if analysis.ShortCount > 0 {
-		analysis.ShortAvgValue = analysis.ShortValue / float64(analysis.ShortCount)
-		analysis.ShortAvgLeverage = analysis.ShortValue / analysis.ShortMargin
-		analysis.ShortProfitRate = analysis.ShortPnl / analysis.ShortMargin
+		if analysis.LongMargin > 0 {
+			analysis.LongAvgLeverage = analysis.LongValue / analysis.LongMargin
+			// 建议重命名 LongProfitRate 为 LongPnLRatio 或 LongROI
+			analysis.LongProfitRate = analysis.LongPnl / analysis.LongMargin
+		}
 	}
 
-	// 多空占比
+	if analysis.ShortCount > 0 {
+		analysis.ShortAvgValue = analysis.ShortValue / float64(analysis.ShortCount)
+		if analysis.ShortMargin > 0 {
+			analysis.ShortAvgLeverage = analysis.ShortValue / analysis.ShortMargin
+			analysis.ShortProfitRate = analysis.ShortPnl / analysis.ShortMargin
+		}
+	}
+
+	// 3. 多空占比和倾斜指数
 	if analysis.TotalValue > 0 {
 		analysis.LongPercentage = analysis.LongValue / analysis.TotalValue
 		analysis.ShortPercentage = analysis.ShortValue / analysis.TotalValue
-	}
-
-	// 仓位倾斜指数 [-1,1]
-	if analysis.TotalValue > 0 {
 		analysis.PositionSkew = (analysis.LongValue - analysis.ShortValue) / analysis.TotalValue
 	}
 
+	h.generateTradingSignal(&analysis)
+
 	return analysis
+}
+
+// 生成合约开单方向建议
+func (h *HyperLiquidService) generateTradingSignal(analysis *model.WhalePositionAnalysis) {
+	score := 0.0
+
+	// ----------------------------------------------------
+	// 1. 仓位拥挤度 (权重 40%)
+	// ----------------------------------------------------
+	// 目标：做多 vs 做空拥挤度差异 (避免拥挤方向)
+	// 偏多信号: 多头占比较低 (< 45%)
+	if analysis.LongPercentage < 0.45 {
+		score += 40.0 * (0.45 - analysis.LongPercentage) / 0.45 // 给予做多信号
+	}
+	// 偏空信号: 空头占比较高 (> 55%)
+	if analysis.ShortPercentage > 0.55 {
+		score -= 40.0 * (analysis.ShortPercentage - 0.55) / 0.45 // 给予做空信号
+	}
+	// 注：这里的 0.45 是归一化因子
+
+	// ----------------------------------------------------
+	// 2. 平均杠杆 (权重 30%)
+	// ----------------------------------------------------
+	// 目标：判断哪一方更激进 (激进一方通常是短期反转的燃料)
+
+	// 偏多信号: 做空一方过于激进 (空头平均杠杆 > 15x)
+	if analysis.ShortAvgLeverage > 15.0 {
+		score += 30.0 * math.Min(1.0, (analysis.ShortAvgLeverage-15.0)/5.0)
+	}
+	// 偏空信号: 做多一方过于激进 (多头平均杠杆 > 15x)
+	if analysis.LongAvgLeverage > 15.0 {
+		score -= 30.0 * math.Min(1.0, (analysis.LongAvgLeverage-15.0)/5.0)
+	}
+
+	// ----------------------------------------------------
+	// 3. 盈亏效率 (权重 30%)
+	// ----------------------------------------------------
+	// 目标：反转趋势 (如果一方正在亏损，趋势可能反转)
+
+	// 偏多信号: 空头正在亏损 (Long PnL / Long Margin < 0)
+	if analysis.ShortPnl < 0 {
+		score += 30.0
+	}
+	// 偏空信号: 多头正在亏损 (Short PnL / Short Margin < 0)
+	if analysis.LongPnl < 0 {
+		score -= 30.0
+	}
+
+	// ----------------------------------------------------
+	// 4. 结果汇总与建议
+	// ----------------------------------------------------
+	analysis.SignalScore = score
+
+	if score >= 35 {
+		analysis.SignalSuggestion = "强烈建议偏多 / 考虑平空"
+	} else if score > 15 {
+		analysis.SignalSuggestion = "建议偏多"
+	} else if score <= -35 {
+		analysis.SignalSuggestion = "强烈建议偏空 / 考虑平多"
+	} else if score < -15 {
+		analysis.SignalSuggestion = "建议偏空"
+	} else {
+		analysis.SignalSuggestion = "中性 / 观望"
+	}
 }

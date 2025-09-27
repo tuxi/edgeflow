@@ -60,9 +60,10 @@ type HyperWhalePosition struct {
 	Coin    string `gorm:"size:50;not null;column:coin;comment:币种" json:"coin"`
 	Type    string `gorm:"size:20;not null;column:type;comment:仓位类型(oneWay单向/TwoWay双向)" json:"type"`
 
-	EntryPx        string `gorm:"size:50;column:entry_px;comment:进场价格" json:"entry_px"`
+	EntryPx        string `gorm:"DECIMAL(40, 18);column:entry_px;comment:进场价格" json:"entry_px"`
 	PositionValue  string `gorm:"type:DECIMAL(40, 18);column:position_value;comment:仓位价值" json:"position_value"`
 	Szi            string `gorm:"type:DECIMAL(40, 18);column:szi;comment:仓位数量，当为负时是开空、为正开多" json:"szi"`
+	LiquidationPx  string `gorm:"type:DECIMAL(40, 18);column:liquidation_px;comment:爆仓价" json:"liquidation_px"`
 	UnrealizedPnl  string `gorm:"size:50;column:unrealized_pnl;comment:未实现盈亏" json:"unrealized_pnl"`
 	ReturnOnEquity string `gorm:"size:50;column:return_on_equity;comment:股本回报率" json:"return_on_equity"`
 
