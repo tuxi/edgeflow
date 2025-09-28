@@ -124,3 +124,64 @@ CREATE TABLE `hyper_whale_position` (
                                    PRIMARY KEY (`id`),
                                    UNIQUE KEY `idx_whale_position_unique` (`address`, `coin`, `side`, `leverage_type`, `leverage_value`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='鲸鱼仓位表';
+
+
+CREATE TABLE `crypto_exchanges` (
+                                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+                                    `code` VARCHAR(16) NOT NULL UNIQUE COMMENT '交易所代码 (如 OKX, BINANCE)',
+                                    `name` VARCHAR(64) NOT NULL COMMENT '交易所名称',
+                                    `status` VARCHAR(16) NOT NULL COMMENT '服务状态 (ACTIVE, MAINTENANCE)',
+                                    `api_endpoint` VARCHAR(255) NULL COMMENT '基础 API 地址',
+                                    `country` VARCHAR(32) NULL COMMENT '运营国家/地区',
+                                    `created_at` DATETIME NOT NULL COMMENT '创建时间',
+                                    `updated_at` DATETIME NOT NULL COMMENT '最后更新时间',
+                                    PRIMARY KEY (`id`),
+                                    KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交易所元数据表';
+
+-- 1. 交易对元数据表
+CREATE TABLE `crypto_instruments` (
+                                      `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+                                      -- instrument_id 不再是 UNIQUE
+                                      `instrument_id` VARCHAR(32) NOT NULL COMMENT '交易所交易对ID (如 BTC-USDT)',
+                                      `exchange_id`	INT UNSIGNED NOT NULL COMMENT '关联到 crypto_exchanges.id',
+                                      `base_ccy` VARCHAR(16) NOT NULL COMMENT '主币代码 (如 BTC)',
+                                      `quote_ccy` VARCHAR(16) NOT NULL COMMENT '计价币代码 (如 USDT)',
+                                      `name_cn` VARCHAR(64) NOT NULL COMMENT '中文名称',
+                                      `name_en` VARCHAR(64) NOT NULL COMMENT '英文名称',
+                                      `status` VARCHAR(16) NOT NULL COMMENT '交易状态 (如 LIVE, DELIST)',
+                                      `price_precision` DECIMAL(40, 18) NOT NULL COMMENT '价格精度/步长 (tickSz)',
+                                      `qty_precision` DECIMAL(40, 18) NOT NULL COMMENT '数量/合约精度 (szIncrement)',
+                                      `market_cap` BIGINT UNSIGNED DEFAULT 0 COMMENT '市值 (USD)',
+                                      `is_contract` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为合约标的 (0否, 1是)',
+                                      `created_at` DATETIME NOT NULL COMMENT '创建时间',
+                                      `updated_at` DATETIME NOT NULL COMMENT '最后更新时间',
+                                        -- 核心：定义联合主键
+                                        -- 此时，单独的 id 字段实际上成了“代理主键”，而联合主键才是业务逻辑上的唯一标识
+                                      PRIMARY KEY (`id`),
+                                        -- 关键：为联合主键创建唯一索引，保证业务上的唯一性
+                                      UNIQUE KEY `uk_exchange_instrument` (`exchange_id`, `instrument_id`),
+                                    -- 辅助索引
+                                      KEY `idx_base_ccy` (`base_ccy`),
+                                      KEY `idx_status` (`status`),
+                                      -- 建立外键关联
+                                     FOREIGN KEY (`exchange_id`) REFERENCES `crypto_exchanges`(`id`) ON DELETE CASCADE
+
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='币种及交易对元数据表';
+
+-- 2. 标签定义表
+CREATE TABLE `crypto_tags` (
+                               `id` INT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '标签ID',
+                               `name` VARCHAR(32) NOT NULL UNIQUE COMMENT '标签名称 (如 MEME)',
+                               `description` VARCHAR(128) NULL COMMENT '标签描述',
+                               PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='币种标签定义表';
+
+-- 3. 交易对和标签关系表
+CREATE TABLE `instrument_tag_relations` (
+                                            `instrument_id` BIGINT UNSIGNED NOT NULL COMMENT '关联到 crypto_instruments.id',
+                                            `tag_id` INT UNSIGNED NOT NULL COMMENT '关联到 crypto_tags.id',
+                                            PRIMARY KEY (`instrument_id`, `tag_id`),
+                                            FOREIGN KEY (`instrument_id`) REFERENCES `crypto_instruments`(`id`) ON DELETE CASCADE,
+                                            FOREIGN KEY (`tag_id`) REFERENCES `crypto_tags`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交易对-标签关系表';

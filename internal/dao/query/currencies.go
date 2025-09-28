@@ -6,6 +6,7 @@ import (
 	"edgeflow/internal/model/entity"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"time"
 )
 
 type currenciesDao struct {
@@ -16,44 +17,67 @@ func NewCurrenciesDao(db *gorm.DB) *currenciesDao {
 	return &currenciesDao{db: db}
 }
 
-func (c *currenciesDao) CurrencyCreateNew(ctx context.Context, coin *entity.Currency) error {
+func (c *currenciesDao) CurrencyCreateNew(ctx context.Context, coin *entity.CryptoInstrument) error {
 	if coin == nil {
 		return gorm.ErrInvalidData
 	}
+	// 手动设置时间戳，确保 NOT NULL 字段完整性
+	now := time.Now()
+	coin.CreatedAt = now
+	coin.UpdatedAt = now
 	return c.db.WithContext(ctx).Create(coin).Error
 }
 
-func (dao *currenciesDao) CurrencyUpsert(ctx context.Context, w *entity.Currency) error {
-
+// 修正后的 CurrencyUpsert
+func (dao *currenciesDao) CurrencyUpsert(ctx context.Context, w *entity.CryptoInstrument) error {
 	if w == nil {
 		return gorm.ErrInvalidData
 	}
+
+	// 设置时间戳
+	now := time.Now()
+	w.UpdatedAt = now
+
 	return dao.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "ccy"}},
+			// 使用联合唯一索引作为冲突判断依据
+			Columns: []clause.Column{
+				{Name: "exchange_id"},
+				{Name: "instrument_id"},
+			},
+			// 确保更新所有字段，但 GORM 会自动排除主键字段
 			UpdateAll: true,
 		}).
 		Create(w).Error
-
 }
 
 // 批量 Upsert Whale
-func (dao *currenciesDao) CurrencyUpsertBatch(ctx context.Context, currencies []*entity.Currency) error {
+func (dao *currenciesDao) CurrencyUpsertBatch(ctx context.Context, currencies []*entity.CryptoInstrument) error {
 	if len(currencies) == 0 {
 		return nil
 	}
 	return dao.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "ccy"}},
+			// 使用联合唯一索引作为冲突判断依据
+			Columns: []clause.Column{
+				{Name: "exchange_id"},
+				{Name: "instrument_id"},
+			},
 			UpdateAll: true,
 		}).
 		CreateInBatches(currencies, 100).Error
 }
 
-func (c *currenciesDao) CurrencyUpdate(ctx context.Context, coin *entity.Currency) error {
+func (c *currenciesDao) CurrencyUpdate(ctx context.Context, coin *entity.CryptoInstrument) error {
 	if coin == nil {
 		return gorm.ErrInvalidData
 	}
+	coin.UpdatedAt = time.Now()
+	// 推荐：如果使用结构体更新，最好指定哪些字段需要被更新
+	// 示例：只更新价格精度和状态字段
+	// return c.db.WithContext(ctx).Model(coin).Select("Status", "PricePrecision", "UpdatedAt").Updates(coin).Error
+
+	// 如果 Updates(coin) 没有指定 Model，GORM 会使用主键进行更新
 	return c.db.WithContext(ctx).Updates(coin).Error
 }
 
@@ -62,123 +86,137 @@ func (c *currenciesDao) CurrencyGetById(ctx context.Context, coinId int64) (res 
 	return
 }
 
-func (c *currenciesDao) CurrencyGetByCcy(ctx context.Context, coin string) (res model.CurrencyOne, err error) {
-	err = c.db.WithContext(ctx).Where("coin = ?", coin).Find(&res).Error
+func (c *currenciesDao) CurrencyGetByCcy(ctx context.Context, baseCcy string) (res model.CurrencyOne, err error) {
+	err = c.db.WithContext(ctx).Where("base_ccy = ?", baseCcy).Find(&res).Error
 	return
 }
 
-func (c *currenciesDao) CurrencyGetListByExchange(ctx context.Context, exId int64, page, limit int) (total int64, list []model.CurrencyOne, err error) {
+func (c *currenciesDao) CurrencyGetListByExchange(ctx context.Context, exId uint, page, limit int) (total int64, list []entity.CryptoInstrument, err error) {
+	if limit <= 0 {
+		limit = 100 // 限制默认值
+	}
 	offset := (page - 1) * limit
 
-	// 先统计总数
-	if err = c.db.WithContext(ctx).
-		Table("currencies AS c").                                         // 设置currencies表的别名为c
-		Joins("JOIN exchange_currencies AS ce ON ce.currency_id = c.id"). // 条件查询
-		Where("ce.exchange_id = ? AND ce.is_active = ?", exId, true).
-		Count(&total).Error; err != nil {
+	// 使用 GORM Model 构建查询的基础作用域 (Scope)
+	tx := c.db.WithContext(ctx).
+		// 直接操作我们设计的交易对元数据表
+		Model(&entity.CryptoInstrument{}).
+		// 筛选条件直接基于 exchange_id
+		Where("exchange_id = ? AND status = ?", exId, "LIVE") // 假设 'LIVE' 是激活状态
+
+	// 统计总数 (使用 Count)
+	if err = tx.Count(&total).Error; err != nil {
 		return
 	}
 
-	// 查询分页数据
-	if err = c.db.WithContext(ctx).
-		Table("currencies AS c").
-		//Select("c.id, c.ccy, c.name, c.name_en").
-		Joins("JOIN exchange_currencies AS ce ON ce.currency_id = c.id").
-		Where("ce.exchange_id = ? AND ce.is_active = ?", exId, true).
-		Order("c.id").
+	//  查询分页数据 (使用 Find)
+	// 假设您希望按市值降序排列
+	if err = tx.
+		Order("market_cap DESC").
 		Limit(limit).
 		Offset(offset).
-		Scan(&list).Error; err != nil {
+		// 使用 Find 将结果直接映射到结构体列表
+		Find(&list).Error; err != nil {
 		return
 	}
 
 	return total, list, nil
-
 }
 
-// 创建一个货币，并关联到交易所
-func (c *currenciesDao) CurrencyCreateNewWithExchange(ctx context.Context, exchangeId int64, currency *entity.Currency) error {
+// 创建一个交易对并关联到交易所
+func (c *currenciesDao) InstrumentUpsertWithExchange(ctx context.Context, instrument *entity.CryptoInstrument) error {
 
-	err := c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 1. 插入币种
-		if err := tx.Create(currency).Error; err != nil {
-			return err
-		}
-
-		// 2. 插入币种-交易所关联
-		exchangeCurrency := &entity.CurrencyExchanges{
-			CurrencyId: currency.Id,
-			ExchangeId: exchangeId,
-			IsActive:   true,
-		}
-		if err := tx.Create(exchangeCurrency).Error; err != nil {
-			return err
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return err
+	if instrument == nil {
+		return gorm.ErrInvalidData
 	}
 
-	return nil
+	// 1. 自动设置/更新时间戳
+	now := time.Now()
+	instrument.UpdatedAt = now
+	if instrument.CreatedAt.IsZero() {
+		instrument.CreatedAt = now
+	}
+
+	// 2. 使用 OnConflict 子句进行 Upsert 操作
+	// 冲突判断依据：(exchange_id, instrument_id) 联合唯一索引
+	return c.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			// 明确指定联合唯一索引作为冲突判断的列
+			Columns: []clause.Column{
+				{Name: "exchange_id"},
+				{Name: "instrument_id"},
+			},
+			// 发生冲突时，更新所有非主键字段
+			// GORM 会自动处理更新操作，确保最新的数据写入
+			UpdateAll: true,
+		}).
+		Create(instrument).Error
 }
 
 // 批量创建货币，并关联到某个交易所
-func (c *currenciesDao) CurrencyCreateBatchWithExchange(ctx context.Context, exchangeId int64, currencies []entity.Currency) error {
-	// 带有事物的
-	return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 1. 批量插入币种
-		if err := tx.Create(&currencies).Error; err != nil {
-			return err
-		}
+func (c *currenciesDao) InstrumentUpsertBatchWithExchange(ctx context.Context, instruments []entity.CryptoInstrument) error {
 
-		// 2. 构建币种-交易所关联记录
-		var exchangeRelations []entity.CurrencyExchanges
-		for _, currency := range currencies {
-			exchangeRelations = append(exchangeRelations, entity.CurrencyExchanges{
-				CurrencyId: currency.Id,
-				ExchangeId: exchangeId,
-				IsActive:   true,
-			})
-		}
-
-		// 3. 批量插入关联表
-		if len(exchangeRelations) > 0 {
-			if err := tx.Create(&exchangeRelations).Error; err != nil {
-				return err
-			}
-		}
-
+	if len(instruments) == 0 {
 		return nil
-	})
+	}
+
+	// 1. 预处理：批量设置时间戳和交易所ID
+	// 注意：假设 instruments 列表在传入前已被服务层填充了正确的 ExchangeID
+	now := time.Now()
+	for _, instr := range instruments {
+		// 更新 UpdatedAt 字段
+		instr.UpdatedAt = now
+		// 如果是新记录，设置 CreatedAt
+		if instr.CreatedAt.IsZero() {
+			instr.CreatedAt = now
+		}
+	}
+
+	// 2. 使用 OnConflict + CreateInBatches 实现批量 Upsert
+	// Upsert 是一种原子操作，无需额外的事务包裹。
+	return c.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			// 冲突判断依据：(exchange_id, instrument_id) 联合唯一索引
+			Columns: []clause.Column{
+				{Name: "exchange_id"},
+				{Name: "instrument_id"},
+			},
+			// 发生冲突时，更新所有非主键字段
+			UpdateAll: true,
+		}).
+		// 使用 CreateInBatches 进行批量插入/更新，提高数据库操作效率
+		// 批次大小 100 是一个常见的优化值
+		CreateInBatches(instruments, 100).Error
 }
 
-func (c *currenciesDao) ExchangeCreateNew(ctx context.Context, name, nameEn string) (*model.Exchange, error) {
-	var ex model.Exchange
-
-	// 1. 查询是否存在
-	err := c.db.WithContext(ctx).Where("name = ?", name).First(&ex).Error
-	if err == nil {
-		// 已存在，直接返回
-		return &ex, nil
-	}
-	if err != gorm.ErrRecordNotFound {
-		// 查询出错
-		return nil, err
+func (c *currenciesDao) ExchangeCreateNew(ctx context.Context, code, name string) (*model.Exchange, error) {
+	// 准备要创建的数据对象
+	// 使用大写状态和 time.Now() 确保数据完整性
+	ex := entity.CryptoExchange{
+		Code:      code,
+		Name:      name,
+		Status:    "ACTIVE",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
-	// 2. 不存在，则创建
-	ex = model.Exchange{
-		Name:   name,
-		NameEn: nameEn,
-	}
-	if err := c.db.WithContext(ctx).Create(&ex).Error; err != nil {
-		return nil, err
+	// GORM 的 FirstOrCreate 方法：
+	// 1. 先根据 Where 条件 (Code = ?) 查询记录。
+	// 2. 如果找到，则将结果填充到 ex，并返回 nil error。
+	// 3. 如果未找到，则使用 ex 对象的其余字段值执行创建操作。
+	result := c.db.WithContext(ctx).Where("code = ?", code).FirstOrCreate(&ex)
+
+	if result.Error != nil {
+		// 如果创建或查询过程中发生错误（如数据库连接失败、唯一性约束冲突等）
+		return nil, result.Error
 	}
 
-	return &ex, nil
+	// 成功找到或创建
+	return &model.Exchange{
+		ExId: int64(ex.ID),
+		Code: ex.Code,
+		Name: ex.Name,
+	}, nil
 }
 
 func (c *currenciesDao) ExchangesGet(ctx context.Context) ([]model.Exchange, error) {
@@ -187,71 +225,6 @@ func (c *currenciesDao) ExchangesGet(ctx context.Context) ([]model.Exchange, err
 	if err != nil {
 		return nil, err
 	}
+
 	return exs, nil
-}
-
-// 某个币上线到交易所，把它关联到交易所
-func (c *currenciesDao) AssociateCurrencyWithExchange(ctx context.Context, currencyId, exchangeId int64) error {
-	// 先检查是否已经关联
-	var exist entity.CurrencyExchanges
-	err := c.db.WithContext(ctx).
-		Where("currency_id = ? AND exchange_id = ?", currencyId, exchangeId).
-		First(&exist).Error
-	if err == nil {
-		// 已经关联，无需重复创建
-		return nil
-	}
-	if err != gorm.ErrRecordNotFound {
-		return err
-	}
-
-	// 创建关联记录
-	exchangeCurrency := &entity.CurrencyExchanges{
-		CurrencyId: currencyId,
-		ExchangeId: exchangeId,
-		IsActive:   true,
-	}
-
-	return c.db.WithContext(ctx).Create(exchangeCurrency).Error
-}
-
-func (c *currenciesDao) AssociateCurrenciesWithExchangeBatch(ctx context.Context, currencyIds []int64, exchangeId int64) error {
-	if len(currencyIds) == 0 {
-		return nil
-	}
-
-	// 1. 查询已存在的关联
-	var existing []entity.CurrencyExchanges
-	if err := c.db.WithContext(ctx).
-		Where("exchange_id = ? AND currency_id IN ?", exchangeId, currencyIds).
-		Find(&existing).Error; err != nil {
-		return err
-	}
-
-	// 构建已存在币种ID集合
-	existMap := make(map[int64]struct{})
-	for _, e := range existing {
-		existMap[e.CurrencyId] = struct{}{}
-	}
-
-	// 2. 构建待插入的关联记录
-	var toInsert []entity.CurrencyExchanges
-	for _, cid := range currencyIds {
-		if _, ok := existMap[cid]; !ok {
-			toInsert = append(toInsert, entity.CurrencyExchanges{
-				CurrencyId: cid,
-				ExchangeId: exchangeId,
-				IsActive:   true,
-			})
-		}
-	}
-
-	// 3. 批量插入
-	if len(toInsert) > 0 {
-		if err := c.db.WithContext(ctx).Create(&toInsert).Error; err != nil {
-			return err
-		}
-	}
-
-	return nil
 }

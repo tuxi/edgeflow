@@ -6,8 +6,8 @@ import (
 	"edgeflow/internal/dao"
 	"edgeflow/internal/dao/query"
 	"edgeflow/internal/exchange"
-	"edgeflow/internal/handler/currency"
 	"edgeflow/internal/handler/hyperliquid"
+	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/ticker"
 	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/position"
@@ -25,9 +25,9 @@ import (
 func InitRouter(db *gorm.DB) Router {
 	//tk := tokenize.NewTokenizer("./dict")
 	cd := query.NewCurrenciesDao(db)
-	ds := service.NewCoinService(cd)
+	instrumentService := service.NewInstrumentService(cd)
 
-	coinH := currency.NewHandler(ds)
+	coinH := instrument.NewHandler(instrumentService)
 
 	appCfg := conf.AppConfig
 
@@ -76,6 +76,9 @@ func InitRouter(db *gorm.DB) Router {
 	hyperHandler := hyperliquid.NewHandler(hyperService)
 
 	apiRouter := router.NewApiRouter(coinH, wh, tickerHandler, hyperHandler)
+
+	// 同步最新币种
+	instrumentService.StartInstrumentSyncWorker(context.Background())
 
 	// 开始广播价格
 	go tickerHandler.BroadcastPrices()

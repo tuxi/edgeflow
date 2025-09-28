@@ -16,17 +16,18 @@ import (
 // TickerData 封装单个币种的实时行情数据
 type TickerData struct {
 	InstId    string  `json:"inst_id"`     // 币种符号，例如 BTC-USDT
-	LastPrice float64 `json:"last_price"`  // 最新成交价格
-	Vol24h    float64 `json:"vol_24h"`     // 24小时成交量单位币
-	VolCcy24h float64 `json:"vol_ccy_24h"` // 24小时成交量
-	High24h   float64 `json:"high_24h"`    // 24小时最高价
-	Low24h    float64 `json:"low_24h"`     // 24小时最低价
-	Open24h   float64 `json:"open_24h"`    // 24小时开盘价格
+	LastPrice string  `json:"last_price"`  // 最新成交价格
+	Vol24h    string  `json:"vol_24h"`     // 24小时成交量单位币
+	VolCcy24h string  `json:"vol_ccy_24h"` // 24小时成交量
+	High24h   string  `json:"high_24h"`    // 24小时最高价
+	Low24h    string  `json:"low_24h"`     // 24小时最低价
+	Open24h   string  `json:"open_24h"`    // 24小时开盘价格
 	Change24h float64 `json:"change_24h"`  // 24小时涨跌幅（%）
-	AskPx     float64 `json:"ask_px"`      // 卖一价（最低的卖单价）
-	AskSz     float64 `json:"ask_sz"`      // 卖一量
-	BidPx     float64 `json:"bid_px"`      // 买一价（最高的买单价）
-	BidSz     float64 `json:"bid_sz"`      // 买一量
+	AskPx     string  `json:"ask_px"`      // 卖一价（最低的卖单价）
+	AskSz     string  `json:"ask_sz"`      // 卖一量
+	BidPx     string  `json:"bid_px"`      // 买一价（最高的买单价）
+	BidSz     string  `json:"bid_sz"`      // 买一量
+	Ts        float64 `json:"ts"`          // 时间戳
 }
 
 // TickerService 定义行情服务接口
@@ -449,35 +450,28 @@ func (s *OKXTickerService) handleTickers(dataArr []interface{}) {
 		item := d.(map[string]interface{})
 		instId := item["instId"].(string)
 
-		lastPrice := parseFloat(item["last"])      // 最新成交价格
-		vol24h := parseFloat(item["vol24h"])       // 24小时成交量（以交易标的计，比如 BTC）
-		volCcy24h := parseFloat(item["volCcy24h"]) // 24小时成交量（以计价货币计，比如 USDT）
-		high24h := parseFloat(item["high24h"])     // 24小时最高价
-		low24h := parseFloat(item["low24h"])       // 24小时最低价
-		open24h := parseFloat(item["open24h"])     // 24小时开盘价
-		askPx := parseFloat(item["askPx"])         // 卖一价（最低的卖单价）
-		askSz := parseFloat(item["askSz"])         // 卖一量
-		bidPx := parseFloat(item["bidPx"])         // 买一价（最高的买单价）
-		bidSz := parseFloat(item["bidSz"])         // 买一量
+		lastPrice := parseFloat(item["last"])  // 最新成交价格
+		open24h := parseFloat(item["open24h"]) // 24小时开盘价
 
 		change24h := 0.0
 		if open24h != 0 {
 			change24h = (lastPrice - open24h) / open24h * 100
 		}
-
+		// 全部返回string类型，防止精度丢失
 		s.prices[instId] = &TickerData{
 			InstId:    instId,
-			LastPrice: lastPrice,
-			Vol24h:    vol24h,
-			VolCcy24h: volCcy24h,
-			High24h:   high24h,
-			Low24h:    low24h,
-			Open24h:   open24h,
+			LastPrice: item["last"].(string),      // 最新成交价格
+			Vol24h:    item["vol24h"].(string),    // 24小时成交量（以交易标的计，比如 BTC）
+			VolCcy24h: item["volCcy24h"].(string), // 24小时成交量（以计价货币计，比如 USDT）
+			High24h:   item["high24h"].(string),   // 24小时最高价
+			Low24h:    item["low24h"].(string),    // 24小时最低价
+			Open24h:   item["open24h"].(string),   // 24小时开盘价
 			Change24h: change24h,
-			AskPx:     askPx,
-			AskSz:     askSz,
-			BidPx:     bidPx,
-			BidSz:     bidSz,
+			AskPx:     item["askPx"].(string), // 卖一价（最低的卖单价）
+			AskSz:     item["askSz"].(string), // 卖一量
+			BidPx:     item["bidPx"].(string), // 买一价（最高的买单价）
+			BidSz:     item["bidSz"].(string), // 买一量
+			Ts:        parseFloat(item["ts"]),
 		}
 	}
 }

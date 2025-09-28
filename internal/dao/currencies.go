@@ -7,32 +7,26 @@ import (
 )
 
 type CurrenciesDao interface {
-	// 创建货币
-	CurrencyCreateNew(ctx context.Context, coin *entity.Currency) error
-	// 创建货币 并关联到交易所
-	CurrencyCreateNewWithExchange(ctx context.Context, exchangeId int64, currency *entity.Currency) error
-	// 更新币种：没有就创建、存在就更新
-	CurrencyUpsert(ctx context.Context, w *entity.Currency) error
-	CurrencyUpsertBatch(ctx context.Context, currencies []*entity.Currency) error
+	CurrencyCreateNew(ctx context.Context, coin *entity.CryptoInstrument) error
 
-	// 批量创建货币 并关联到交易所
-	CurrencyCreateBatchWithExchange(ctx context.Context, exchangeId int64, currencies []entity.Currency) error
-	// 更新币种
-	CurrencyUpdate(ctx context.Context, coin *entity.Currency) error
-	// 根据id获取coin
-	CurrencyGetById(ctx context.Context, coinId int64) (model.CurrencyOne, error)
-	// 根据coin标识获取coin
-	CurrencyGetByCcy(ctx context.Context, coin string) (model.CurrencyOne, error)
-	// 获取分类id获取coin列表
-	CurrencyGetListByExchange(ctx context.Context, exId int64, page, limit int) (total int64, list []model.CurrencyOne, err error)
+	// 批量 Upsert Whale
+	CurrencyUpsertBatch(ctx context.Context, currencies []*entity.CryptoInstrument) error
 
-	// 创建交易所
-	ExchangeCreateNew(ctx context.Context, name, nameEn string) (*model.Exchange, error)
-	// 获取所有交易所
+	CurrencyUpdate(ctx context.Context, coin *entity.CryptoInstrument) error
+
+	CurrencyGetById(ctx context.Context, coinId int64) (res model.CurrencyOne, err error)
+
+	CurrencyGetByCcy(ctx context.Context, baseCcy string) (res model.CurrencyOne, err error)
+
+	CurrencyGetListByExchange(ctx context.Context, exId uint, page, limit int) (total int64, list []entity.CryptoInstrument, err error)
+
+	// 创建一个交易对并关联到交易所
+	InstrumentUpsertWithExchange(ctx context.Context, instrument *entity.CryptoInstrument) error
+
+	// 批量创建货币，并关联到某个交易所
+	InstrumentUpsertBatchWithExchange(ctx context.Context, instruments []entity.CryptoInstrument) error
+
+	ExchangeCreateNew(ctx context.Context, code, name string) (*model.Exchange, error)
+
 	ExchangesGet(ctx context.Context) ([]model.Exchange, error)
-
-	// 关联交易所
-	AssociateCurrencyWithExchange(ctx context.Context, currencyId, exchangeId int64) error
-	// 批量关联交易所
-	AssociateCurrenciesWithExchangeBatch(ctx context.Context, currencyIds []int64, exchangeId int64) error
 }

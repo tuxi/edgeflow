@@ -1,8 +1,8 @@
 package router
 
 import (
-	"edgeflow/internal/handler/currency"
 	"edgeflow/internal/handler/hyperliquid"
+	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/ticker"
 	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/middleware"
@@ -10,13 +10,13 @@ import (
 )
 
 type ApiRouter struct {
-	coinHandler  *currency.Handler
+	coinHandler  *instrument.Handler
 	hyperHandler *hyperliquid.Handler
 	wh           *webhook.Handler
 	th           *ticker.Handler
 }
 
-func NewApiRouter(ch *currency.Handler, wh *webhook.Handler, th *ticker.Handler, hyperHandler *hyperliquid.Handler) *ApiRouter {
+func NewApiRouter(ch *instrument.Handler, wh *webhook.Handler, th *ticker.Handler, hyperHandler *hyperliquid.Handler) *ApiRouter {
 	return &ApiRouter{coinHandler: ch, wh: wh, th: th, hyperHandler: hyperHandler}
 }
 
