@@ -25,7 +25,7 @@ type HyperLiquidDao interface {
 	// 创建鲸鱼仓位快照
 	CreatePositionInBatches(ctx context.Context, items []*entity.HyperWhalePosition) error
 	// 获取前100仓位
-	GetTopWhalePositions(ctx context.Context, limit int) ([]*entity.HyperWhalePosition, error)
+	GetTopWhalePositions(ctx context.Context, req model.WhalePositionFilterReq) (*model.WhalePositionFilterRes, error)
 	// 获取仓位多空
 	GetWhaleLongShortRatio(ctx context.Context) (*model.WhaleLongShortRatio, error)
 	// 查询某个用户的排行数据

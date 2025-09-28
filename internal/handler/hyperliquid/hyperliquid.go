@@ -147,7 +147,13 @@ func (h *Handler) WhaleUserNonFundingLedgerGet() gin.HandlerFunc {
 func (h *Handler) TopWhalePositionsGet() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 
-		res, err := h.service.GetTopWhalePositions(ctx)
+		var req model.WhalePositionFilterReq
+		if err := ctx.ShouldBindQuery(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+
+		res, err := h.service.GetTopWhalePositions(ctx, req)
 		if err != nil {
 			response.JSON(ctx, err, nil)
 		} else {

@@ -409,7 +409,7 @@ func (s *HyperLiquidService) StartScheduler(ctx context.Context, interval time.D
 // 获取前100个鲸鱼地址的仓位
 func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 	// 1. 获取前100鲸鱼
-	topWhales, err := h.dao.GetTopWhales(ctx, "pnl_day", 100)
+	topWhales, err := h.dao.GetTopWhales(ctx, "vlm_day", 100)
 
 	if err != nil {
 		return err
@@ -490,45 +490,12 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 	return nil
 }
 
-func (h *HyperLiquidService) GetTopWhalePositions(ctx context.Context) ([]*entity.HyperWhalePosition, error) {
-	return h.getTopWhalePositions(ctx, 100)
-}
+func (h *HyperLiquidService) GetTopWhalePositions(ctx context.Context, req model.WhalePositionFilterReq) (*model.WhalePositionFilterRes, error) {
 
-func (h *HyperLiquidService) getTopWhalePositions(ctx context.Context, limit int) ([]*entity.HyperWhalePosition, error) {
-	// 先从redis缓存中查找
-	rdsKey := fmt.Sprintf("%v:%v", consts.WhalePositionsTop, limit)
-	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
-
-	var res []*entity.HyperWhalePosition
-	if err == nil {
-		err = json.Unmarshal(bytes, &res)
-		if err == nil {
-			return res, nil
-		}
-	} else {
-		if err != redis.Nil {
-			logger.Errorf("Redis连接异常:%v", err.Error())
-		}
-	}
-
-	// 从数据库获取
-	res, err = h.dao.GetTopWhalePositions(ctx, limit)
+	res, err := h.dao.GetTopWhalePositions(ctx, req)
 	if err != nil {
 		log.Printf("HyperLiquidService GetTopWhalePositions error: %v", err)
 		return nil, err
-	}
-
-	bytes, err = json.Marshal(&res)
-	if err != nil {
-		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
-		return res, nil
-	}
-
-	// 存储redis中，30秒过期
-	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*10).Err()
-	if err != nil {
-		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
-
 	}
 
 	return res, nil
@@ -587,11 +554,18 @@ func (h *HyperLiquidService) AnalyzeTopPositions(ctx context.Context) (*model.Wh
 		}
 	}
 
-	posList, err := h.getTopWhalePositions(ctx, 1000)
+	posList, err := h.GetTopWhalePositions(ctx, model.WhalePositionFilterReq{
+		Coin:             "",
+		Side:             "",
+		PnlStatus:        "",
+		FundingFeeStatus: "",
+		Limit:            1000,
+		Offset:           0,
+	})
 	if err != nil {
 		return nil, err
 	}
-	res = h.analyzePositions(posList, nil)
+	res = h.analyzePositions(posList.Positions, nil)
 
 	if err != nil {
 		log.Printf("HyperLiquidService AnalyzeTopPositions error: %v", err)

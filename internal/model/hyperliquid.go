@@ -50,8 +50,8 @@ type WhaleUserNonFundingLedgerReq struct {
 
 // 鲸鱼多空数量
 type WhaleLongShortResult struct {
-	Direction string
-	Total     float64
+	Direction string `json:"direction"`
+	Total     int64  `json:"total"`
 }
 
 // 鲸鱼多空比
@@ -90,10 +90,28 @@ type WhalePositionAnalysis struct {
 	LongPercentage  float64 `json:"longPercentage"`  // 多单价值占总价值比例
 	ShortPercentage float64 `json:"shortPercentage"` // 空单价值占总价值比例
 
-	PositionSkew  float64 `json:"positionSkew"`  // 仓位倾斜指数 [-1,1]
+	PositionSkew  float64 `json:"positionSkew"`  // 仓位倾斜指数 [-1,1]，大于0多头主导、<0空头主导、=0平衡
 	HighRiskValue float64 `json:"highRiskValue"` // 潜在爆仓仓位价值
 
 	// 这个信号分析模块是基于持仓数据的，不能替代专业的 K 线技术分析。 这是一个情绪指标，而不是一个完整的交易策略。
 	SignalScore      float64 `json:"signalScore"`      // 合约开单信号评分: [-100, 100]
 	SignalSuggestion string  `json:"signalSuggestion"` // 建议文本
+}
+
+// 鲸鱼仓位查询条件
+type WhalePositionFilterReq struct {
+	// 筛选条件
+	Coin             string `form:"coin" json:"coin,omitempty"`                           // 币种名称 (如: "ETH")
+	Side             string `form:"side" json:"side,omitempty"`                           // 方向 ("long" 或 "short")
+	PnlStatus        string `form:"pnl_status" json:"pnl_status,omitempty"`               // 盈亏状态 ("profit", "loss", "neutral")
+	FundingFeeStatus string `form:"fundingfee_status" json:"fundingfee_status,omitempty"` // 资金费状态 ("profit", "loss", "neutral")
+
+	// 排序和分页 (保持不变)
+	Limit  int `form:"limit" json:"limit"`   // 每页数量
+	Offset int `form:"offset" json:"offset"` // 偏移量
+}
+
+type WhalePositionFilterRes struct {
+	Total     int64                        `json:"total"`
+	Positions []*entity.HyperWhalePosition `json:"positions"`
 }

@@ -140,9 +140,6 @@ func (h *hyperLiquidDao) GetTopWhales(ctx context.Context, period string, limit 
 		limit = 100
 	}
 
-	if period == "" {
-		period = "pnl_week"
-	}
 	if period == "all" {
 		period = "all_time"
 	}
@@ -204,16 +201,103 @@ func (h *hyperLiquidDao) CreatePositionInBatches(ctx context.Context, positions 
 	return err
 }
 
-func (s *hyperLiquidDao) GetTopWhalePositions(ctx context.Context, limit int) ([]*entity.HyperWhalePosition, error) {
+func (s *hyperLiquidDao) GetTopWhalePositions(ctx context.Context, req model.WhalePositionFilterReq) (*model.WhalePositionFilterRes, error) {
+
 	var positions []*entity.HyperWhalePosition
-	err := s.db.WithContext(ctx).
-		Order("position_value DESC"). // 按仓位价值降序
-		Limit(limit).                 // 取前N名
-		Find(&positions).Error
-	if err != nil {
+	var totalCount int64
+
+	db := s.db.WithContext(ctx).
+		Model(&entity.HyperWhalePosition{})
+
+	// 动态构建where语句
+	db = db.Scopes(
+		filterBySymbol(req.Coin),
+		filterBySide(req.Side),
+		filterByPnlStatus(req.PnlStatus),
+		filterByFundingFee(req.FundingFeeStatus),
+	)
+
+	//统计总数
+	if err := db.Count(&totalCount).Error; err != nil {
 		return nil, err
 	}
-	return positions, nil
+
+	// 排序、分页、执行查询
+	if req.Limit > 0 {
+		db = db.Limit(req.Limit).Offset(req.Offset)
+	}
+
+	// 按仓位大小 (PositionValue) 降序排列
+	db = db.Order("position_value DESC")
+
+	if err := db.Find(&positions).Error; err != nil {
+		return nil, err
+	}
+
+	return &model.WhalePositionFilterRes{
+		Total:     totalCount,
+		Positions: positions,
+	}, nil
+}
+
+// 筛选币种
+func filterBySymbol(symbol string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		if symbol != "" {
+			// 假设数据库字段名为 'symbol'
+			return db.Where("coin = ?", symbol)
+		}
+		return db
+	}
+}
+
+// Scope 2: 筛选方向
+func filterBySide(side string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		if side != "" {
+			// 假设数据库字段名为 'side'
+			return db.Where("side = ?", side)
+		}
+		return db
+	}
+}
+
+// Scope 3: 筛选盈亏状态
+func filterByPnlStatus(status string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		//  'funding_fee' (资金费)
+		switch status {
+		case "profit": // 盈利
+			// 未实现盈亏 > 0
+			return db.Where("funding_fee > 0")
+		case "loss": // 亏损
+			// 未实现盈亏 < 0
+			return db.Where("funding_fee < 0")
+		case "neutral": // 平衡 (通常忽略，但如果需要，可以设置一个非常小的范围)
+			return db.Where("funding_fee BETWEEN -0.01 AND 0.01")
+		default:
+			return db // 不筛选
+		}
+	}
+}
+
+// Scope 4: 筛选资金费
+func filterByFundingFee(status string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		// 'unrealized_pnl' (未实现盈亏)
+		switch status {
+		case "profit": // 盈利
+			// 未实现盈亏 > 0
+			return db.Where("unrealized_pnl > 0")
+		case "loss": // 亏损
+			// 未实现盈亏 < 0
+			return db.Where("unrealized_pnl < 0")
+		case "neutral": // 平衡 (通常忽略，但如果需要，可以设置一个非常小的范围)
+			return db.Where("unrealized_pnl BETWEEN -0.01 AND 0.01")
+		default:
+			return db // 不筛选
+		}
+	}
 }
 
 // 获取hyper鲸鱼的多空数量
@@ -233,9 +317,9 @@ func (s *hyperLiquidDao) GetWhaleLongShortRatio(ctx context.Context) (*model.Wha
 	for _, r := range res {
 		switch r.Direction {
 		case "long":
-			ratio.LongValue = r.Total
+			ratio.LongValue = float64(r.Total)
 		case "short":
-			ratio.ShortValue = r.Total
+			ratio.ShortValue = float64(r.Total)
 		}
 	}
 	if ratio.ShortValue > 0 {

@@ -15,7 +15,6 @@ import (
 	"edgeflow/internal/service"
 	"edgeflow/internal/signal"
 	"edgeflow/internal/strategy"
-	"edgeflow/internal/strategy/hype"
 	"edgeflow/internal/strategy/tradingview"
 	"edgeflow/internal/trend"
 	"edgeflow/pkg/cache"
@@ -55,10 +54,10 @@ func InitRouter(db *gorm.DB) Router {
 	})
 
 	// hype跟单策略
-	h := hype.NewHypeTrackStrategy(ps, tm)
-	h.Run()
-
-	go tm.RunScheduled()
+	//h := hype.NewHypeTrackStrategy(ps, tm)
+	//h.Run()
+	//
+	//go tm.RunScheduled()
 
 	// 策略分发器：根据级别分发不同的策略
 	dispatcher := strategy.NewStrategyDispatcher()
