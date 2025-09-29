@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"log"
@@ -42,7 +43,7 @@ type TickerService interface {
 	GetPrice(ctx context.Context, symbol string) (*TickerData, error)
 
 	// GetPrices 获取多个币种的最新行情数据
-	GetPrices(ctx context.Context, symbols []string) (map[string]*TickerData, error)
+	GetPrices(ctx context.Context, symbols []string) (map[string]TickerData, error)
 
 	// Close 关闭行情服务连接（例如 WebSocket）
 	Close() error
@@ -53,15 +54,18 @@ type OKXTickerService struct {
 	sync.RWMutex
 	conn *websocket.Conn
 	// 记录 OKX 连接上实际已发送 subscribe 消息的币种集合
-	subscribed  map[string]struct{}
-	prices      map[string]*TickerData
-	url         string
-	closeCh     chan struct{}
+	subscribed map[string]struct{}
+	prices     map[string]TickerData
+	url        string
+	closeCh    chan struct{}
+
 	lastRequest time.Time
 	// 新增：系统必须保持订阅的币种列表
 	defaultSymbols []string
-	// 新增：通知重连成功的通道
-	ReconnectCh chan struct{}
+	// 连接成功建立后，会向此通道发送一个信号
+	connectionReady chan struct{}
+	// 收到行情变化的通道
+	tickersCh chan map[string]TickerData
 }
 
 // NewOKXTickerService 创建实例并连接 OKX WebSocket
@@ -79,17 +83,24 @@ func NewOKXTickerService(defaultSymbols []string) *OKXTickerService {
 		}
 	}
 	s := &OKXTickerService{
-		conn:           nil,
-		subscribed:     make(map[string]struct{}),
-		prices:         make(map[string]*TickerData),
-		url:            url,
-		closeCh:        make(chan struct{}),
-		defaultSymbols: defaultSymbols,
+		conn:            nil,
+		subscribed:      make(map[string]struct{}),
+		prices:          make(map[string]TickerData),
+		tickersCh:       make(chan map[string]TickerData, 100), // 设置一个合理的缓冲区大小（例如 100），防止数据堆积阻塞上游
+		url:             url,
+		closeCh:         make(chan struct{}),
+		defaultSymbols:  defaultSymbols,
+		connectionReady: make(chan struct{}), //非缓冲冲到
 	}
 
 	go s.run()
 
 	return s
+}
+
+// GetTickerChannel 供下游服务（如 MarketDataService）获取并监听 Ticker 数据流
+func (s *OKXTickerService) GetTickerChannel() <-chan map[string]TickerData {
+	return s.tickersCh
 }
 
 // startPingLoop 在每次新连接建立后调用
@@ -153,6 +164,9 @@ func (s *OKXTickerService) writeMessageInternal(message interface{}) error {
 	s.lastRequest = time.Now()
 
 	// conn.WriteJSON 也应在锁保护下，但由于 Mutex 已经在外部持有，这里直接使用
+	if s.conn == nil {
+		return errors.New("当前ws连接不存在，请先建立连接")
+	}
 	return s.conn.WriteJSON(message)
 }
 
@@ -170,6 +184,16 @@ func (s *OKXTickerService) run() {
 		// 2. 连接成功：更新状态
 		s.Lock()
 		s.conn = conn
+
+		// ⚠️ 核心：通知等待者，连接已就绪
+		// 使用 select 是为了防止重复发送导致 panic (如果 run 被多次调用)
+		select {
+		case s.connectionReady <- struct{}{}:
+			log.Println("OKX WebSocket connection established and ready.")
+		default:
+			// 已经是 ready 状态，忽略
+		}
+
 		// 关键：重置订阅状态，因为这是一个新连接
 		s.subscribed = make(map[string]struct{})
 
@@ -195,7 +219,7 @@ func (s *OKXTickerService) run() {
 
 		// 通知 Handler 进行动态订阅恢复（仅在重连时需要，但首次连接发送信号也无妨）
 		select {
-		case s.ReconnectCh <- struct{}{}:
+		case s.connectionReady <- struct{}{}:
 			// 通知 Handler 计算并重新订阅客户端需要的币种
 		default:
 			// 防止阻塞
@@ -249,6 +273,16 @@ func (s *OKXTickerService) sendSubscribe(symbols []string) error {
 	}
 	// 假设 conn 已经处理好重连
 	return s.writeMessageInternal(subMsg)
+}
+
+// 同步等待连接建立
+func (s *OKXTickerService) WaitForConnectionReady(ctx context.Context) error {
+	select {
+	case <-s.connectionReady:
+		return nil // 信号已收到，连接已就绪
+	case <-ctx.Done():
+		return ctx.Err() // 超时或 context 被取消
+	}
 }
 
 // 在连接重置后调用
@@ -378,14 +412,14 @@ func (s *OKXTickerService) GetPrice(ctx context.Context, symbol string) (*Ticker
 	if !ok {
 		return nil, fmt.Errorf("price not found for symbol: %s", symbol)
 	}
-	return data, nil
+	return &data, nil
 }
 
 // GetPrices 获取多个币种行情
-func (s *OKXTickerService) GetPrices(ctx context.Context, symbols []string) (map[string]*TickerData, error) {
+func (s *OKXTickerService) GetPrices(ctx context.Context, symbols []string) (map[string]TickerData, error) {
 	s.RLock()
 	defer s.RUnlock()
-	result := make(map[string]*TickerData)
+	result := make(map[string]TickerData)
 	//var result []*TickerData
 	for _, sym := range symbols {
 		if data, ok := s.prices[sym]; ok {
@@ -446,6 +480,8 @@ func (s *OKXTickerService) handleTickers(dataArr []interface{}) {
 
 	s.Lock()
 	defer s.Unlock()
+
+	changedValues := make(map[string]TickerData, len(dataArr))
 	for _, d := range dataArr {
 		item := d.(map[string]interface{})
 		instId := item["instId"].(string)
@@ -457,8 +493,7 @@ func (s *OKXTickerService) handleTickers(dataArr []interface{}) {
 		if open24h != 0 {
 			change24h = (lastPrice - open24h) / open24h * 100
 		}
-		// 全部返回string类型，防止精度丢失
-		s.prices[instId] = &TickerData{
+		ticker := TickerData{
 			InstId:    instId,
 			LastPrice: item["last"].(string),      // 最新成交价格
 			Vol24h:    item["vol24h"].(string),    // 24小时成交量（以交易标的计，比如 BTC）
@@ -473,6 +508,15 @@ func (s *OKXTickerService) handleTickers(dataArr []interface{}) {
 			BidSz:     item["bidSz"].(string), // 买一量
 			Ts:        parseFloat(item["ts"]),
 		}
+		changedValues[instId] = ticker
+		// 全部返回string类型，防止精度丢失
+		s.prices[instId] = ticker
+
+	}
+
+	if len(dataArr) > 0 {
+		// 只发送本次改变的数据
+		s.tickersCh <- changedValues
 	}
 }
 

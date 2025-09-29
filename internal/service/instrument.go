@@ -22,11 +22,12 @@ type InstrumentService interface {
 }
 
 type instrumentService struct {
-	dao dao.CurrenciesDao
+	dao                    dao.CurrenciesDao
+	syncInstrumentsHanlder func()
 }
 
-func NewInstrumentService(dao dao.CurrenciesDao) InstrumentService {
-	return &instrumentService{dao: dao}
+func NewInstrumentService(dao dao.CurrenciesDao, syncInstrumentsHanlder func()) InstrumentService {
+	return &instrumentService{dao: dao, syncInstrumentsHanlder: syncInstrumentsHanlder}
 }
 
 // 定义同步间隔和交易所代码
@@ -115,7 +116,9 @@ func (s *instrumentService) SyncInstruments(ctx context.Context, exchangeId uint
 	}
 
 	err := s.dao.InstrumentUpsertBatchWithExchange(ctx, list)
-
+	if err != nil && s.syncInstrumentsHanlder != nil {
+		s.syncInstrumentsHanlder() // 通知同步完成
+	}
 	return err
 }
 

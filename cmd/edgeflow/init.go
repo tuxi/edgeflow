@@ -8,7 +8,7 @@ import (
 	"edgeflow/internal/exchange"
 	"edgeflow/internal/handler/hyperliquid"
 	"edgeflow/internal/handler/instrument"
-	"edgeflow/internal/handler/ticker"
+	"edgeflow/internal/handler/market"
 	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/position"
 	"edgeflow/internal/router"
@@ -24,10 +24,7 @@ import (
 
 func InitRouter(db *gorm.DB) Router {
 	//tk := tokenize.NewTokenizer("./dict")
-	cd := query.NewCurrenciesDao(db)
-	instrumentService := service.NewInstrumentService(cd)
-
-	coinH := instrument.NewHandler(instrumentService)
+	instrumentDao := query.NewCurrenciesDao(db)
 
 	appCfg := conf.AppConfig
 
@@ -65,23 +62,28 @@ func InitRouter(db *gorm.DB) Router {
 
 	wh := webhook.NewHandler(dispatcher, rc, sm, ps)
 
-	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "PUMP", "AAVE", "AVAX", "ADA", "LINK", "SHIB", "TRX"}
-	tickerService := service.NewOKXTickerService(defaultsCoins)
-	tickerHandler := ticker.NewHandler(tickerService)
-
 	hyperDao := query.NewHyperLiquidDao(db)
 
 	rds := cache.GetRedisClient()
 	hyperService := service.NewHyperLiquidService(hyperDao, rds)
 	hyperHandler := hyperliquid.NewHandler(hyperService)
 
-	apiRouter := router.NewApiRouter(coinH, wh, tickerHandler, hyperHandler)
+	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "AAVE", "AVAX", "ADA", "LINK", "TRX"}
+	tickerService := service.NewOKXTickerService(defaultsCoins)
+	marketService := service.NewMarketDataService(tickerService, instrumentDao)
+	marketService.InitializeBaseInstruments(context.Background(), 1)
+	marketHandler := market.NewMarketHandler(marketService)
+	instrumentService := service.NewInstrumentService(instrumentDao, func() {
+		marketService.PerformPeriodicUpdate(context.Background())
+	})
+	coinH := instrument.NewHandler(instrumentService)
+
+	apiRouter := router.NewApiRouter(coinH, wh, marketHandler, hyperHandler)
 
 	// 同步最新币种
 	instrumentService.StartInstrumentSyncWorker(context.Background())
 
 	// 开始广播价格
-	go tickerHandler.BroadcastPrices()
 	go hyperService.StartScheduler(context.Background(), 30*time.Second)
 
 	return apiRouter

@@ -4,8 +4,10 @@ import (
 	"context"
 	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
+	"fmt"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"log"
 	"time"
 )
 
@@ -153,6 +155,27 @@ func (c *currenciesDao) InstrumentUpsertWithExchange(ctx context.Context, instru
 		Create(instrument).Error
 }
 
+func (c *currenciesDao) InstrumentsGetListByExchange(ctx context.Context, exId uint, quoteCcy string) (list []entity.CryptoInstrument, err error) {
+
+	// 使用 GORM Model 构建查询的基础作用域 (Scope)
+	tx := c.db.WithContext(ctx).
+		// 直接操作我们设计的交易对元数据表
+		Model(&entity.CryptoInstrument{}).
+		// 筛选条件直接基于 exchange_id
+		Where("exchange_id = ? AND status = ? AND quote_ccy = ? ", exId, "LIVE", quoteCcy) // 假设 'LIVE' 是激活状态
+
+	//  查询分页数据 (使用 Find)
+	// 假设您希望按市值降序排列
+	if err = tx.
+		Order("market_cap DESC").
+		// 使用 Find 将结果直接映射到结构体列表
+		Find(&list).Error; err != nil {
+		return
+	}
+
+	return list, nil
+}
+
 // 批量创建货币，并关联到某个交易所
 func (c *currenciesDao) InstrumentUpsertBatchWithExchange(ctx context.Context, instruments []entity.CryptoInstrument) error {
 
@@ -227,4 +250,44 @@ func (c *currenciesDao) ExchangesGet(ctx context.Context) ([]model.Exchange, err
 	}
 
 	return exs, nil
+}
+
+func (c *currenciesDao) GetAllActiveUSDTInstruments(ctx context.Context, exId int64) ([]entity.CryptoInstrument, error) {
+	items, err := c.InstrumentsGetListByExchange(ctx, uint(exId), "USDT")
+	return items, err
+}
+
+func (c *currenciesDao) UpdateInstrumentStatus(ctx context.Context, exchangeID int64, instIDs []string, status string) error {
+	if len(instIDs) == 0 {
+		return nil // 没有需要更新的 ID
+	}
+
+	// 1. GORM 链式查询和更新
+	// .WithContext(ctx) 用于传递 Go Context
+	// .Model(&Instrument{}) 指定要操作的表（或模型）
+	// .Where("inst_id IN (?)", instIDs) 生成 WHERE inst_id IN ('BTC-USDT', 'ETH-USDT', ...)
+	// .Updates(...) 执行更新操作，并自动设置 updated_at 字段（如果 GORM 模型中包含）
+	result := c.db.WithContext(ctx).
+		Model(&entity.CryptoInstrument{}).
+		// 交易对过滤
+		Where("instrument_id IN (?)", instIDs).
+		// exchange_id 必须是指定的交易所（多交易所过滤）
+		Where("exchange_id = ?", exchangeID).
+		Updates(map[string]interface{}{
+			"status":     status,
+			"updated_at": time.Now(), // 显式设置更新时间戳，确保记录交易时
+		})
+
+	// 2. 检查错误
+	if result.Error != nil {
+		return fmt.Errorf("failed to execute GORM batch status update: %w", result.Error)
+	}
+
+	// 3. (可选) 记录受影响的行数
+	if result.RowsAffected > 0 {
+		log.Printf("Successfully updated %d instruments to status %s using GORM.", result.RowsAffected, status)
+	}
+
+	return nil
+
 }
