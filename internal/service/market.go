@@ -84,6 +84,8 @@ func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher Instrument
 	}
 	// 启动 MarketService 的核心 Worker
 	go m.startDataWorkers()
+	// 每次 收到连接成功信号时，执行一次订阅恢复
+	go m.runTickerResubscriptionLoop()
 	return m
 }
 
@@ -297,38 +299,38 @@ func (m *MarketDataService) InitializeBaseInstruments(ctx context.Context, exID 
 	return nil
 }
 
-// runTickerResubscriptionLoop 永久运行，监听 TickerService 的连接事件
+// 永久运行，监听 TickerService 的连接事件
 func (m *MarketDataService) runTickerResubscriptionLoop() {
 	// 监听 TickerClient 的连接事件通道
 	connectionEvents := m.tickerClient.ConnectionEvents()
 
 	for {
-		// 阻塞等待连接就绪信号
-		<-connectionEvents
+		select {
+		case <-connectionEvents: // 阻塞等待连接就绪信号
+			// 收到连接就绪信号！现在我们必须恢复订阅。
+			// 因为这是重连，所以 baseCoins 中应该已经有数据了。
+			m.mu.RLock() // 只读锁保护 baseCoins 的读取
 
-		// 收到连接就绪信号！现在我们必须恢复订阅。
-		// 因为这是重连，所以 baseCoins 中应该已经有数据了。
-		m.mu.RLock() // 只读锁保护 baseCoins 的读取
-
-		var symbolsToResubscribe []string
-		for symbol := range m.baseCoins {
-			symbolsToResubscribe = append(symbolsToResubscribe, symbol)
-		}
-
-		m.mu.RUnlock() // 释放锁
-
-		if len(symbolsToResubscribe) > 0 {
-			log.Printf("TickerService reconnected. Executing resubscription for %d symbols.", len(symbolsToResubscribe))
-
-			// 执行重新订阅
-			// 忽略 Context，因为这是后台的恢复操作
-			err := m.tickerClient.SubscribeSymbols(context.Background(), symbolsToResubscribe)
-			if err != nil {
-				log.Printf("ERROR: Failed to resubscribe symbols after reconnect: %v", err)
-				// 此时可以加入错误处理或指数退避机制
+			var symbolsToResubscribe []string
+			for symbol := range m.baseCoins {
+				symbolsToResubscribe = append(symbolsToResubscribe, symbol)
 			}
+
+			m.mu.RUnlock() // 释放锁
+
+			if len(symbolsToResubscribe) > 0 {
+				log.Printf("TickerService reconnected. Executing resubscription for %d symbols.", len(symbolsToResubscribe))
+
+				// 执行重新订阅
+				// 忽略 Context，因为这是后台的恢复操作
+				err := m.tickerClient.SubscribeSymbols(context.Background(), symbolsToResubscribe)
+				if err != nil {
+					log.Printf("ERROR: Failed to resubscribe symbols after reconnect: %v", err)
+					// 此时可以加入错误处理或指数退避机制
+				}
+			}
+			// 循环继续，等待下一次连接断开重连
 		}
-		// 循环继续，等待下一次连接断开重连
 	}
 }
 
