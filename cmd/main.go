@@ -7,6 +7,7 @@ import (
 	"edgeflow/pkg/cache"
 	"edgeflow/pkg/db"
 	"edgeflow/pkg/logger"
+	"fmt"
 	"github.com/nntaoli-project/goex/v2"
 	"log"
 	"os"
@@ -82,6 +83,14 @@ func main() {
 		DBName:    dbName,
 		ParseTime: true,
 	})
+
+	redisHost := os.Getenv("REDIS_HOST")
+	redisPort := os.Getenv("REDIS_PORT")
+	redisAddr := fmt.Sprintf("%s:%s", redisHost, redisPort)
+	if redisHost == "" || redisPort == "" {
+		redisAddr = conf.AppConfig.Redis.Addr
+	}
+	appCfg.Redis.Addr = redisAddr
 
 	// 初始化redis缓存
 	cache.InitRedis(appCfg.Redis)
