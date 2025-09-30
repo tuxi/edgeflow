@@ -1,5 +1,5 @@
 # FROM 表示设置要制作的镜像基于哪个镜像，FROM指令必须是整个Dockerfile的第一个指令，如果指定的镜像不存在默认会自动从Docker Hub上下载。
-FROM golang:1.24.0-alpine  AS builder
+FROM golang:1.25.0-alpine  AS builder
 ENV GO111MODULE=on
 #ENV GOPROXY=https://goproxy.io,direct
 #安装编译需要的环境gcc等
