@@ -51,8 +51,8 @@ type CurrencyOneRes struct {
 }
 
 type CurrencyListRes struct {
-	Total int64            `json:"total"`
-	List  []CurrencyOneRes `json:"list"`
+	Total int64                     `json:"total"`
+	List  []entity.CryptoInstrument `json:"list"`
 }
 
 // 查找币种请求体
@@ -68,4 +68,8 @@ type Exchange struct {
 	ExId int64  `gorm:"column:id;primary_key;" json:"ex_id"`
 	Code string `gorm:"column:code" json:"code"`
 	Name string `gorm:"column:name" json:"name"`
+}
+
+type InstrumentGetAllReq struct {
+	ExId string `json:"ex_id" form:"ex_id" validate:"required"`
 }

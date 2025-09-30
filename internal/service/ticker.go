@@ -63,7 +63,7 @@ type OKXTickerService struct {
 	// 新增：系统必须保持订阅的币种列表
 	defaultSymbols []string
 	// 连接成功建立后，会向此通道发送一个信号
-	connectionReady chan struct{}
+	connectionNotifier chan struct{}
 	// 收到行情变化的通道
 	tickersCh chan map[string]TickerData
 }
@@ -83,14 +83,14 @@ func NewOKXTickerService(defaultSymbols []string) *OKXTickerService {
 		}
 	}
 	s := &OKXTickerService{
-		conn:            nil,
-		subscribed:      make(map[string]struct{}),
-		prices:          make(map[string]TickerData),
-		tickersCh:       make(chan map[string]TickerData, 100), // 设置一个合理的缓冲区大小（例如 100），防止数据堆积阻塞上游
-		url:             url,
-		closeCh:         make(chan struct{}),
-		defaultSymbols:  defaultSymbols,
-		connectionReady: make(chan struct{}), //非缓冲冲到
+		conn:               nil,
+		subscribed:         make(map[string]struct{}),
+		prices:             make(map[string]TickerData),
+		tickersCh:          make(chan map[string]TickerData, 100), // 设置一个合理的缓冲区大小（例如 100），防止数据堆积阻塞上游
+		url:                url,
+		closeCh:            make(chan struct{}),
+		defaultSymbols:     defaultSymbols,
+		connectionNotifier: make(chan struct{}), //非缓冲冲到
 	}
 
 	go s.run()
@@ -185,10 +185,10 @@ func (s *OKXTickerService) run() {
 		s.Lock()
 		s.conn = conn
 
-		// ⚠️ 核心：通知等待者，连接已就绪
-		// 使用 select 是为了防止重复发送导致 panic (如果 run 被多次调用)
+		// 每次连接成功后，通知外部
+		// 使用 select 防止通道满或重复发送导致阻塞
 		select {
-		case s.connectionReady <- struct{}{}:
+		case s.connectionNotifier <- struct{}{}:
 			log.Println("OKX WebSocket connection established and ready.")
 		default:
 			// 已经是 ready 状态，忽略
@@ -215,14 +215,6 @@ func (s *OKXTickerService) run() {
 			log.Printf("Failed to subscribe default symbols after connect: %v. Retrying connection.", err)
 			_ = s.conn.Close() // 订阅失败，关闭连接以触发下一次重试
 			continue
-		}
-
-		// 通知 Handler 进行动态订阅恢复（仅在重连时需要，但首次连接发送信号也无妨）
-		select {
-		case s.connectionReady <- struct{}{}:
-			// 通知 Handler 计算并重新订阅客户端需要的币种
-		default:
-			// 防止阻塞
 		}
 
 		// 启动心跳协程
@@ -278,7 +270,7 @@ func (s *OKXTickerService) sendSubscribe(symbols []string) error {
 // 同步等待连接建立
 func (s *OKXTickerService) WaitForConnectionReady(ctx context.Context) error {
 	select {
-	case <-s.connectionReady:
+	case <-s.connectionNotifier:
 		return nil // 信号已收到，连接已就绪
 	case <-ctx.Done():
 		return ctx.Err() // 超时或 context 被取消
@@ -518,6 +510,11 @@ func (s *OKXTickerService) handleTickers(dataArr []interface{}) {
 		// 只发送本次改变的数据
 		s.tickersCh <- changedValues
 	}
+}
+
+// 供外部 MarketDataService 监听的接口
+func (s *OKXTickerService) ConnectionEvents() <-chan struct{} {
+	return s.connectionNotifier
 }
 
 // parseFloat 辅助解析 float

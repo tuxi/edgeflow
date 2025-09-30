@@ -18,6 +18,7 @@ type InstrumentService interface {
 
 	InstrumentsCreateBatchWithExchange(ctx context.Context, exId int64, currencies []entity.CryptoInstrument) (err error)
 	InstrumentsListGetByExchange(ctx context.Context, exId int64, page, limit int) (res model.CurrencyListRes, err error)
+	InstrumentsGetAllByExchange(ctx context.Context, exId int64) (res model.CurrencyListRes, err error)
 	ExchangeCreateNew(ctx context.Context, code, name string) (*model.Exchange, error)
 }
 
@@ -201,21 +202,21 @@ func (c *instrumentService) InstrumentsListGetByExchange(ctx context.Context, ex
 		return
 	}
 
-	var temp model.CurrencyOneRes
-	var listRes []model.CurrencyOneRes
-	for _, v := range coinList {
-		temp.ID = strconv.FormatInt(int64(v.ID), 10)
-		temp.ExchangeID = strconv.FormatInt(int64(v.ExchangeID), 10)
-		temp.BaseCcy = v.BaseCcy
-		temp.QuoteCcy = v.QuoteCcy
-		temp.NameEN = v.NameEN
-		temp.NameCN = v.NameCN
-		temp.InstrumentID = v.InstrumentID
-		temp.PricePrecision = v.PricePrecision
-		temp.QtyPrecision = v.QtyPrecision
-		listRes = append(listRes, temp)
-	}
-	res.List = listRes
+	//var temp model.CurrencyOneRes
+	//var listRes []model.CurrencyOneRes
+	//for _, v := range coinList {
+	//	temp.ID = strconv.FormatInt(int64(v.ID), 10)
+	//	temp.ExchangeID = strconv.FormatInt(int64(v.ExchangeID), 10)
+	//	temp.BaseCcy = v.BaseCcy
+	//	temp.QuoteCcy = v.QuoteCcy
+	//	temp.NameEN = v.NameEN
+	//	temp.NameCN = v.NameCN
+	//	temp.InstrumentID = v.InstrumentID
+	//	temp.PricePrecision = v.PricePrecision
+	//	temp.QtyPrecision = v.QtyPrecision
+	//	listRes = append(listRes, temp)
+	//}
+	res.List = coinList
 	res.Total = total
 	return
 }
@@ -224,4 +225,14 @@ func (c *instrumentService) ExchangeCreateNew(ctx context.Context, code, name st
 
 	ex, err := c.dao.ExchangeCreateNew(ctx, code, name)
 	return ex, err
+}
+
+func (c *instrumentService) InstrumentsGetAllByExchange(ctx context.Context, exId int64) (res model.CurrencyListRes, err error) {
+	list, err := c.dao.InstrumentsGetListByExchange(ctx, uint(exId), "USDT")
+	if err != nil {
+		return
+	}
+	res.List = list
+	res.Total = int64(len(list))
+	return res, err
 }

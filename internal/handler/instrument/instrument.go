@@ -50,3 +50,26 @@ func (h *Handler) CoinsGetList() gin.HandlerFunc {
 		}
 	}
 }
+
+func (h *Handler) InstrumentGetAll() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req model.InstrumentGetAllReq
+		if err := ctx.ShouldBindQuery(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+
+		exId, err := strconv.ParseInt(req.ExId, 10, 64)
+		if err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, "exchancge id转换错误"), nil)
+			return
+		}
+
+		res, err := h.service.InstrumentsGetAllByExchange(ctx, exId)
+		if err != nil {
+			response.JSON(ctx, errors.Wrap(err, ecode.Unknown, "接口调用失败"), nil)
+		} else {
+			response.JSON(ctx, nil, res)
+		}
+	}
+}

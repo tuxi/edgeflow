@@ -29,6 +29,7 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 	{
 		// 获取币种列表
 		c.GET("/list", api.coinHandler.CoinsGetList())
+		c.GET("/all", api.coinHandler.InstrumentGetAll())
 	}
 
 	p := base.Group("/ticker", middleware.RequestValidationMiddleware())

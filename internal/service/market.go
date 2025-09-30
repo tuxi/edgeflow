@@ -241,7 +241,7 @@ func (m *MarketDataService) performSortAndCache() {
 		// ⚠️ 此处应触发 WebSocket 推送给客户端 (例如发送一个新的 [String] 列表)
 		select {
 		case m.sortedInstIDsCh <- newSortedIDs:
-			log.Printf("交易对ids排序发生变化")
+			//log.Printf("交易对ids排序发生变化")
 		default:
 			// 通道满了，丢弃本次变化
 		}
@@ -295,6 +295,41 @@ func (m *MarketDataService) InitializeBaseInstruments(ctx context.Context, exID 
 	// 4. 不发送任何客户端通知 (因为客户端还未建立连接或 List 未初始化)
 
 	return nil
+}
+
+// runTickerResubscriptionLoop 永久运行，监听 TickerService 的连接事件
+func (m *MarketDataService) runTickerResubscriptionLoop() {
+	// 监听 TickerClient 的连接事件通道
+	connectionEvents := m.tickerClient.ConnectionEvents()
+
+	for {
+		// 阻塞等待连接就绪信号
+		<-connectionEvents
+
+		// 收到连接就绪信号！现在我们必须恢复订阅。
+		// 因为这是重连，所以 baseCoins 中应该已经有数据了。
+		m.mu.RLock() // 只读锁保护 baseCoins 的读取
+
+		var symbolsToResubscribe []string
+		for symbol := range m.baseCoins {
+			symbolsToResubscribe = append(symbolsToResubscribe, symbol)
+		}
+
+		m.mu.RUnlock() // 释放锁
+
+		if len(symbolsToResubscribe) > 0 {
+			log.Printf("TickerService reconnected. Executing resubscription for %d symbols.", len(symbolsToResubscribe))
+
+			// 执行重新订阅
+			// 忽略 Context，因为这是后台的恢复操作
+			err := m.tickerClient.SubscribeSymbols(context.Background(), symbolsToResubscribe)
+			if err != nil {
+				log.Printf("ERROR: Failed to resubscribe symbols after reconnect: %v", err)
+				// 此时可以加入错误处理或指数退避机制
+			}
+		}
+		// 循环继续，等待下一次连接断开重连
+	}
 }
 
 // 定时器每小时调用检查币种的上新和下架
