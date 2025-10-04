@@ -21,12 +21,13 @@ import (
 )
 
 type HyperLiquidService struct {
-	dao dao.HyperLiquidDao
-	rc  *redis.Client
+	dao           dao.HyperLiquidDao
+	rc            *redis.Client
+	marketService *MarketDataService
 }
 
-func NewHyperLiquidService(dao dao.HyperLiquidDao, rc *redis.Client) *HyperLiquidService {
-	return &HyperLiquidService{dao: dao, rc: rc}
+func NewHyperLiquidService(dao dao.HyperLiquidDao, rc *redis.Client, marketService *MarketDataService) *HyperLiquidService {
+	return &HyperLiquidService{dao: dao, rc: rc, marketService: marketService}
 }
 
 func (h *HyperLiquidService) WhaleAccountSummaryGet(ctx context.Context, address string) (*types.MarginData, error) {
@@ -470,7 +471,8 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 	}
 
 	// 4.对仓位进行分析
-	analyzePos := h.analyzePositions(snapshots, nil)
+	priceDict := h.marketService.GetPrices()
+	analyzePos := h.analyzePositions(snapshots, priceDict)
 
 	// 把分析的结果缓存到redis
 	rdsKey := consts.WhalePositionsAnalyze
@@ -565,7 +567,13 @@ func (h *HyperLiquidService) AnalyzeTopPositions(ctx context.Context) (*model.Wh
 	if err != nil {
 		return nil, err
 	}
-	res = h.analyzePositions(posList.Positions, nil)
+	priceDict := h.marketService.TradingItems
+	prices := make(map[string]float64)
+	for k, v := range priceDict {
+		price, _ := strconv.ParseFloat(v.Ticker.LastPrice, 64)
+		prices[k] = price
+	}
+	res = h.analyzePositions(posList.Positions, prices)
 
 	if err != nil {
 		log.Printf("HyperLiquidService AnalyzeTopPositions error: %v", err)
@@ -639,7 +647,15 @@ func (h *HyperLiquidService) analyzePositions(positions []*entity.HyperWhalePosi
 		// 获取当前价格
 		currentPrice := 0.0
 		if currentPriceMap != nil {
-			currentPrice, _ = currentPriceMap[pos.Coin] // 假设 pos.Symbol 是币种标识符
+			price, ok := currentPriceMap[pos.Coin] // 假设 pos.Symbol 是币种标识符
+			if ok {
+				currentPrice = price
+			} else {
+				symbol := fmt.Sprintf("%v-USDT", pos.Coin)
+				price := currentPriceMap[symbol]
+				currentPrice = price
+			}
+
 		}
 
 		// 潜在爆仓判断

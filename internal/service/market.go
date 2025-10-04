@@ -521,3 +521,15 @@ func (m *MarketDataService) GetPriceUpdateChannel() <-chan TickerData {
 func (m *MarketDataService) GetInstrumentUpdateChannel() <-chan BaseInstrumentUpdate {
 	return m.instrumentUpdateCh
 }
+
+func (m *MarketDataService) GetPrices() map[string]float64 {
+	m.mu.Lock()
+	items := m.TradingItems
+	m.mu.Unlock()
+	prices := make(map[string]float64)
+	for k, v := range items {
+		price, _ := strconv.ParseFloat(v.Ticker.LastPrice, 64)
+		prices[k] = price
+	}
+	return prices
+}

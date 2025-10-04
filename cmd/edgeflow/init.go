@@ -63,15 +63,15 @@ func InitRouter(db *gorm.DB) Router {
 	wh := webhook.NewHandler(dispatcher, rc, sm, ps)
 
 	hyperDao := query.NewHyperLiquidDao(db)
-
-	rds := cache.GetRedisClient()
-	hyperService := service.NewHyperLiquidService(hyperDao, rds)
-	hyperHandler := hyperliquid.NewHandler(hyperService)
-
 	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "AAVE", "AVAX", "ADA", "LINK", "TRX"}
 	tickerService := service.NewOKXTickerService(defaultsCoins)
 	marketService := service.NewMarketDataService(tickerService, instrumentDao)
 	marketService.InitializeBaseInstruments(context.Background(), 1)
+
+	rds := cache.GetRedisClient()
+	hyperService := service.NewHyperLiquidService(hyperDao, rds, marketService)
+	hyperHandler := hyperliquid.NewHandler(hyperService)
+
 	marketHandler := market.NewMarketHandler(marketService)
 	instrumentService := service.NewInstrumentService(instrumentDao, func() {
 		marketService.PerformPeriodicUpdate(context.Background())
