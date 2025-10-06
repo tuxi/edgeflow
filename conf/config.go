@@ -72,12 +72,50 @@ type JwtConfig struct {
 	JwtBlacklistGracePeriod int64  `yaml:"blacklistperiod" ` // 黑名单宽限时间（秒）
 }
 
+type ProxyURL struct {
+	Mode string `toml:"mode"` // 代理模式：sock5 或者http
+	Ip   string `toml:"ip"`   // 代理的ip地址
+	Port string `toml:"port"` // 代理的端口号
+}
+
+type EmailCofig struct {
+	Host     string   `toml:"smtp_host"`
+	Port     string   `toml:"smtp_port"`
+	Username string   `toml:"smtp_user"`
+	Password string   `toml:"smtp_password"`
+	Sender   string   `toml:"smtp_sender"`
+	ProxyURL ProxyURL `toml:"proxy_url"`
+	PreCheck bool     `toml:"precheck"`
+}
+
+type InApps struct {
+	Kid      string `toml:"kid"`      // 密钥ID
+	Iss      string `toml:"iss"`      // Issuser ID 在用户和访问-》密钥中获取
+	Bid      string `toml:"bid"`      // bundle id
+	Password string `toml:"password"` // 共享密钥，在用户和访问-》共享密码 生成
+	IsProd   bool   `toml:"is_prod"`
+}
+
+type AppleConfig struct {
+	InApps InApps `toml:"in_apps"`
+	Apns   Apns   `toml:"apns"`
+}
+
+type Apns struct {
+	Topic          string `toml:"topic"`
+	KeyID          string `toml:"key_id"`
+	TeamID         string `toml:"team_id"`
+	PayloadMaximum int    `toml:"payload_maximum"`
+	IsProd         bool   `toml:"is_prod"`
+}
+
 type Config struct {
 	AppName      string `yaml:"app_name"`
 	Listen       string `yaml:"listen"`
 	Mode         string `yaml:"mode"`
 	Language     string `yaml:"language"`
 	MaxPingCount int    `yaml:"max-ping-count"`
+	ExternalURL  string `yaml:"external_url"`
 
 	Webhook   WebhookConfig `yaml:"webhook"`
 	Okx       `yaml:"okx"`
@@ -87,6 +125,8 @@ type Config struct {
 	Log       LogConfig      `yaml:"log"`
 	Jwt       JwtConfig      `yaml:"jwt"`
 	Redis     RedisConfig    `yaml:"redis"`
+	Email     EmailCofig     `yaml:"email"`
+	Apple     AppleConfig    `yaml:"apple"`
 }
 
 var AppConfig Config

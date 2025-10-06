@@ -4,6 +4,7 @@ import (
 	"edgeflow/internal/handler/hyperliquid"
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
+	"edgeflow/internal/handler/user"
 	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/middleware"
 	"github.com/gin-gonic/gin"
@@ -14,10 +15,11 @@ type ApiRouter struct {
 	hyperHandler *hyperliquid.Handler
 	wh           *webhook.Handler
 	mh           *market.MarketHandler
+	userHandler  *user.UserHandler
 }
 
-func NewApiRouter(ch *instrument.Handler, wh *webhook.Handler, mh *market.MarketHandler, hyperHandler *hyperliquid.Handler) *ApiRouter {
-	return &ApiRouter{coinHandler: ch, wh: wh, mh: mh, hyperHandler: hyperHandler}
+func NewApiRouter(ch *instrument.Handler, wh *webhook.Handler, mh *market.MarketHandler, hyperHandler *hyperliquid.Handler, userHandler *user.UserHandler) *ApiRouter {
+	return &ApiRouter{coinHandler: ch, wh: wh, mh: mh, hyperHandler: hyperHandler, userHandler: userHandler}
 }
 
 func (api *ApiRouter) Load(g *gin.Engine) {
@@ -49,6 +51,35 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		h.GET("/whales/top-positions", api.hyperHandler.TopWhalePositionsGet())
 		h.GET("/whales/positions-analyze", api.hyperHandler.TopWhalePositionsAnalyze())
 
+	}
+
+	u := base.Group("/user", middleware.AuthToken())
+	{
+		u.GET("/avatar", api.userHandler.UserGetAvatar())
+		u.GET("/info", api.userHandler.UserGetInfo())
+		u.GET("/logout", api.userHandler.UserLogout())
+		u.POST("/changenickname", api.userHandler.UserUpdateNickname())
+		u.POST("/updatepassword", api.userHandler.UserPasswordModify())
+		u.GET("/refresh", api.userHandler.UserRefresh())
+		u.GET("/status", api.userHandler.UserAuthStatus())
+		u.GET("/invitelink", api.userHandler.UserInviteLinkGet())
+		u.GET("/bill", api.userHandler.UserBillGet())
+		u.GET("/balance", api.userHandler.UserGetBalance())
+		u.GET("/plan", api.userHandler.UserGetPlan())
+	}
+
+	auth := base.Group("/auth")
+	{
+		auth.POST("/login", api.userHandler.UserLogin())
+		auth.POST("/register", api.userHandler.UserRegister())
+		auth.POST("/checkemail", api.userHandler.UserVerifyEmail())
+		auth.POST("/checkusername", api.userHandler.UserVerifyUsername())
+		auth.POST("/active", api.userHandler.UserActive())
+		auth.POST("/forget", api.userHandler.UserPasswordForget())
+		auth.POST("/resetpassword", api.userHandler.UserPasswordReset())
+		auth.POST("/captcha", api.userHandler.CaptchaGen())
+		// 根据sign获取一个匿名用户的token，没有则创建一个匿名用户
+		auth.POST("/anonymous/accessToken", api.userHandler.GetAnonymousAccessToken())
 	}
 
 	base.POST("/webhook", middleware.RequestValidationMiddleware(), api.wh.HandlerWebhook())

@@ -524,8 +524,8 @@ func (m *MarketDataService) GetInstrumentUpdateChannel() <-chan BaseInstrumentUp
 
 func (m *MarketDataService) GetPrices() map[string]float64 {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	items := m.TradingItems
-	m.mu.Unlock()
 	prices := make(map[string]float64)
 	for k, v := range items {
 		price, _ := strconv.ParseFloat(v.Ticker.LastPrice, 64)

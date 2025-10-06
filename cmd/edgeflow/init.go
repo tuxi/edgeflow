@@ -9,6 +9,7 @@ import (
 	"edgeflow/internal/handler/hyperliquid"
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
+	"edgeflow/internal/handler/user"
 	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/position"
 	"edgeflow/internal/router"
@@ -78,7 +79,15 @@ func InitRouter(db *gorm.DB) Router {
 	})
 	coinH := instrument.NewHandler(instrumentService)
 
-	apiRouter := router.NewApiRouter(coinH, wh, marketHandler, hyperHandler)
+	//tk := tokenize.NewTokenizer("./dict")
+	userDao := query.NewUserDao(db)
+	deviceDao := query.NewDeviceDao(db)
+	deviceService := service.NewService(deviceDao)
+	userService := service.NewUserService(userDao, deviceDao, deviceService)
+
+	userHandler := user.NewUserHandler(userService, deviceService)
+
+	apiRouter := router.NewApiRouter(coinH, wh, marketHandler, hyperHandler, userHandler)
 
 	// 同步最新币种
 	instrumentService.StartInstrumentSyncWorker(context.Background())
