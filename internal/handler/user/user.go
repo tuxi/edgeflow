@@ -575,17 +575,17 @@ func (handler *UserHandler) CaptchaGen() gin.HandlerFunc {
 // @Router			/api/v1/product/payment/inapps [post]
 func (handler *UserHandler) UserInAppPay() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		var req model.AppleInAppsPayV2Req
-		if err := ctx.ShouldBindJSON(&req); err != nil {
-			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
-			return
-		}
-		err := handler.service.UserInAppPayV2(ctx, req)
-		if err != nil {
-			response.JSON(ctx, errors.WithCode(ecode.NotFoundErr, err.Error()), nil)
-			return
-		}
-		response.JSON(ctx, nil, nil)
+		//var req model.AppleInAppsPayV2Req
+		//if err := ctx.ShouldBindJSON(&req); err != nil {
+		//	response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+		//	return
+		//}
+		//err := handler.service.UserInAppPayV2(ctx, req)
+		//if err != nil {
+		//	response.JSON(ctx, errors.WithCode(ecode.NotFoundErr, err.Error()), nil)
+		//	return
+		//}
+		//response.JSON(ctx, nil, nil)
 	}
 }
 
@@ -701,5 +701,19 @@ func (uh *UserHandler) UserDeviceTokenList() gin.HandlerFunc {
 		}
 
 		response.JSON(ctx, nil, res)
+	}
+}
+
+// @Summary		获取用户当前用于交易的资金概况和风控配置
+// @title		chater api
+// @version		1.0
+// @description	以供前端进行即时计算和风险提示
+// @Accept			application/json
+// @Produce		application/json
+// @Success		200		{object}	response.ApiResponse{Data=model.DeviceTokenListRes}
+// @Router			/api/v1/user/assets [get]
+func (uh *UserHandler) UserGetAssets() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+
 	}
 }

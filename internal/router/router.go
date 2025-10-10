@@ -4,22 +4,22 @@ import (
 	"edgeflow/internal/handler/hyperliquid"
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
+	"edgeflow/internal/handler/signal"
 	"edgeflow/internal/handler/user"
-	"edgeflow/internal/handler/webhook"
 	"edgeflow/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
 
 type ApiRouter struct {
-	coinHandler  *instrument.Handler
-	hyperHandler *hyperliquid.Handler
-	wh           *webhook.Handler
-	mh           *market.MarketHandler
-	userHandler  *user.UserHandler
+	coinHandler   *instrument.Handler
+	hyperHandler  *hyperliquid.Handler
+	mh            *market.MarketHandler
+	userHandler   *user.UserHandler
+	signalHandler *signal.SignalHandler
 }
 
-func NewApiRouter(ch *instrument.Handler, wh *webhook.Handler, mh *market.MarketHandler, hyperHandler *hyperliquid.Handler, userHandler *user.UserHandler) *ApiRouter {
-	return &ApiRouter{coinHandler: ch, wh: wh, mh: mh, hyperHandler: hyperHandler, userHandler: userHandler}
+func NewApiRouter(ch *instrument.Handler, mh *market.MarketHandler, hyperHandler *hyperliquid.Handler, userHandler *user.UserHandler, SignalHandler *signal.SignalHandler) *ApiRouter {
+	return &ApiRouter{coinHandler: ch, mh: mh, hyperHandler: hyperHandler, userHandler: userHandler, signalHandler: SignalHandler}
 }
 
 func (api *ApiRouter) Load(g *gin.Engine) {
@@ -53,6 +53,11 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 
 	}
 
+	signal := base.Group("/signal", middleware.RequestValidationMiddleware())
+	{
+		signal.GET("/list", api.signalHandler.SignalGetList())
+	}
+
 	u := base.Group("/user", middleware.AuthToken())
 	{
 		u.GET("/avatar", api.userHandler.UserGetAvatar())
@@ -66,6 +71,8 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		u.GET("/bill", api.userHandler.UserBillGet())
 		u.GET("/balance", api.userHandler.UserGetBalance())
 		u.GET("/plan", api.userHandler.UserGetPlan())
+		// 获取用户当前用于交易的资金概况和风控配置，以供前端进行即时计算和风险提示。
+		u.GET("/assets", api.userHandler.UserGetBalance())
 	}
 
 	auth := base.Group("/auth")
@@ -82,5 +89,5 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		auth.POST("/anonymous/accessToken", api.userHandler.GetAnonymousAccessToken())
 	}
 
-	base.POST("/webhook", middleware.RequestValidationMiddleware(), api.wh.HandlerWebhook())
+	//base.POST("/webhook", middleware.RequestValidationMiddleware(), api.wh.HandlerWebhook())
 }

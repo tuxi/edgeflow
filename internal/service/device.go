@@ -24,6 +24,7 @@ type DeviceService interface {
 	UserDeviceUpdate(ctx *gin.Context, req model.DeviceReportReq) error
 	UserGetDeviceTokenByDeviceUUID(ctx context.Context, deviceUUID string) (entity.DeviceToken, error)
 	UserGetDeviceTokenList1(ctx context.Context) (res model.DeviceTokenListRes, err error)
+
 	// 根据设备解密数据
 	UserDeviceDecrypt(ctx *gin.Context, req model.ChaChaPolyEncryptData) (payloadData []byte, err error)
 	// 根据设备加密数据

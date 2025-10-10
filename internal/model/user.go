@@ -234,3 +234,13 @@ type UserPlanGetRes struct {
 	Balance      UserBalanceGetRes    `json:"balance"`
 	Subscription UserSubscriptionsRes `json:"subscription"`
 }
+
+type UserAssetsGetRes struct {
+	UserID                 string  `json:"user_id"`                    //"uuid-12345"	确认身份。
+	AvailableBalanceUSDT   string  `json:"available_balance_usdt"`     //	Decimal	10000.00	用户在连接交易所的可用余额，用于计算投入金额。
+	ExchangeStatus         string  `json:"exchange_status"`            // "CONNECTED"	交易所 API 连接状态，若为 DISCONNECTED，下单按钮应置灰。
+	MaxRiskPerTradePercent float32 `json:"max_risk_per_trade_percent"` //	Decimal	1.0	核心风控参数。 用户设定的单笔最大亏损占总账户余额的百分比（如 1%）。
+	DefaultLeverage        int     `json:"default_leverage"`           // Integer	5 如果策略在合约市场执行，提供默认杠杆值供参考。
+	CopyTradingEnabled     bool    `json:"copy_trading_enabled"`       //	Boolean	true	用户是否已开通 Hyperliquid 跟单服务权限。
+	LastFetchTimestamp     int     `json:"last_fetch_timestamp"`       // 	Unix Timestamp	1678886400	资产数据的最后更新时间，体现数据的时效性。
+}

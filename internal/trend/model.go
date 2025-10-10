@@ -48,8 +48,8 @@ type TrendState struct {
 	description string // 解释原因
 	LastPrice   float64
 	// 技术指标
-	ATR float64
-	ADX float64
+	ATR float64 // 波动性
+	ADX float64 // 趋势强度
 	RSI float64
 
 	Timestamp time.Time
@@ -58,6 +58,9 @@ type TrendState struct {
 
 	// 历史斜率分数
 	Slope float64
+
+	// 原始指标快照 (JSON 格式，用于复盘 ScoreForPeriod 函数的输入)
+	IndicatorSnapshot map[string]float64
 }
 
 func (ts *TrendState) Description() string {
@@ -69,8 +72,8 @@ func (ts *TrendState) Description() string {
 }
 
 type TrendScores struct {
-	TrendScore  float64 // 长+中周期趋势分
-	SignalScore float64 // 短周期信号分
+	TrendScore  float64 // 4h/1h 长期趋势分数（固定权重）
+	SignalScore float64 // 30m 短周期信号分
 	FinalScore  float64 // 综合分 -3 ~ +3，综合多周期得分，包含 4h/1h/30m，动态加权。这个分数更全面，更灵活，可以捕捉到市场细微的变化和趋势的早期迹象。
 	Score30m    float64
 	Score1h     float64

@@ -80,6 +80,8 @@ type UserService interface {
 	CaptchaVerify(ctx *gin.Context, code string) bool
 
 	UserLogSave(ctx *gin.Context, operation, business string) error
+
+	UserGetAssets(ctx context.Context) (res model.UserAssetsGetRes, err error)
 }
 
 // userService 实现UserService接口
@@ -1190,4 +1192,15 @@ func (u *userService) UserLogSave(ctx *gin.Context, operation, business string) 
 	uLog.LanguageId = languageId
 	err := u.ud.UserAddLog(ctx, &uLog)
 	return err
+}
+
+func (u *userService) UserGetAssets(ctx context.Context) (res model.UserAssetsGetRes, err error) {
+	res.UserID = "uuid-12345"
+	res.AvailableBalanceUSDT = "10000.00"
+	res.ExchangeStatus = "CONNECTED"
+	res.MaxRiskPerTradePercent = 1.0
+	res.DefaultLeverage = 5.0
+	res.CopyTradingEnabled = true
+	res.LastFetchTimestamp = 1678886400
+	return
 }

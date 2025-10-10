@@ -147,3 +147,258 @@ CREATE TABLE `instrument_tag_relations` (
                                             FOREIGN KEY (`instrument_id`) REFERENCES `crypto_instruments`(`id`) ON DELETE CASCADE,
                                             FOREIGN KEY (`tag_id`) REFERENCES `crypto_tags`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交易对-标签关系表';
+
+-- 注意：建议使用 utf8mb4 编码
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------
+-- 用户信息表
+-- ----------------------------
+DROP TABLE IF EXISTS `user`;
+CREATE TABLE `user` (
+                        `id` BIGINT NOT NULL COMMENT '用户唯一ID',
+                        `username` VARCHAR(255) NOT NULL COMMENT '用户名，唯一且不能为空',
+                        `nickname` VARCHAR(255) NOT NULL COMMENT '昵称',
+                        `email` VARCHAR(255) DEFAULT NULL COMMENT '邮件地址',
+                        `phone` VARCHAR(255) DEFAULT NULL COMMENT '手机号',
+                        `avatar_url` VARCHAR(255) DEFAULT NULL COMMENT '头像 URL',
+                        `password` VARCHAR(255) DEFAULT NULL COMMENT '密码',
+                        `registered_ip` VARCHAR(255) NOT NULL COMMENT '用户的注册 IP 地址',
+                        `is_active` BOOLEAN NOT NULL DEFAULT FALSE COMMENT '用户是否已激活',
+                        `balance` DECIMAL(10,5) DEFAULT 0 COMMENT '用户的余额，默认为0',
+                        `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录的创建时间，默认为当前时间',
+                        `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录的更新时间，默认为当前时间',
+                        `deleted_at` TIMESTAMP NULL DEFAULT NULL COMMENT '删除时间',
+                        `is_del` INT DEFAULT 0 COMMENT '删除标志',
+                        `is_anonymous` BOOLEAN DEFAULT FALSE COMMENT '是否为匿名用户',
+                        `role` INT NOT NULL DEFAULT 1 COMMENT '用户角色',
+                        `is_administrator` BOOLEAN DEFAULT FALSE COMMENT '是否为管理员',
+                        PRIMARY KEY (`id`),
+                        UNIQUE KEY `user_username_uindex` (`username`),
+                        KEY `user_email_idx` (`email`),
+                        KEY `user_username_idx` (`username`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户信息表';
+
+-- ----------------------------
+-- 设备信息表
+-- ----------------------------
+DROP TABLE IF EXISTS `device`;
+CREATE TABLE `device` (
+                          `id` BIGINT NOT NULL COMMENT '主键id',
+                          `uuid` VARCHAR(255) NOT NULL COMMENT '设备uuid，要符合UUID',
+                          `client_ip` VARCHAR(255) NOT NULL COMMENT '用户ip',
+                          `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建日期',
+                          `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日期',
+                          `screen_height` BIGINT DEFAULT NULL COMMENT '屏幕高度',
+                          `screen_width` BIGINT DEFAULT NULL COMMENT '屏幕宽度',
+                          `os` VARCHAR(255) DEFAULT NULL COMMENT '系统',
+                          `os_version` VARCHAR(255) DEFAULT NULL COMMENT '系统版本',
+                          `app_build_number` VARCHAR(255) DEFAULT NULL COMMENT 'app编译版本号',
+                          `app_version` VARCHAR(255) DEFAULT NULL COMMENT 'app版本号',
+                          `app_platform` VARCHAR(255) DEFAULT NULL COMMENT 'app平台：appstore或者googlepay',
+                          `app_package_id` VARCHAR(255) DEFAULT NULL COMMENT 'app包名',
+                          `device_brand` VARCHAR(255) DEFAULT NULL COMMENT '设备品牌',
+                          `device_model` VARCHAR(255) DEFAULT NULL COMMENT '设备型号',
+                          `radio` VARCHAR(255) DEFAULT NULL COMMENT '网络',
+                          `carrier` VARCHAR(255) DEFAULT NULL COMMENT '运营商',
+                          `is_wifi` BOOLEAN DEFAULT NULL COMMENT '是不是wifi',
+                          `proxy` VARCHAR(255) DEFAULT NULL COMMENT '使用的代理',
+                          `device_model_desc` VARCHAR(255) DEFAULT NULL COMMENT '设备名称',
+                          `language_id` VARCHAR(255) DEFAULT NULL COMMENT '设备语言',
+                          `is_del` INT NOT NULL DEFAULT 0 COMMENT '记录的删除标记',
+                          `serial_number` VARCHAR(255) DEFAULT NULL COMMENT '设备序列号，仅macos有',
+                          `platform_uuid` VARCHAR(255) DEFAULT NULL COMMENT '设备的硬件uuid，仅macos有',
+                          PRIMARY KEY (`id`),
+                          UNIQUE KEY `device_uuid_uindex` (`uuid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备信息表';
+
+-- ----------------------------
+-- 设备Token表
+-- ----------------------------
+DROP TABLE IF EXISTS `devicetoken`;
+CREATE TABLE `devicetoken` (
+                               `id` BIGINT NOT NULL COMMENT 'key ID',
+                               `device_token` VARCHAR(255) NOT NULL COMMENT '推送服务的设备token',
+                               `device_uuid` VARCHAR(255) NOT NULL COMMENT '设备的唯一id',
+                               `platform` VARCHAR(255) NOT NULL COMMENT '平台',
+                               `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录的创建时间，默认为当前时间',
+                               `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录的更新时间，默认为当前时间',
+                               `deleted_at` TIMESTAMP NULL DEFAULT NULL COMMENT '记录的删除时间',
+                               `is_del` INT NOT NULL DEFAULT 0 COMMENT '记录的删除标记',
+                               PRIMARY KEY (`id`),
+                               UNIQUE KEY `devicetoken_device_uuid_uindex` (`device_uuid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='device token 表';
+
+-- ----------------------------
+-- 用户设备关联表
+-- ----------------------------
+DROP TABLE IF EXISTS `userdevice`;
+CREATE TABLE `userdevice` (
+                              `id` BIGINT NOT NULL COMMENT '主键id',
+                              `user_id` BIGINT NOT NULL COMMENT '用户id',
+                              `device_token_id` BIGINT DEFAULT NULL COMMENT '关联的devicetoken的id',
+                              `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录的创建时间，默认为当前时间',
+                              `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录的更新时间，默认为当前时间',
+                              `deleted_at` TIMESTAMP NULL DEFAULT NULL COMMENT '记录的删除时间',
+                              `is_del` INT NOT NULL DEFAULT 0 COMMENT '记录的删除标记',
+                              `device_id` BIGINT DEFAULT NULL COMMENT '关联的device的id',
+                              `auth_key` VARCHAR(255) NOT NULL COMMENT '用于在端对端加密的加盐base64字符串',
+                              `client_public_key` VARCHAR(255) NOT NULL COMMENT '客户端公钥',
+                              `service_private_key` VARCHAR(255) NOT NULL COMMENT '服务端私钥',
+                              `service_public_key` VARCHAR(255) NOT NULL COMMENT '服务端公钥',
+                              `uuid` VARCHAR(255) NOT NULL COMMENT '设备id',
+                              PRIMARY KEY (`id`),
+                              KEY `userdevice_user_id_idx` (`user_id`),
+                              CONSTRAINT `userdevice_user_id_fk` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE NO ACTION,
+                              CONSTRAINT `userdevice_device_id_fk` FOREIGN KEY (`device_id`) REFERENCES `device` (`id`),
+                              CONSTRAINT `userdevice_devicetoken_id_fk` FOREIGN KEY (`device_token_id`) REFERENCES `devicetoken` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='关联用户设备的表';
+
+-- ----------------------------
+-- 用户反馈表
+-- ----------------------------
+DROP TABLE IF EXISTS `issues`;
+CREATE TABLE `issues` (
+                          `id` BIGINT NOT NULL COMMENT '主键id',
+                          `user_id` BIGINT NOT NULL COMMENT '用户id',
+                          `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+                          `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录更新时间',
+                          `deleted_at` TIMESTAMP NULL DEFAULT NULL COMMENT '删除时间',
+                          `status` VARCHAR(255) NOT NULL DEFAULT 'open' COMMENT '问题状态',
+                          `type` VARCHAR(255) NOT NULL DEFAULT 'feedback' COMMENT '问题类型',
+                          `sub_type` VARCHAR(255) DEFAULT NULL COMMENT '问题子类型',
+                          `title` VARCHAR(255) NOT NULL COMMENT '问题标题',
+                          `area` VARCHAR(255) DEFAULT NULL COMMENT '发生问题的位置，比如订阅或者聊天',
+                          `body` JSON DEFAULT NULL COMMENT '问题描述',
+                          `is_del` INT NOT NULL DEFAULT 0 COMMENT '记录的删除标记',
+                          `version` VARCHAR(255) DEFAULT NULL COMMENT '版本号',
+                          `platform` VARCHAR(255) DEFAULT NULL COMMENT '平台',
+                          `language_name` VARCHAR(255) DEFAULT NULL COMMENT '语言',
+                          PRIMARY KEY (`id`),
+                          KEY `issues_user_id_idx` (`user_id`),
+                          CONSTRAINT `issues_user_id_fk` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户反馈的问题';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- DROP TABLE IF EXISTS `userlog`;
+
+CREATE TABLE `userlog` (
+                           `id` BIGINT NOT NULL COMMENT '日志的主键id',
+                           `user_id` BIGINT NULL COMMENT '产生日志的用户id',
+                           `user_ip` VARCHAR(255) NOT NULL COMMENT '产生日志的用户ip',
+                           `business` VARCHAR(255) NOT NULL COMMENT '商业',
+                           `operation` VARCHAR(255) NOT NULL COMMENT '操作',
+                           `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建日期',
+                           `updated_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '更新日期',
+                           `screen_height` BIGINT NULL COMMENT '屏幕高度',
+                           `screen_width` BIGINT NULL COMMENT '屏幕宽度',
+                           `os` VARCHAR(255) NULL COMMENT '系统：iOS、android、web',
+                           `os_version` VARCHAR(255) NULL COMMENT '系统版本',
+                           `app_build_number` VARCHAR(255) NULL COMMENT 'app编译版本号',
+                           `app_version` VARCHAR(255) NULL COMMENT 'app版本号',
+                           `app_platform` VARCHAR(255) NULL COMMENT 'app平台：appstore或者googlepay',
+                           `app_package_id` VARCHAR(255) NULL COMMENT 'app包名',
+                           `device_brand` VARCHAR(255) NULL COMMENT '设备品牌',
+                           `device_id` VARCHAR(255) NULL COMMENT '设备id',
+                           `device_model` VARCHAR(255) NULL COMMENT '设备型号',
+                           `radio` VARCHAR(255) NULL COMMENT '网络',
+                           `carrier` VARCHAR(255) NULL COMMENT '运营商',
+                           `is_wifi` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是不是wifi',
+                           `proxy` VARCHAR(255) NULL COMMENT '使用的代理',
+                           `device_model_desc` VARCHAR(255) NULL COMMENT '设备名称描述',
+                           `language_id` VARCHAR(255) NULL COMMENT '设备的语言',
+                           PRIMARY KEY (`id`),
+                           INDEX `idx_userlog_user_id` (`user_id`),
+                           CONSTRAINT `fk_userlog_user_id` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户日志表';
+
+-- DROP TABLE IF EXISTS `bill`;
+
+CREATE TABLE `bill` (
+                        `id` BIGINT NOT NULL COMMENT '账单ID',
+                        `user_id` BIGINT NOT NULL COMMENT '用户ID',
+                        `cost_change` DECIMAL(10, 2) NOT NULL COMMENT '变动金额',
+                        `balance` DECIMAL(10, 2) NOT NULL COMMENT '账户余额',
+                        `cost_comment` TEXT NOT NULL COMMENT '变动说明',
+                        `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '记录的创建时间，默认为当前时间',
+                        `updated_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '记录的更新时间，默认为当前时间',
+                        `cdkey_id` BIGINT NULL COMMENT '当使用cdk充值时，则为对应的cdk',
+                        `extras` JSON NULL COMMENT '第三方订单信息，比如苹果内购的订单及校验信息',
+                        `transaction_id` VARCHAR(255) NULL COMMENT '购买凭证，apple内购的事物id',
+                        `original_transaction_id` VARCHAR(255) NULL COMMENT '苹果内购的原始id',
+                        `subscribeproduct_id` BIGINT NULL COMMENT '订阅的id',
+                        `bill_type` INT NULL COMMENT '订单的类型，消耗性和订阅类型',
+                        `original_bill_id` BIGINT NULL COMMENT '原始账单id，退款时记录',
+                        PRIMARY KEY (`id`),
+                        INDEX `idx_bill_user_id` (`user_id`),
+                        CONSTRAINT `fk_bill_user_id` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE CASCADE
+#                         CONSTRAINT `fk_bill_cdkey_id` FOREIGN KEY (`cdkey_id`) REFERENCES `cdkey`(`id`) ON DELETE CASCADE,
+#                         CONSTRAINT `fk_bill_subscribeproduct_id` FOREIGN KEY (`subscribeproduct_id`) REFERENCES `subscribeproduct`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户账单表';
+
+-- --------------------------------------------------------
+-- Table structure for signals (信号指令表)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `signals` (
+                                         `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '信号唯一ID (主键)',
+                                         `symbol` VARCHAR(20) NOT NULL COMMENT '交易对 (e.g., BTCUSDT)',
+                                         `command` VARCHAR(10) NOT NULL COMMENT '原始指令 (BUY/SELL)',
+    -- 信号核心时间：K线收盘时间
+                                         `timestamp` TIMESTAMP NOT NULL COMMENT '信号产生时间 (K线收盘)',
+
+    -- 信号过期时间：风控边界
+                                         `expiry_timestamp` TIMESTAMP NOT NULL COMMENT '信号失效时间点 (策略最大持有周期)',
+
+                                         `status` VARCHAR(10) NOT NULL COMMENT '信号状态 (ACTIVE, EXPIRED)',
+
+                                         `final_score` DECIMAL(5,2) NOT NULL COMMENT '决策树过滤时的最终趋势分数',
+                                         `explanation` TEXT COMMENT '决策树通过的原因/依据',
+
+                                         `signal_period` VARCHAR(10) NOT NULL COMMENT '信号产生周期 (e.g., 5m, 15m)',
+                                         `entry_price` DECIMAL(15,8) COMMENT '入场价格',
+                                         `recommended_sl` DECIMAL(15,8) COMMENT '建议止损价格',
+                                         `recommended_tp` DECIMAL(15,8) COMMENT '建议止盈价格',
+                                         `chart_snapshot_url` VARCHAR(255) COMMENT 'K线图快照URL',
+                                         `details_json` JSON COMMENT '存储 HighFreqIndicators 等复杂 JSON 结构',
+
+                                         `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+
+                                         PRIMARY KEY (`id`),
+                                         INDEX `idx_symbol_status` (`symbol`, `status`),
+                                         INDEX `idx_timestamp` (`timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交易信号指令表';
+
+-- --------------------------------------------------------
+-- Table structure for trend_snapshots (趋势快照表)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `trend_snapshots` (
+                                                 `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '趋势快照ID (主键)',
+
+                                                 `signal_id` BIGINT UNSIGNED NOT NULL COMMENT '关联的信号ID (外键)',
+
+                                                 `timestamp` TIMESTAMP NOT NULL COMMENT '快照时间',
+                                                 `direction` VARCHAR(10) NOT NULL COMMENT '趋势主方向',
+                                                 `last_price` DECIMAL(15,8) NOT NULL COMMENT '信号发生时的价格',
+
+                                                 `score_4h` DECIMAL(5,2) NOT NULL,
+                                                 `score_1h` DECIMAL(5,2) NOT NULL,
+                                                 `score_30m` DECIMAL(5,2) NOT NULL,
+                                                 `atr` DECIMAL(15,8) NOT NULL,
+                                                 `adx` DECIMAL(15,8) NOT NULL,
+                                                 `rsi` DECIMAL(15,8) NOT NULL,
+
+                                                 `final_score` DECIMAL(5,2) NOT NULL COMMENT '决策树过滤时的最终趋势分数',
+                                                 `trend_score` DECIMAL(5,2) NOT NULL COMMENT '趋势分数',
+    -- ... (省略其他技术指标字段)
+
+                                                 PRIMARY KEY (`id`),
+
+    -- 确保一个信号只对应一个趋势快照 (一对一关系的关键)
+                                                 UNIQUE KEY `uk_signal_id` (`signal_id`),
+
+    -- 建立外键约束
+                                                 CONSTRAINT `fk_signal_id` FOREIGN KEY (`signal_id`)
+                                                     REFERENCES `signals` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='趋势快照和指标数据表';

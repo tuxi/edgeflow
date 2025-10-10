@@ -3,21 +3,19 @@ package api
 import (
 	"context"
 	"edgeflow/conf"
-	"edgeflow/internal/dao"
 	"edgeflow/internal/dao/query"
 	"edgeflow/internal/exchange"
 	"edgeflow/internal/handler/hyperliquid"
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
+	signal3 "edgeflow/internal/handler/signal"
 	"edgeflow/internal/handler/user"
-	"edgeflow/internal/handler/webhook"
-	"edgeflow/internal/position"
 	"edgeflow/internal/router"
 	"edgeflow/internal/service"
-	"edgeflow/internal/signal"
-	"edgeflow/internal/strategy"
-	"edgeflow/internal/strategy/tradingview"
-	"edgeflow/internal/trend"
+	signal2 "edgeflow/internal/service/signal"
+	"edgeflow/internal/service/signal/kline"
+	"edgeflow/internal/service/signal/model"
+	"edgeflow/internal/service/signal/trend"
 	"edgeflow/pkg/cache"
 	"gorm.io/gorm"
 	"time"
@@ -31,25 +29,38 @@ func InitRouter(db *gorm.DB) Router {
 
 	okxEx := exchange.NewOkxExchange(appCfg.Okx.ApiKey, appCfg.Okx.SecretKey, appCfg.Okx.Password)
 
-	d := dao.NewOrderDao(db)
-	rc := service.NewRiskService(d)
+	//d := dao.NewOrderDao(db)
+	//rc := service.NewRiskService(d)
 
 	// 仓位管理服务
-	ps := position.NewPositionService(okxEx, d)
+	//ps := position.NewPositionService(okxEx, d)
 	// 信号管理
-	sm := signal.NewDefaultSignalManager(appCfg.Strategy)
+	//sm := signal.NewDefaultSignalManager(appCfg.Strategy)
 
 	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT", "HYPE/USDT", "LTC/USDT"}
-	klineManger := trend.NewKlineManager(okxEx, symbols)
-	tm := trend.NewManager(okxEx, symbols, klineManger)
+	klineMgr := kline.NewKlineManager(okxEx, symbols)
+	symbolMgr := model.NewSymbolManager(symbols)
+	tm := trend.NewManager(okxEx, symbols, klineMgr, symbolMgr)
+	signalDao := query.NewSignalDao(db)
+	signalService := signal2.NewService(tm, signalDao, symbolMgr)
+
+	// 创建共享的事件通道
+	updateTrendCh := make(chan struct{}, 1) // 使用缓冲通道避免阻塞
+	// 启动 KlineManager (数据源)
+	klineMgr.RunScheduled(updateTrendCh) // K线更新，事件发送到 updateTrendCh
+	// 启动 TrendManager (计算服务)
+	// TrendMgr 监听 updateTrendCh，获取最新 K线，并计算 TrendState
+	tm.RunScheduled(context.Background(), updateTrendCh)
+	// SignalService 同样监听 updateTrendCh，获取最新 K线和 TrendState，并生成信号
+	signalService.RunScheduled(context.Background(), updateTrendCh)
 
 	// k线策略
 	//engine := kline.NewSignalStrategy(tm, ps, klineManger)
 
-	klineManger.RunScheduled(func() {
-		tm.RunScheduled()
-		//engine.Run(symbols)
-	})
+	//klineManger.RunScheduled(func() {
+	//	tm.RunScheduled()
+	//	//engine.Run(symbols)
+	//})
 
 	// hype跟单策略
 	//h := hype.NewHypeTrackStrategy(ps, tm)
@@ -58,10 +69,10 @@ func InitRouter(db *gorm.DB) Router {
 	//go tm.RunScheduled()
 
 	// 策略分发器：根据级别分发不同的策略
-	dispatcher := strategy.NewStrategyDispatcher()
-	dispatcher.Register("tv-level", tradingview.NewTVLevelStrategy(sm, ps, tm))
+	//dispatcher := strategy.NewStrategyDispatcher()
+	//dispatcher.Register("tv-level", tradingview.NewTVLevelStrategy(sm, ps, tm))
 
-	wh := webhook.NewHandler(dispatcher, rc, sm, ps)
+	//wh := webhook.NewHandler(dispatcher, rc, sm, ps)
 
 	hyperDao := query.NewHyperLiquidDao(db)
 	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "AAVE", "AVAX", "ADA", "LINK", "TRX"}
@@ -87,7 +98,9 @@ func InitRouter(db *gorm.DB) Router {
 
 	userHandler := user.NewUserHandler(userService, deviceService)
 
-	apiRouter := router.NewApiRouter(coinH, wh, marketHandler, hyperHandler, userHandler)
+	signalHandler := signal3.NewSignalHandler(signalService)
+
+	apiRouter := router.NewApiRouter(coinH, marketHandler, hyperHandler, userHandler, signalHandler)
 
 	// 同步最新币种
 	instrumentService.StartInstrumentSyncWorker(context.Background())

@@ -1,21 +1,36 @@
 package trend
 
 import (
+	"context"
 	"edgeflow/internal/exchange"
 	model2 "edgeflow/internal/model"
 	"edgeflow/internal/service/signal/kline"
+	model3 "edgeflow/internal/service/signal/model"
 	"edgeflow/pkg/utils"
 	"errors"
 	"fmt"
+	"github.com/markcheno/go-talib"
+	"github.com/nntaoli-project/goex/v2/model"
 	"log"
-	"math"
 	"strings"
 	"sync"
-	"time"
-
-	talib "github.com/markcheno/go-talib"
-	"github.com/nntaoli-project/goex/v2/model"
 )
+
+type TrendCfg struct {
+	ADXThreshold float64 // 趋势强度门槛，山寨/新币可用 18~22
+	MinR2        float64 // 线性回归的最小拟合度
+	SlopeWindow  int     // 斜率窗口（bar数），4h*60≈10天
+	ConfirmBars  int     // 突破确认所需的连续收盘数
+}
+
+func DefaultTrendCfg() TrendCfg {
+	return TrendCfg{
+		ADXThreshold: 20,
+		MinR2:        0.25,
+		SlopeWindow:  60,
+		ConfirmBars:  2,
+	}
+}
 
 // TrendManager 负责管理多个币种的趋势状态
 type Manager struct {
@@ -26,9 +41,11 @@ type Manager struct {
 	symbols      []string
 	cfg          TrendCfg
 	klineManager *kline.KlineManager
+
+	SymbolMgr *model3.SymbolManager
 }
 
-func NewManager(ex exchange.Exchange, symbols []string, klineManager *kline.KlineManager) *Manager {
+func NewManager(ex exchange.Exchange, symbols []string, klineManager *kline.KlineManager, symbolMgr *model3.SymbolManager) *Manager {
 	newSymbols := make([]string, len(symbols))
 	for i, symbol := range symbols {
 		newSymbols[i] = utils.FormatSymbol(symbol)
@@ -39,108 +56,125 @@ func NewManager(ex exchange.Exchange, symbols []string, klineManager *kline.Klin
 		symbols:      newSymbols,
 		cfg:          DefaultTrendCfg(),
 		klineManager: klineManager,
+		SymbolMgr:    symbolMgr,
 	}
 }
 
-// 启动调度：独立于 15min 信号
-func (tm *Manager) RunScheduled() {
+// StartSignalProcessor 接收并监听k线更新通道，驱动信号生成
+func (s *Manager) RunScheduled(ctx context.Context, updateTrendCh <-chan struct{}) {
+	// TrendMgr 启动逻辑保持不变 (在外部 main.go 中处理)
 
-	// 更新趋势
-	tm.computeTrends(tm.symbols)
+	// 启动趋势处理核心循环
+	go s.runTrendLoop(ctx, updateTrendCh)
 }
 
-// 等待第一个对齐点（比如整30m）
-func (tm *Manager) waitForNextAlignment() {
-	now := time.Now()
-	next := now.Truncate(15 * time.Minute).Add(15 * time.Minute)
-	// 再加30秒确保交易所数据更新完成
-	waitUntil := next.Add(30 * time.Second)
-	sleep := time.Until(waitUntil)
-	log.Printf("[Trend] 等待到 %s 开始调度", next.Format("15:04:05"))
-	time.Sleep(sleep)
-}
+// 现在负责接收事件，并并发处理所有 symbols
+func (s *Manager) runTrendLoop(ctx context.Context, updateKlineCh <-chan struct{}) {
+	fmt.Println("启动信号处理器 (数组模式，监听 K 线更新事件)...")
 
-// 为所有交易对计算趋势
-func (tm *Manager) computeTrends(symbols []string) {
-	var wg sync.WaitGroup
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("信号处理器退出。")
+			return
+		case <-updateKlineCh:
+			// K 线对齐事件触发！
 
-	// 并发处理多个交易对，但限制并发数
-	semaphore := make(chan struct{}, 3) // 最多3个并发
-
-	for _, symbol := range symbols {
-		wg.Add(1)
-		go func(sym string) {
-			defer wg.Done()
-
-			semaphore <- struct{}{}        // 获取信号量
-			defer func() { <-semaphore }() // 释放信号量
-
-			err := tm.computeTrend(sym)
-			if err != nil {
-				log.Printf("[Trend] %s 计算趋势失败: %+v", sym, err)
+			symbols := s.SymbolMgr.GetSymbols() // 获取当前所有活跃符号
+			if len(symbols) == 0 {
+				continue
 			}
-		}(symbol)
-	}
 
-	wg.Wait()
-	log.Println("本轮信号分析完成")
+			var wg sync.WaitGroup
+			semaphore := make(chan struct{}, 5) // 控制并发数，例如 5 个
+
+			// 循环并并发处理所有交易对的信号生成和过滤
+			for _, symbol := range symbols {
+				wg.Add(1)
+				go func(sym string) {
+					defer wg.Done()
+					semaphore <- struct{}{}        // 获取信号量
+					defer func() { <-semaphore }() // 释放信号量
+
+					s.processTrendSymbol(sym) // 封装核心逻辑
+				}(symbol)
+			}
+			wg.Wait() // 等待所有符号处理完成
+			fmt.Println("本轮信号分析全部完成。")
+		}
+	}
 }
 
-func (tm *Manager) computeTrend(symbol string) error {
-	// 在自己的 Goroutine 中处理
-	state, slope, err := tm.GenerateTrend(symbol)
+func (tm *Manager) processTrendSymbol(symbol string) error {
+	// 1.生成趋势状态
+	state, err := tm.generateTrend(symbol)
 	if err != nil {
 		return err
 	}
-	// 获取状态机
+	// 2.获取状态机
 	machine := tm.GetStateMachine(symbol)
 	if machine == nil {
 		// 初始化币种的状态机
-		tm.machines[symbol] = NewStateMachine(symbol)
+		machine = NewStateMachine(symbol)
+		tm.machines[symbol] = machine
 	}
-	machine.Update(state.Scores.FinalScore, state.Scores.TrendScore, slope)
+
+	// 3.使用分数更新状态机
+	machine.Update(state.Scores.FinalScore, state.Scores.TrendScore)
+
+	// 4.将状态机设置的最终方向赋值给 TrendState (以便 TrendState 存储正确的 Direction)
+	state.Direction = machine.CurrentState
+
+	// 5.报错最新状态 // 不存储趋势，只有策略匹配后再存储
+	tm.save(state)
+
 	fmt.Println(state.Description())
 	return nil
 }
 
-func (tm *Manager) GenerateTrend(symbol string) (state *TrendState, finalSlope *float64, err error) {
+func (tm *Manager) generateTrend(symbol string) (state *model3.TrendState, err error) {
 	h4Klines, ok4 := tm.klineManager.Get(symbol, model.Kline_4h)
 	if ok4 == false {
 		errStr := fmt.Sprintf("[TrendManager] fetch 4hour kline error for %s", symbol)
 		log.Println(errStr)
-		return nil, nil, errors.New(errStr)
+		return nil, errors.New(errStr)
 	}
 	h1Klines, ok1 := tm.klineManager.Get(symbol, model.Kline_1h)
 	if ok1 == false {
 		errStr := fmt.Sprintf("[TrendManager] fetch 1hour kline error for %s", symbol)
 		log.Println(errStr)
-		return nil, nil, errors.New(errStr)
+		return nil, errors.New(errStr)
 	}
 	m30Klines, ok30 := tm.klineManager.Get(symbol, model.Kline_30min)
 	if ok30 == false {
 		errStr := fmt.Sprintf("[TrendManager] fetch 30m kline error for %s", symbol)
 		log.Println(errStr)
-		return nil, nil, errors.New(errStr)
+		return nil, errors.New(errStr)
 	}
 
 	//tm.genCSV(symbol, tm.interval, latestFirst)
 
 	// ------------------ 2. 计算各周期指标分数 ------------------
-	s30m, _ := tm.ScoreForPeriod(m30Klines, model.Kline_30min)
-	s1h, _ := tm.ScoreForPeriod(h1Klines, model.Kline_1h)
-	s4h, _ := tm.ScoreForPeriod(h4Klines, model.Kline_4h)
+	s30m, _, indicatorS30m := tm.ScoreForPeriod(m30Klines, model.Kline_30min)
+	s1h, _, indicatorS1h := tm.ScoreForPeriod(h1Klines, model.Kline_1h)
+	s4h, _, indicatorS4h := tm.ScoreForPeriod(h4Klines, model.Kline_4h)
+
+	var indicator = make(map[model.KlinePeriod]model3.IndicatorSnapshot)
+	indicator[model.Kline_30min] = indicatorS30m
+	indicator[model.Kline_1h] = indicatorS1h
+	indicator[model.Kline_4h] = indicatorS4h
 
 	// 加权平均，权重可调
 	scores := tm.calcTrendScores(s4h, s1h, s30m)
 
 	// ------------------ 4. 多周期趋势方向判定 ------------------
 	// 趋势方向
-	dir := TrendNeutral
+	dir := model3.TrendNeutral
 
 	if scores.FinalScore >= 1.0 {
-		dir = TrendUp
+		dir = model3.TrendUp
 	} else if scores.FinalScore <= -1.0 {
-		dir = TrendDown
+		dir = model3.TrendDown
 	}
 
 	closes30m := make([]float64, len(m30Klines))
@@ -154,79 +188,25 @@ func (tm *Manager) GenerateTrend(symbol string) (state *TrendState, finalSlope *
 	}
 
 	// ------------------ 5. 构建TrendState ------------------
-	atr1H := talib.Atr(closes30m, low30m, closes30m, 14)
-	adx1H := talib.Adx(highs30m, low30m, closes30m, 14)
-	rsi1H := talib.Rsi(closes30m, 14)
+	atrVals := talib.Atr(highs30m, low30m, closes30m, 14) // 参数顺序: High, Low, Close, Period
+	adxVals := talib.Adx(highs30m, low30m, closes30m, 14)
+	rsiVals := talib.Rsi(closes30m, 14)
 
 	last := m30Klines[len(m30Klines)-1]
 
-	state = &TrendState{
-		Symbol:    symbol,
-		Direction: dir,
-		ATR:       atr1H[len(atr1H)-1],
-		ADX:       atr1H[len(adx1H)-1],
-		RSI:       rsi1H[len(atr1H)-1],
-		LastPrice: last.Close,
-		Timestamp: last.Timestamp,
-		Scores:    scores,
+	state = &model3.TrendState{
+		Symbol:            symbol,
+		Direction:         dir,
+		ATR:               atrVals[len(atrVals)-1],
+		ADX:               adxVals[len(adxVals)-1],
+		RSI:               rsiVals[len(rsiVals)-1],
+		LastPrice:         last.Close,
+		Timestamp:         last.Timestamp,
+		Scores:            scores,
+		IndicatorSnapshot: indicator,
 	}
 
-	// 计算加权平均分数，可以给越新的趋势权重越高
-	tm.save(state)
-
-	machine := tm.machines[symbol]
-	slope := NewTrendSlope(machine.StatesCaches)
-
-	if slope != nil {
-		// 计算最终斜率方向
-		finalSlope := tm.weightedScore(slope.Slope4h, slope.Slope1h, slope.Slope30m)
-		state.Slope = finalSlope
-		return state, &finalSlope, nil
-	}
-
-	return state, nil, nil
-}
-
-// 计算数组均值
-func mean(arr []float64) float64 {
-	if len(arr) == 0 {
-		return 0
-	}
-	sum := 0.0
-	for _, v := range arr {
-		sum += v
-	}
-	return sum / float64(len(arr))
-}
-
-// 使用加权最小二乘法计算分数数组的斜率
-// arr: 趋势分数数组，顺序为从旧到新
-// 返回值: 拟合直线的斜率
-func calcSlope(arr []float64) float64 {
-	n := float64(len(arr))
-	if n < 2 {
-		return 0
-	}
-	var sumX, sumY, sumXY, sumXX, sumW float64
-	for i, y := range arr {
-		x := float64(i)
-		// 动态计算权重。i越大（越新），权重越高。
-		// 这里的权重因子可以根据你的需要调整，例如使用指数衰减
-		w := math.Exp(x / n) // 简单示例：指数加权，让最近的数据影响更大
-
-		sumX += w * x
-		sumY += w * y
-		sumXY += w * x * y
-		sumXX += w * x * x
-		sumW += w
-	}
-	// 最小二乘法公式的加权版本
-	denom := sumW*sumXX - sumX*sumX
-	if math.Abs(denom) < 1e-9 {
-		return 0
-	}
-
-	return (sumW*sumXY - sumX*sumY) / denom
+	return state, nil
 }
 
 // 加权总分
@@ -263,31 +243,29 @@ func (tm *Manager) weightedScore(s4h, s1h, s30 float64) float64 {
 	return w4h*s4h + w1h*s1h + w30*s30
 }
 
-func (tm *Manager) calcTrendScores(s4h, s1h, s30 float64) TrendScores {
+func (tm *Manager) calcTrendScores(s4h, s1h, s30 float64) model3.TrendScores {
 	// --- 大趋势权重 ---
 	w4h, w1h := 0.7, 0.3
 	longTermTrendScore := w4h*s4h + w1h*s1h
 
-	// --- 短线信号 ---
-	signalScore := s30
-
 	// --- 综合分 ---
 	final := tm.weightedScore(s4h, s1h, s30)
 
-	return TrendScores{
-		TrendScore:  longTermTrendScore,
-		SignalScore: signalScore,
-		FinalScore:  final,
-		Score30m:    s30,
-		Score1h:     s1h,
-		Score4h:     s4h,
+	return model3.TrendScores{
+		TrendScore: longTermTrendScore,
+		FinalScore: final,
+		Score30m:   s30,
+		Score1h:    s1h,
+		Score4h:    s4h,
 	}
 }
 
 // 计算周期趋势分数 -3 ~ +3（方向化 + 抖动抑制）
-func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePeriod) (float64, string) {
+func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePeriod) (float64, string, model3.IndicatorSnapshot) {
+	// 初始化指标快照
+	snapshot := model3.IndicatorSnapshot{}
 	if len(klines) < 200 {
-		return 0, ""
+		return 0, "", snapshot
 	}
 
 	n := len(klines)
@@ -319,12 +297,16 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 	var bbSum float64
 	var count int
 	for i := last - 50; i < last; i++ {
-		if i >= 0 {
+		if i >= 0 && middle[i] > 0 {
 			bbSum += (upper[i] - lower[i]) / middle[i]
 			count++
 		}
 	}
-	bbWidthAvg := bbSum / float64(count)
+
+	bbWidthAvg := 0.0
+	if count > 0 {
+		bbWidthAvg = bbSum / float64(count)
+	}
 
 	// === 打分 ===
 	score := 0.0
@@ -415,7 +397,7 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 	}
 
 	// MACD 参数 (12, 26, 9) 常见用法
-	macdVals, _, _ := talib.Macd(closes, 12, 26, 9)
+	macdVals, signalVals, histVals := talib.Macd(closes, 12, 26, 9)
 	// MACD 背离
 	divScore, divReason := CheckMacdDivergence(closes, macdVals, 30)
 	score += divScore
@@ -434,6 +416,24 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 	// 水下金叉
 	//cross := IsWaterMACDGoldenCross(closes)
 
+	// --- 填充 IndicatorSnapshot ---
+	snapshot = model3.IndicatorSnapshot{
+		LastPrice:  price,
+		EMA20:      ema20Last,
+		EMA50:      ema50Last,
+		EMA200:     ema200Last,
+		ADX:        adxLast,
+		BBWidth:    bbWidthLast,
+		BBWidthAvg: bbWidthAvg,
+		KVal:       kVals[last],
+		DVal:       dVals[last],
+		JVal:       jVals[last],
+		RSI:        rsiVals[last],
+		MACD:       macdVals[last],
+		MACDSignal: signalVals[last],
+		MACDHist:   histVals[last],
+	}
+
 	if score > 3 {
 		score = 3
 	}
@@ -442,11 +442,21 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 	}
 	// === 调试日志 ===
 	logs := fmt.Sprintf("Score=%.2f 详情: %v", score, strings.Join(reasons, ", "))
-	return score, logs
+	return score, logs, snapshot
+}
+
+// SaveTrendState 存储某一币种的最新趋势状态
+func (tm *Manager) SaveTrendState(trendState *model3.TrendState) {
+	tm.save(trendState)
+}
+
+// GetLatestTrendState 获取某一币种的最新趋势状态，供决策树使用
+func (tm *Manager) GetLatestTrendState(symbol string) *model3.TrendState {
+	return tm.GetState(symbol)
 }
 
 // 更新某币种趋势（内部 & 外部都可调用）
-func (tm *Manager) save(state *TrendState) {
+func (tm *Manager) save(state *model3.TrendState) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
@@ -465,7 +475,7 @@ func (tm *Manager) save(state *TrendState) {
 }
 
 // 获取某币种趋势
-func (tm *Manager) GetState(symbol string) *TrendState {
+func (tm *Manager) GetState(symbol string) *model3.TrendState {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	machine := tm.machines[symbol]
