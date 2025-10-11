@@ -79,7 +79,7 @@ func (s *Manager) runTrendLoop(ctx context.Context, updateKlineCh <-chan struct{
 			}
 
 			var wg sync.WaitGroup
-			semaphore := make(chan struct{}, 5) // 控制并发数，例如 5 个
+			semaphore := make(chan struct{}, 10) // 控制并发数，例如 5 个
 
 			// 循环并并发处理所有交易对的信号生成和过滤
 			for _, symbol := range symbols {

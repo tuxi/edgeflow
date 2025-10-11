@@ -173,7 +173,7 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 		EntryPrice:      entryPrice,
 		TimeFrame:       string(sg.TimeFrame),
 		Status:          "RAW",                            // 原始信号，等待过滤
-		ExpiryTimestamp: time.Now().Add(15 * time.Minute), // 初始设置 15 分钟有效
+		ExpiryTimestamp: time.Now().Add(30 * time.Minute), // 初始设置 30 分钟有效
 		Timestamp:       last.Timestamp,
 		Details:         details,
 		Score:           score,
