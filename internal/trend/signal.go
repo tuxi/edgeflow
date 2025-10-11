@@ -165,52 +165,6 @@ func (sg *SignalGenerator) Generate(klines []model.Kline, symbol string) (*Signa
 
 	// 步骤 5: 如果没有强反转，也没有延续的反转，就返回主要信号
 	return sig, nil
-
-	//sig := &Signal{
-	//	Symbol:     symbol,
-	//	Price:      last.Close,
-	//	Side:       finalAction,
-	//	Strength:   strength,
-	//	IsReversal: reversal,
-	//	Timestamp:  last.Timestamp,
-	//	Values:     values,
-	//}
-	//
-	//// --- 如果出现反转信号 ---
-	//if reversalStrength >= 0.7 && reversalSignal != "hold" {
-	//	sig.IsReversal = true
-	//	sig.Side = reversalSignal
-	//	sig.Strength = reversalStrength
-	//	// 第一根 → 潜在反转，存到缓存
-	//	sg.reversalSignal[symbol] = sig
-	//	return sig, nil
-	//}
-	//
-	//// 检查缓存是否有「潜在反转」
-	//if prev, ok := sg.reversalSignal[symbol]; ok {
-	//	// 如果当前 K 线方向继续跟随反转方向，即使强度不够，也确认反转
-	//	if prev.Side == "buy" && last.Close > prev.Price {
-	//		// 价格高于反转触发价 → 延续反转多头
-	//		sig.Side = "buy"
-	//		sig.IsReversal = true
-	//		sg.reversalSignal[symbol] = sig
-	//		return sig, nil
-	//	}
-	//	if prev.Side == "sell" && last.Close < prev.Price {
-	//		// 价格低于反转触发价 → 延续空头反转
-	//		sig.Side = "sell"
-	//		sig.IsReversal = true
-	//		sg.reversalSignal[symbol] = sig
-	//		return sig, nil
-	//	}
-	//
-	//	// 超过 3 根 K 线未确认 → 作废
-	//	if sig.Timestamp.Sub(prev.Timestamp) > 45*time.Minute {
-	//		delete(sg.reversalSignal, symbol)
-	//	}
-	//}
-
-	//return sig, nil
 }
 
 // CalcATR 计算给定K线序列的ATR值

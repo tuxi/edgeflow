@@ -349,7 +349,7 @@ CREATE TABLE IF NOT EXISTS `signals` (
                                          `timestamp` TIMESTAMP NOT NULL COMMENT '信号产生时间 (K线收盘)',
 
     -- 信号过期时间：风控边界
-                                         `expiry_timestamp` TIMESTAMP NOT NULL COMMENT '信号失效时间点 (策略最大持有周期)',
+                                         `expiry_timestamp` TIMESTAMP NULL COMMENT '信号失效时间点 (策略最大持有周期)',
 
                                          `status` VARCHAR(10) NOT NULL COMMENT '信号状态 (ACTIVE, EXPIRED)',
 
@@ -378,6 +378,8 @@ CREATE TABLE IF NOT EXISTS `trend_snapshots` (
 
                                                  `signal_id` BIGINT UNSIGNED NOT NULL COMMENT '关联的信号ID (外键)',
 
+                                                 `symbol` VARCHAR(20) NOT NULL COMMENT '交易对',
+
                                                  `timestamp` TIMESTAMP NOT NULL COMMENT '快照时间',
                                                  `direction` VARCHAR(10) NOT NULL COMMENT '趋势主方向',
                                                  `last_price` DECIMAL(15,8) NOT NULL COMMENT '信号发生时的价格',
@@ -391,7 +393,7 @@ CREATE TABLE IF NOT EXISTS `trend_snapshots` (
 
                                                  `final_score` DECIMAL(5,2) NOT NULL COMMENT '决策树过滤时的最终趋势分数',
                                                  `trend_score` DECIMAL(5,2) NOT NULL COMMENT '趋势分数',
-    -- ... (省略其他技术指标字段)
+                                                 `indicators_json` JSON COMMENT '所有周期的技术指标快照',
 
                                                  PRIMARY KEY (`id`),
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type signalDao struct {
@@ -22,31 +23,48 @@ func NewSignalDao(db *gorm.DB) dao.SignalDao {
 
 // SaveSignalWithSnapshot 事务性地存储 Signal 及其关联的 TrendSnapshot。
 // 必须确保 model.Signal.TrendSnapshot 字段已被填充。
-func (r *signalDao) SaveSignalWithSnapshot(signal *entity.Signal) error {
+func (r *signalDao) SaveSignalWithSnapshot(ctx context.Context, signal *entity.Signal) error {
 	if signal.TrendSnapshot == nil {
 		return errors.New("cannot save signal: TrendSnapshot is missing")
 	}
 
 	// 1. 启动事务
-	err := r.db.Transaction(func(tx *gorm.DB) error {
+	// **设计原则：Deadlock 错误应由调用方（Service Layer）自动重试。**
+	// DAO 内部保证了最优的锁顺序 (SELECT FOR UPDATE -> INSERT -> UPDATE)。
+	// 关键修正：使用 WithContext(ctx) 将上下文传递给事务，修复奇葩的死锁问题
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 
-		// 2. 尝试将同一 Symbol 的所有旧信号标记为 EXPIRED
-		// 这一步对于确保只有一个活跃信号是可选但推荐的。
-		tx.Model(&entity.Signal{}).
-			Where("symbol = ? AND status = ?", signal.Symbol, "ACTIVE").
-			Update("status", "EXPIRED")
+		// 强制重置 ID 和外键 (防御性措施) ---
+		// 确保 GORM 知道我们要插入新的记录，而非更新或使用旧 ID。
+		signal.ID = 0
+		signal.TrendSnapshot.ID = 0
+		signal.TrendSnapshot.SignalID = 0
 
-		// 3. 创建 Signal 记录。GORM 会自动处理 ID 回填。
+		// --- 死锁修复：使用 SELECT FOR UPDATE 提前锁定旧的活跃信号 ---
+		// 在执行任何 INSERT 之前，先获取对所有将被修改行的排它锁，防止死锁。
+		// 我们需要锁定：相同 Symbol, 相同 signal_period, 且状态为 ACTIVE 的旧信号。
+		if err := tx.Model(&entity.Signal{}).
+			Where("symbol = ? AND signal_period = ? AND status = ?", signal.Symbol, signal.Period, "ACTIVE").
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Find(&[]entity.Signal{}).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("failed to acquire locks on old signals: %w", err)
+		}
+
+		// 插入新的 Signal 记录 (包含 TrendSnapshot 的自动关联创建)
+		// GORM 会自动：
+		//   a) 插入 signals 记录，回填 signal.ID。
+		//   b) 使用回填的 signal.ID 作为外键，插入 signal.TrendSnapshot 记录。
 		if result := tx.Create(signal); result.Error != nil {
 			return fmt.Errorf("failed to create signal: %w", result.Error)
 		}
 
-		// 4. TrendSnapshot 关联写入
-		// 由于 Signal.ID 已被回填，并且 TrendSnapshot 字段在 GORM Model 中已正确关联，
-		// 我们可以设置 TrendSnapshot 的 SignalID 并写入。
-		signal.TrendSnapshot.SignalID = signal.ID
-		if result := tx.Create(signal.TrendSnapshot); result.Error != nil {
-			return fmt.Errorf("failed to create trend snapshot: %w", result.Error)
+		// 尝试将同一 Symbol 的所有旧信号标记为 EXPIRED
+		// 确保一个币种只有一个活跃信号
+		if result := tx.Model(&entity.Signal{}).
+			Where("symbol = ? AND signal_period = ? AND status = ? AND id != ?",
+				signal.Symbol, signal.Period, "ACTIVE", signal.ID).
+			Update("status", "EXPIRED"); result.Error != nil {
+			return fmt.Errorf("failed to expire old signals: %w", result.Error)
 		}
 
 		// 如果没有错误，事务提交

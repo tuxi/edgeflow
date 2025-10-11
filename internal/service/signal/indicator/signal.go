@@ -1,0 +1,186 @@
+package indicator
+
+import (
+	model2 "edgeflow/internal/model"
+	"edgeflow/internal/service/signal/model"
+	"errors"
+	"fmt"
+	"github.com/markcheno/go-talib"
+	model3 "github.com/nntaoli-project/goex/v2/model"
+	"math"
+	"time"
+)
+
+// ==================== Signal Generator (加权评分系统) ====================
+// 信号生成系统
+type SignalGenerator struct {
+	Indicators []Indicator
+	Weights    map[string]float64 // 核心：指标权重表
+	TimeFrame  model3.KlinePeriod
+}
+
+func NewSignalGenerator(timeFrame model3.KlinePeriod) *SignalGenerator {
+	// 定义权重：EMA (趋势) > MACD (动量) > RSI (过滤)
+	defaultWeights := map[string]float64{
+		"EMA":  3.0, // 趋势确认最重要
+		"MACD": 2.0, // 动量确认次之
+		"RSI":  1.0, // 超买超卖/过滤
+		"ADX":  0.0, // ADX只用于强度计算，不参与方向投票（方向由DI线判断）
+	}
+
+	return &SignalGenerator{
+		Indicators: []Indicator{
+			&EMAIndicator{FastPeriod: 5, SlowPeriod: 10, TrendPeriod: 30}, // 5/10/30 三均线
+			&MACDIndicator{FastPeriod: 12, SlowPeriod: 26, SignalPeriod: 9},
+			&RSIIndicator{Period: 14, Buy: 30, Sell: 70},
+			NewADXIndicator()},
+		Weights:   defaultWeights,
+		TimeFrame: timeFrame,
+	}
+}
+
+func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*model.Signal, error) {
+	if len(klines) == 0 {
+		return nil, errors.New("klines is not empty")
+	}
+
+	score := 0.0
+	last := klines[len(klines)-1]
+	allIndicatorValues := make(map[string]float64) // 用于 HighFreqIndicators
+
+	// 用于强度计算的变量和 Basis 文本所需的指标
+	var rsiStrength, adxStrength float64
+	var diPlus, diMinus float64
+	var macdNow, rsiNow float64 // 用于 Basis 文本
+
+	// --- 1. 指标计算与加权评分 ---
+	for _, ind := range sg.Indicators {
+		res := ind.Calculate(klines)
+
+		weight := sg.Weights[res.Name]
+
+		switch res.Signal {
+		case "buy", "strong_trend":
+			score += weight
+		case "sell", "weak_trend":
+			score -= weight
+		case "weak_buy":
+			score += weight * 0.5
+		case "weak_sell":
+			score -= weight * 0.5
+		}
+
+		for k, v := range res.Values {
+			allIndicatorValues[k] = v
+		}
+
+		// 提取关键值
+		switch res.Name {
+		case "RSI":
+			rsiStrength = res.Strength
+			rsiNow = res.Values["RSI"]
+		case "MACD":
+			macdNow = res.Values["macd"]
+		case "ADX":
+			adxStrength = res.Strength
+			diPlus = res.Values["DI+"]
+			diMinus = res.Values["DI-"]
+		}
+	}
+
+	// --- 2. 最终方向判断（Command） ---
+	var finalAction model.CommandType
+
+	if score > 1.0 {
+		finalAction = model.CommandBuy
+	} else if score < -1.0 {
+		finalAction = model.CommandSell
+	} else {
+		// 投票结果不明确时，使用 ADX 的 DI 线来确认趋势方向
+		if diPlus > diMinus && adxStrength > 0.4 {
+			finalAction = model.CommandBuy
+		} else if diMinus > diPlus && adxStrength > 0.4 {
+			finalAction = model.CommandSell
+		}
+	}
+
+	// --- 3. 反转指标（独立运行，只获取值）---
+	rd := NewReversalDetector()
+	rdRes := rd.Calculate(klines)
+	for k, v := range rdRes.Values {
+		allIndicatorValues["Rev_"+k] = v // 将反转指标值带前缀存入
+	}
+
+	// --- 4. 综合强度计算 (并存储) ---
+	rawStrength := math.Abs(score) / float64(len(sg.Indicators))
+	strength := 0.6*rawStrength + 0.2*rsiStrength + 0.2*adxStrength
+	allIndicatorValues["finalStrength"] = strength // 存储最终强度值
+
+	// --- 5. 挂单价格计算 (使用ATR进行优化) ---
+	highs, lows := extractHighsLows(klines)
+	closes := extractCloses(klines)
+	atrVal := talib.Atr(highs, lows, closes, 14)
+	atr := atrVal[len(atrVal)-1]
+	entryPrice := last.Close
+
+	if finalAction == model.CommandBuy {
+		// 开多时（压低一点买入）: 留 20% ATR 的空间
+		entryPrice = last.Close - 0.2*atr
+	} else if finalAction == model.CommandSell {
+		// 开空时（抬高一点卖出）: 留 20% ATR 的空间
+		entryPrice = last.Close + 0.2*atr
+	}
+	allIndicatorValues["atr"] = atr
+	allIndicatorValues["close"] = last.Close
+
+	// --- 6. 构建 SignalDetails ---
+	details := model.SignalDetails{
+		HighFreqIndicators: allIndicatorValues,
+		BasisExplanation:   sg.createBasisText(finalAction, macdNow, rsiNow),
+		RecommendedSL:      sg.calculateSL(finalAction, entryPrice, atr),
+		RecommendedTP:      sg.calculateTP(finalAction, entryPrice, atr),
+	}
+
+	// --- 7. 构建原始信号对象 ---
+	rawSignal := &model.Signal{
+		Symbol:          symbol,
+		Command:         finalAction,
+		EntryPrice:      entryPrice,
+		TimeFrame:       string(sg.TimeFrame),
+		Status:          "RAW",                            // 原始信号，等待过滤
+		ExpiryTimestamp: time.Now().Add(15 * time.Minute), // 初始设置 15 分钟有效
+		Timestamp:       last.Timestamp,
+		Details:         details,
+	}
+
+	return rawSignal, nil
+}
+
+// --- 辅助函数：根据新的信号结构所需添加 ---
+
+// createBasisText 生成信号依据的解释文本（占位符实现）
+func (sg *SignalGenerator) createBasisText(command model.CommandType, macd float64, rsi float64) string {
+	return fmt.Sprintf("基于加权投票机制，最终信号为 %s。MACD (%.2f) 和 RSI (%.2f) 作为动量和超买超卖辅助确认，且 ADX 趋势强度适中。", command, macd, rsi)
+}
+
+// calculateSL 计算推荐止损（占位符实现）
+func (sg *SignalGenerator) calculateSL(command model.CommandType, entryPrice float64, atr float64) float64 {
+	// 使用 2 倍 ATR 作为止损
+	if command == model.CommandBuy {
+		return entryPrice - 2.0*atr
+	} else if command == model.CommandSell {
+		return entryPrice + 2.0*atr
+	}
+	return 0.0
+}
+
+// calculateTP 计算推荐止盈（占位符实现）
+func (sg *SignalGenerator) calculateTP(command model.CommandType, entryPrice float64, atr float64) float64 {
+	// 使用 3 倍 ATR 作为止盈
+	if command == model.CommandBuy {
+		return entryPrice + 3.0*atr
+	} else if command == model.CommandSell {
+		return entryPrice - 3.0*atr
+	}
+	return 0.0
+}

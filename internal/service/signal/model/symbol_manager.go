@@ -1,6 +1,9 @@
 package model
 
-import "sync"
+import (
+	"edgeflow/pkg/utils"
+	"sync"
+)
 
 type SymbolManager struct {
 	symbols []string
@@ -8,8 +11,12 @@ type SymbolManager struct {
 }
 
 func NewSymbolManager(initialSymbols []string) *SymbolManager {
+	newSymbols := make([]string, len(initialSymbols))
+	for i, symbol := range initialSymbols {
+		newSymbols[i] = utils.FormatSymbol(symbol)
+	}
 	return &SymbolManager{
-		symbols: initialSymbols,
+		symbols: newSymbols,
 	}
 }
 

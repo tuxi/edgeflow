@@ -40,19 +40,24 @@ func InitRouter(db *gorm.DB) Router {
 	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT", "HYPE/USDT", "LTC/USDT"}
 	klineMgr := kline.NewKlineManager(okxEx, symbols)
 	symbolMgr := model.NewSymbolManager(symbols)
-	tm := trend.NewManager(okxEx, symbols, klineMgr, symbolMgr)
+	tm := trend.NewManager(okxEx, klineMgr, symbolMgr)
 	signalDao := query.NewSignalDao(db)
-	signalService := signal2.NewService(tm, signalDao, symbolMgr)
+	signalService := signal2.NewService(tm, signalDao, klineMgr, symbolMgr)
 
-	// 创建共享的事件通道
-	updateTrendCh := make(chan struct{}, 1) // 使用缓冲通道避免阻塞
-	// 启动 KlineManager (数据源)
-	klineMgr.RunScheduled(updateTrendCh) // K线更新，事件发送到 updateTrendCh
+	// Trend Manager 的输入通道 (由 Kline Manager 触发)
+	trendInputCh := make(chan struct{}, 1)
+
+	// Signal Service 的输入通道 (由 Trend Manager 触发)
+	signalInputCh := make(chan struct{}, 1)
+
+	// 启动 Kline Manager (只连接到流水线的第一步)
+	klineMgr.Start(trendInputCh)
+
 	// 启动 TrendManager (计算服务)
 	// TrendMgr 监听 updateTrendCh，获取最新 K线，并计算 TrendState
-	tm.RunScheduled(context.Background(), updateTrendCh)
+	tm.StartListening(context.Background(), trendInputCh, signalInputCh)
 	// SignalService 同样监听 updateTrendCh，获取最新 K线和 TrendState，并生成信号
-	signalService.RunScheduled(context.Background(), updateTrendCh)
+	signalService.ListenForUpdates(context.Background(), signalInputCh)
 
 	// k线策略
 	//engine := kline.NewSignalStrategy(tm, ps, klineManger)

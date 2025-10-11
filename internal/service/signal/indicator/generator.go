@@ -1,4 +1,4 @@
-package generator
+package indicator
 
 import (
 	model2 "edgeflow/internal/model"

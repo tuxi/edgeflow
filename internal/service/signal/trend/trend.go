@@ -6,7 +6,6 @@ import (
 	model2 "edgeflow/internal/model"
 	"edgeflow/internal/service/signal/kline"
 	model3 "edgeflow/internal/service/signal/model"
-	"edgeflow/pkg/utils"
 	"errors"
 	"fmt"
 	"github.com/markcheno/go-talib"
@@ -38,39 +37,33 @@ type Manager struct {
 	machines map[string]*StateMachine
 
 	ex           exchange.Exchange // OKX 客户端
-	symbols      []string
 	cfg          TrendCfg
 	klineManager *kline.KlineManager
 
 	SymbolMgr *model3.SymbolManager
 }
 
-func NewManager(ex exchange.Exchange, symbols []string, klineManager *kline.KlineManager, symbolMgr *model3.SymbolManager) *Manager {
-	newSymbols := make([]string, len(symbols))
-	for i, symbol := range symbols {
-		newSymbols[i] = utils.FormatSymbol(symbol)
-	}
+func NewManager(ex exchange.Exchange, klineManager *kline.KlineManager, symbolMgr *model3.SymbolManager) *Manager {
 	return &Manager{
 		machines:     make(map[string]*StateMachine),
 		ex:           ex,
-		symbols:      newSymbols,
 		cfg:          DefaultTrendCfg(),
 		klineManager: klineManager,
 		SymbolMgr:    symbolMgr,
 	}
 }
 
-// StartSignalProcessor 接收并监听k线更新通道，驱动信号生成
-func (s *Manager) RunScheduled(ctx context.Context, updateTrendCh <-chan struct{}) {
+// 接收并监听k线更新通道，驱动趋势生成
+func (s *Manager) StartListening(ctx context.Context, updateTrendCh <-chan struct{}, signalInputCh chan<- struct{}) {
 	// TrendMgr 启动逻辑保持不变 (在外部 main.go 中处理)
 
 	// 启动趋势处理核心循环
-	go s.runTrendLoop(ctx, updateTrendCh)
+	go s.runTrendLoop(ctx, updateTrendCh, signalInputCh)
 }
 
 // 现在负责接收事件，并并发处理所有 symbols
-func (s *Manager) runTrendLoop(ctx context.Context, updateKlineCh <-chan struct{}) {
-	fmt.Println("启动信号处理器 (数组模式，监听 K 线更新事件)...")
+func (s *Manager) runTrendLoop(ctx context.Context, updateKlineCh <-chan struct{}, signalInputCh chan<- struct{}) {
+	fmt.Println("[trend.Manager runTrendLoop]启动趋势处理器 (监听 K 线更新趋势)...")
 
 	for {
 		select {
@@ -100,7 +93,14 @@ func (s *Manager) runTrendLoop(ctx context.Context, updateKlineCh <-chan struct{
 				}(symbol)
 			}
 			wg.Wait() // 等待所有符号处理完成
-			fmt.Println("本轮信号分析全部完成。")
+
+			select {
+			case signalInputCh <- struct{}{}:
+			default:
+				fmt.Println("[Manager]通道堵塞放弃本次发送signalInputCh")
+			}
+
+			fmt.Println("本轮趋势分析全部完成。")
 		}
 	}
 }
@@ -111,8 +111,10 @@ func (tm *Manager) processTrendSymbol(symbol string) error {
 	if err != nil {
 		return err
 	}
+	tm.mu.Lock()
+
 	// 2.获取状态机
-	machine := tm.GetStateMachine(symbol)
+	machine := tm.getStateMachine(symbol)
 	if machine == nil {
 		// 初始化币种的状态机
 		machine = NewStateMachine(symbol)
@@ -121,7 +123,7 @@ func (tm *Manager) processTrendSymbol(symbol string) error {
 
 	// 3.使用分数更新状态机
 	machine.Update(state.Scores.FinalScore, state.Scores.TrendScore)
-
+	tm.mu.Unlock()
 	// 4.将状态机设置的最终方向赋值给 TrendState (以便 TrendState 存储正确的 Direction)
 	state.Direction = machine.CurrentState
 
@@ -377,7 +379,7 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 	}
 	if IsDeadCross(kVals, dVals) {
 		score -= 0.5 // 死叉看空
-		reasons = append(reasons, "+0.5(KDJ金叉)")
+		reasons = append(reasons, "-0.5(KDJ死叉)")
 	}
 
 	//  J 值极端情况 ===
@@ -490,9 +492,7 @@ func (tm *Manager) GetState(symbol string) *model3.TrendState {
 	return nil
 }
 
-func (tm *Manager) GetStateMachine(symbol string) *StateMachine {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
+func (tm *Manager) getStateMachine(symbol string) *StateMachine {
 	machine := tm.machines[symbol]
 	return machine
 }
