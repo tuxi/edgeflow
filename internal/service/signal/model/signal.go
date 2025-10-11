@@ -11,16 +11,20 @@ import (
 type CommandType string
 
 const (
-	// 原始信号只发射方向，不包含仓位信息
+	// 趋势信号：严格要求 4H 周期不能强烈逆向，1H 周期至少要是中性偏向。这保证了趋势跟随信号的高胜率。
 	CommandBuy  CommandType = "BUY"  // 市场看涨
 	CommandSell CommandType = "SELL" // 市场看跌
+	// 反转信号：忽略趋势方向，但设定一个 “压倒性趋势”的安全阀。(REVERSAL_BUY/REVERSAL_SELL) 优先于一切趋势跟随信号被触发。
+	CommandReversalBuy  CommandType = "REVERSAL_BUY"  // 价格在下跌趋势中出现超卖或多头背离，暗示反弹/反转
+	CommandReversalSell CommandType = "REVERSAL_SELL" // 价格在上涨趋势中出现超买或空头背离，暗示回调/反转。
+	CommandTrendExit    CommandType = "TREND_EXIT"    // 主趋势信号（BUY 或 SELL）持续太久，且动能衰竭，提示平仓
 )
 
 // SignalDetails 存储支撑信号的所有指标快照和文字依据
 // 对应前端 SignalDetailView 的 "信号触发依据"
 // 将存储在 signal_details 数据库表中
 type SignalDetails struct {
-	// 高频指标快照：5m/15m 的 MACD/RSI/均线等原始数值（你的开仓依据）
+	// 高频指标快照：15m 的 MACD/RSI/均线等原始数值（你的开仓依据）
 	HighFreqIndicators map[string]float64 `json:"high_freq_indicators"`
 
 	// 文字依据：用于前端展示的信号触发解释

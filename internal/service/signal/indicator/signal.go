@@ -86,21 +86,46 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 			diPlus = res.Values["DI+"]
 			diMinus = res.Values["DI-"]
 		}
+
 	}
 
 	// --- 2. 最终方向判断（Command） ---
+	var isReversalSignal bool = false // 用于标记是否触发了反转信号
+
+	// 假设 finalScore 和 ADX 相关的指标已计算并传入
+	finalScore := score // 使用 core score 作为最终分数
+
+	// --- 【反转信号判断】抄底/逃顶逻辑（优先级最高） ---
+	const RSI_OVERSOLD = 30.0   // 极度超卖
+	const RSI_OVERBOUGHT = 70.0 // 极度超买
+
+	// 如果 isReversalSignal 为 true，那么 finalAction 已经是 REVERSAL_BUY/SELL
+	// 否则 finalAction 是 BUY/SELL 或空（如果 ADX 也无法确认）
 	var finalAction model.CommandType
 
-	if score > 1.0 {
-		finalAction = model.CommandBuy
-	} else if score < -1.0 {
-		finalAction = model.CommandSell
-	} else {
-		// 投票结果不明确时，使用 ADX 的 DI 线来确认趋势方向
-		if diPlus > diMinus && adxStrength > 0.4 {
+	// 判断是否出现超卖/抄底买入机会
+	if rsiNow <= RSI_OVERSOLD {
+		finalAction = model.CommandReversalBuy
+		isReversalSignal = true
+	} else if rsiNow >= RSI_OVERBOUGHT {
+		// 判断是否出现超买/逃顶卖出机会
+		finalAction = model.CommandReversalSell
+		isReversalSignal = true
+	}
+
+	// --- 2. 【趋势跟随判断】核心投票逻辑（仅在没有反转信号时执行） ---
+	if !isReversalSignal {
+		if finalScore > 1.0 {
 			finalAction = model.CommandBuy
-		} else if diMinus > diPlus && adxStrength > 0.4 {
+		} else if finalScore < -1.0 {
 			finalAction = model.CommandSell
+		} else {
+			// 投票结果不明确时，使用 ADX 的 DI 线来确认趋势方向
+			if diPlus > diMinus && adxStrength > 0.4 {
+				finalAction = model.CommandBuy
+			} else if diMinus > diPlus && adxStrength > 0.4 {
+				finalAction = model.CommandSell
+			}
 		}
 	}
 
