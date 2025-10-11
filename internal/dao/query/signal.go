@@ -75,11 +75,11 @@ func (r *signalDao) SaveSignalWithSnapshot(ctx context.Context, signal *entity.S
 }
 
 // GetActiveSignals 获取指定交易对的活跃信号列表 (用于信号列表页)。
-func (r *signalDao) GetActiveSignals(symbol string, limit int) ([]entity.Signal, error) {
+func (r *signalDao) GetActiveSignals(ctx context.Context, symbol string, limit int) ([]entity.Signal, error) {
 	var signals []entity.Signal
 
 	// 查询条件：指定 Symbol 和 ACTIVE 状态，并按时间倒序排列
-	result := r.db.Where("symbol = ? AND status = ?", symbol, "ACTIVE").
+	result := r.db.WithContext(ctx).Where("symbol = ? AND status = ?", symbol, "ACTIVE").
 		Order("timestamp DESC").
 		Limit(limit).
 		Find(&signals)
@@ -92,11 +92,11 @@ func (r *signalDao) GetActiveSignals(symbol string, limit int) ([]entity.Signal,
 }
 
 // GetSignalDetailByID 查找特定ID的信号，并预加载其趋势快照 (用于信号详情页和下单)。
-func (r *signalDao) GetSignalDetailByID(id uint) (*entity.Signal, error) {
-	var signal entity.Signal
+func (r *signalDao) GetSignalDetailByID(ctx context.Context, id uint) (*model.SignalDetail, error) {
+	var signal model.SignalDetail
 
 	// 使用 Preload("TrendSnapshot") 自动 JOIN trend_snapshots 表并填充字段
-	result := r.db.Preload("TrendSnapshot").
+	result := r.db.WithContext(ctx).Preload("TrendSnapshot").
 		Where("id = ?", id).
 		First(&signal)
 
@@ -110,8 +110,8 @@ func (r *signalDao) GetSignalDetailByID(id uint) (*entity.Signal, error) {
 	return &signal, nil
 }
 
-func (r *signalDao) GetSignalList(ctx context.Context) ([]model.Signal, error) {
+func (r *signalDao) GetAllActiveSignalList(ctx context.Context) ([]model.Signal, error) {
 	var signals []model.Signal
-	err := r.db.WithContext(ctx).Model(&model.Signal{}).Find(&signals).Error
+	err := r.db.WithContext(ctx).Model(&model.Signal{}).Where("status = ?", "ACTIVE").Find(&signals).Error
 	return signals, err
 }

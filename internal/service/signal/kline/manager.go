@@ -97,6 +97,8 @@ func (km *KlineManager) run(trendUpdateCh chan<- struct{}) {
 
 		// 关键：基于 nextExecutionTime (精确的收盘时间点) 进行条件判断
 		execTime := nextExecutionTime // 理论执行时间点
+		// 延迟2秒获取k线数据
+		time.Sleep(time.Second * 2)
 
 		// 15分钟 K线总是拉取
 		km.fetchKlines(km.symbols, model2.Kline_15min)
@@ -120,7 +122,6 @@ func (km *KlineManager) run(trendUpdateCh chan<- struct{}) {
 			}
 		}
 
-		time.Sleep(time.Second * 5)
 		// 4. 通知 Trend Manager (流水线第一步) 开始工作
 		select {
 		case trendUpdateCh <- struct{}{}:

@@ -14,8 +14,9 @@ type Signal struct {
 	ExpiryTimestamp time.Time `gorm:"column:expiry_timestamp;type:timestamp;not null"`              // 该信号理论上应该被撤销或失效的最晚时间。用于风控和状态过期检查
 	Status          string    `gorm:"type:varchar(10);not null;index:idx_symbol_status"`            // ACTIVE/EXPIRED
 	EntryPrice      float64   `gorm:"column:entry_price;type:decimal(15,8)"`
+	MarkPrice       float64   `gorm:"column:mark_price;type:decimal(15,8)"` // k线关闭价格
 
-	FinalScore  float64 `gorm:"column:final_score;type:decimal(5,2);not null"`
+	FinalScore  float64 `gorm:"column:final_score;type:decimal(5,2);not null"` // 信号分数
 	Explanation string  `gorm:"type:text"`
 
 	Period string `gorm:"column:signal_period;type:varchar(30)"`
@@ -29,6 +30,8 @@ type Signal struct {
 
 	// 核心修正：JSON字段存储复杂结构
 	HighFreqIndicators string `gorm:"column:details_json;type:json"` // map[string]float64
+
+	IsPremium bool `gorm:"column:is_premium"` // 是否为精选信号，为付费用户提供
 
 	CreatedAt time.Time `gorm:"column:created_at"`
 
@@ -65,6 +68,7 @@ type TrendSnapshot struct {
 	FinalScore float64 `gorm:"column:final_score;type:decimal(5,2);not null"`
 
 	Indicators string `gorm:"column:indicators_json;type:json"` // {周期(30m) : { "rsi": 28,... }} //  map[string]map[string]float64
+
 }
 
 func (TrendSnapshot) TableName() string {

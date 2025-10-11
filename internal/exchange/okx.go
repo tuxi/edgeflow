@@ -211,8 +211,12 @@ func (e *OkxExchange) GetKlineRecords(symbol string, period model.KlinePeriod, s
 		return nil, err
 	}
 
-	klines = ReverseKlines(klines, period, dropUnclosed)
-	return klines, nil
+	reLines := make([]model2.Kline, len(klines))
+	for i := 0; i < len(klines); i++ {
+		reLines[i] = klines[len(klines)-1-i] // 最新 -> 最前
+	}
+
+	return reLines, nil
 }
 
 func (e *OkxExchange) getKlineRecords(symbol string, period model.KlinePeriod, size, since int, tradeType model2.OrderTradeType) ([]model2.Kline, error) {
@@ -239,26 +243,26 @@ func (e *OkxExchange) getKlineRecords(symbol string, period model.KlinePeriod, s
 // 将最新在前的切片，转换为 从旧到新（必要时丢弃未收盘）
 // latestFirst 是从okx获取的原始k线数组，顺序是从新到旧
 // dropUnclosed 是否丢掉未收盘的当前bar
-func ReverseKlines(latestFirst []model2.Kline, period model.KlinePeriod, dropUnclosed bool) []model2.Kline {
-	if len(latestFirst) == 0 {
-		return nil
-	}
-	tf := periodToDuration(period)
-	start := 0
-	if dropUnclosed && isUnclosedBar(latestFirst[0].Timestamp, tf, time.Now()) {
-		start = 1 // 丢掉正在形成的那根
-	}
-	if start >= len(latestFirst) {
-		return nil
-	}
-	// 反转为 从旧到新
-	n := len(latestFirst) - start
-	out := make([]model2.Kline, n)
-	for i := 0; i < n; i++ {
-		out[i] = latestFirst[len(latestFirst)-1-i] // 最旧 → 最前
-	}
-	return out
-}
+//func ReverseKlines(latestFirst []model2.Kline, period model.KlinePeriod, dropUnclosed bool) []model2.Kline {
+//	if len(latestFirst) == 0 {
+//		return nil
+//	}
+//	tf := periodToDuration(period)
+//	start := 0
+//	if dropUnclosed && isUnclosedBar(latestFirst[0].Timestamp, tf, time.Now()) {
+//		start = 1 // 丢掉正在形成的那根
+//	}
+//	if start >= len(latestFirst) {
+//		return nil
+//	}
+//	// 反转为 从旧到新
+//	n := len(latestFirst) - start
+//	out := make([]model2.Kline, n)
+//	for i := 0; i < n; i++ {
+//		out[i] = latestFirst[len(latestFirst)-1-i] // 最旧 → 最前
+//	}
+//	return out
+//}
 
 func periodToDuration(p model.KlinePeriod) time.Duration {
 	switch p {

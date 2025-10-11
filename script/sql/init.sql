@@ -358,10 +358,12 @@ CREATE TABLE IF NOT EXISTS `signals` (
 
                                          `signal_period` VARCHAR(10) NOT NULL COMMENT '信号产生周期 (e.g., 5m, 15m)',
                                          `entry_price` DECIMAL(15,8) COMMENT '入场价格',
+                                         `mark_price` DECIMAL(15,8) COMMENT 'k线收盘价格，也是计算信号的标价',
                                          `recommended_sl` DECIMAL(15,8) COMMENT '建议止损价格',
                                          `recommended_tp` DECIMAL(15,8) COMMENT '建议止盈价格',
                                          `chart_snapshot_url` VARCHAR(255) COMMENT 'K线图快照URL',
                                          `details_json` JSON COMMENT '存储 HighFreqIndicators 等复杂 JSON 结构',
+                                         `is_premium` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否为精选信号，为付费用户提供',
 
                                          `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
 

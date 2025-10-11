@@ -151,6 +151,8 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 		ExpiryTimestamp: time.Now().Add(15 * time.Minute), // 初始设置 15 分钟有效
 		Timestamp:       last.Timestamp,
 		Details:         details,
+		Score:           score,
+		MarkPrice:       last.Close,
 	}
 
 	return rawSignal, nil

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	model2 "github.com/nntaoli-project/goex/v2/model"
 	"log"
+	"math"
 	"sync"
 	"time"
 )
@@ -122,6 +123,11 @@ func (s *SignalProcessorService) processSingleSymbol(ctx context.Context, symbol
 	passed, reason := s.DecTree.ApplyFilter(rawSignal, latestTrendState)
 	if passed {
 
+		isPremium := false
+		if math.Abs(rawSignal.Score) > 1 && math.Abs(latestTrendState.Scores.Score1h) > 2 && math.Abs(latestTrendState.Scores.Score4h) > 2 {
+			isPremium = true
+		}
+
 		indicatorsJSON, err := json.Marshal(rawSignal.Details.HighFreqIndicators)
 		if err != nil {
 			log.Printf("failed to marshal indicators: %v", err)
@@ -134,7 +140,7 @@ func (s *SignalProcessorService) processSingleSymbol(ctx context.Context, symbol
 			Timestamp:          rawSignal.Timestamp,
 			ExpiryTimestamp:    rawSignal.ExpiryTimestamp,
 			Status:             rawSignal.Status,
-			FinalScore:         rawSignal.Details.FinalScoreUsed,
+			FinalScore:         rawSignal.Score,
 			Explanation:        rawSignal.Details.BasisExplanation,
 			Period:             rawSignal.TimeFrame,
 			RecommendedSL:      rawSignal.Details.RecommendedTP,
@@ -142,6 +148,8 @@ func (s *SignalProcessorService) processSingleSymbol(ctx context.Context, symbol
 			ChartSnapshotURL:   rawSignal.Details.ChartSnapshotURL,
 			HighFreqIndicators: string(indicatorsJSON),
 			EntryPrice:         rawSignal.EntryPrice,
+			MarkPrice:          rawSignal.MarkPrice,
+			IsPremium:          isPremium,
 
 			CreatedAt: time.Now(),
 			TrendSnapshot: &entity.TrendSnapshot{
@@ -171,5 +179,9 @@ func (s *SignalProcessorService) processSingleSymbol(ctx context.Context, symbol
 }
 
 func (s *SignalProcessorService) SignalGetList(ctx context.Context) ([]model22.Signal, error) {
-	return s.SignalRepo.GetSignalList(ctx)
+	return s.SignalRepo.GetAllActiveSignalList(ctx)
+}
+
+func (s *SignalProcessorService) SignalGetDetail(ctx context.Context, signalID int64) (*model22.SignalDetail, error) {
+	return s.SignalRepo.GetSignalDetailByID(ctx, uint(signalID))
 }
