@@ -79,7 +79,7 @@ func (s *Manager) runTrendLoop(ctx context.Context, updateKlineCh <-chan struct{
 			}
 
 			var wg sync.WaitGroup
-			semaphore := make(chan struct{}, 10) // 控制并发数，例如 5 个
+			semaphore := make(chan struct{}, 5) // 控制并发数，例如 5 个
 
 			// 循环并并发处理所有交易对的信号生成和过滤
 			for _, symbol := range symbols {
@@ -157,9 +157,9 @@ func (tm *Manager) generateTrend(symbol string) (state *model3.TrendState, err e
 	//tm.genCSV(symbol, tm.interval, latestFirst)
 
 	// ------------------ 2. 计算各周期指标分数 ------------------
-	s30m, _, indicatorS30m := tm.ScoreForPeriod(m30Klines, model.Kline_30min)
-	s1h, _, indicatorS1h := tm.ScoreForPeriod(h1Klines, model.Kline_1h)
-	s4h, _, indicatorS4h := tm.ScoreForPeriod(h4Klines, model.Kline_4h)
+	s30m, indicatorS30m := tm.ScoreForPeriod(m30Klines, model.Kline_30min)
+	s1h, indicatorS1h := tm.ScoreForPeriod(h1Klines, model.Kline_1h)
+	s4h, indicatorS4h := tm.ScoreForPeriod(h4Klines, model.Kline_4h)
 
 	var indicator = make(map[model.KlinePeriod]model3.IndicatorSnapshot)
 	indicator[model.Kline_30min] = indicatorS30m
@@ -263,11 +263,11 @@ func (tm *Manager) calcTrendScores(s4h, s1h, s30 float64) model3.TrendScores {
 }
 
 // 计算周期趋势分数 -3 ~ +3（方向化 + 抖动抑制）
-func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePeriod) (float64, string, model3.IndicatorSnapshot) {
+func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePeriod) (float64, model3.IndicatorSnapshot) {
 	// 初始化指标快照
 	snapshot := model3.IndicatorSnapshot{}
 	if len(klines) < 200 {
-		return 0, "", snapshot
+		return 0, snapshot
 	}
 
 	n := len(klines)
@@ -434,6 +434,7 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 		MACD:       macdVals[last],
 		MACDSignal: signalVals[last],
 		MACDHist:   histVals[last],
+		Reasons:    strings.Join(reasons, ", "),
 	}
 
 	if score > 3 {
@@ -442,9 +443,8 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 	if score < -3 {
 		score = -3
 	}
-	// === 调试日志 ===
-	logs := fmt.Sprintf("Score=%.2f 详情: %v", score, strings.Join(reasons, ", "))
-	return score, logs, snapshot
+
+	return score, snapshot
 }
 
 // SaveTrendState 存储某一币种的最新趋势状态

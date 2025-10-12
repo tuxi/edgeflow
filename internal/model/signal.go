@@ -11,10 +11,10 @@ type Signal struct {
 	TimeFrame  string  `gorm:"column:signal_period" json:"time_frame"`                   // 5min 或 15min (信号生成周期)
 
 	// 状态和时效性
-	Status          string    `gorm:"column:status" json:"status"`                     // ACTIVE, EXPIRED, EXECUTED
-	IsPremium       bool      `gorm:"column:is_premium" json:"is_premium"`             // 付费信号标识
-	ExpiryTimestamp time.Time `gorm:"column:expiry_timestamp" json:"expiry_timestamp"` // 信号失效时间
-	WinRate         int64     `json:"win_rate"`                                        // 策略胜率，用于展示信任
+	Status          string              `gorm:"column:status" json:"status"`                     // ACTIVE, EXPIRED, EXECUTED
+	IsPremium       bool                `gorm:"column:is_premium" json:"is_premium"`             // 付费信号标识
+	ExpiryTimestamp time.Time           `gorm:"column:expiry_timestamp" json:"expiry_timestamp"` // 信号失效时间
+	Summary         *PerformanceSummary `gorm:"-" json:"summary"`                                // 策略胜率，用于展示信任
 
 	Timestamp time.Time `gorm:"column:timestamp" json:"timestamp"` // k线收盘时间
 }
@@ -24,7 +24,7 @@ func (Signal) TableName() string {
 }
 
 type SignalDetailReq struct {
-	SignalID int64 `json:"signal_id" form:"signal_id"`
+	SignalID string `json:"signal_id" form:"signal_id"`
 }
 
 type SignalDetail struct {
@@ -78,4 +78,21 @@ type TrendSnapshot struct {
 
 func (TrendSnapshot) TableName() string {
 	return "trend_snapshots"
+}
+
+// PerformanceSummary aggregates key performance indicators for a given symbol.
+// PerformanceSummary 聚合了给定交易对的关键绩效指标。
+type PerformanceSummary struct {
+	WinRate            float64 `json:"win_rate"`             // 策略胜率 (0-100%)
+	TotalPnL           float64 `json:"total_pnl"`            // 总收益率 (累加的 FinalPnlPct)
+	TotalClosedSignals int64   `json:"total_closed_signals"` // 总交易笔数
+}
+
+type ActiveSignalsRes struct {
+	Signals []Signal `json:"signals"`
+}
+
+// 信号下单的请求
+type SignalExecutionReq struct {
+	SignalID string `json:"signal_id" form:"signal_id"`
 }

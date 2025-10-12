@@ -14,6 +14,15 @@ type SignalRepository interface {
 	GetActiveSignals(ctx context.Context, symbol string, limit int) ([]entity.Signal, error)
 	// 查找特定ID的信号，并预加载其趋势快照 (用于信号详情页和下单)
 	GetSignalDetailByID(ctx context.Context, id uint) (*model.SignalDetail, error)
+	// 查询信号全部信息
+	GetSignalByID(ctx context.Context, id uint) (*entity.Signal, error)
 	// 获取信号列表
 	GetAllActiveSignalList(ctx context.Context) ([]model.Signal, error)
+
+	// 获取胜率
+	GetSymbolWinRate(ctx context.Context, symbol string) (float64, error)
+	// 计算给定交易对的总收益率百分比（FinalPnlPct 的总和）。
+	GetSymbolTotalPnL(ctx context.Context, symbol string) (float64, error)
+	// 在一次查询中获取交易对的聚合胜率、总收益率和总交易次数。
+	GetSymbolPerformanceSummary(ctx context.Context, symbol string) (*model.PerformanceSummary, error)
 }

@@ -78,13 +78,13 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 		switch res.Name {
 		case "RSI":
 			rsiStrength = res.Strength
-			rsiNow = res.Values["RSI"]
+			rsiNow = res.Values["rsi"]
 		case "MACD":
 			macdNow = res.Values["macd"]
 		case "ADX":
 			adxStrength = res.Strength
-			diPlus = res.Values["DI+"]
-			diMinus = res.Values["DI-"]
+			diPlus = res.Values["di+"]
+			diMinus = res.Values["di-"]
 		}
 
 	}
@@ -133,7 +133,7 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 	rd := NewReversalDetector()
 	rdRes := rd.Calculate(klines)
 	for k, v := range rdRes.Values {
-		allIndicatorValues["Rev_"+k] = v // 将反转指标值带前缀存入
+		allIndicatorValues["rev_"+k] = v // 将反转指标值带前缀存入
 	}
 
 	// --- 4. 综合强度计算 (并存储) ---
@@ -145,25 +145,37 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 	highs, lows := extractHighsLows(klines)
 	closes := extractCloses(klines)
 	atrVal := talib.Atr(highs, lows, closes, 14)
-	atr := atrVal[len(atrVal)-1]
+	// 短期移动平均来平滑 ATR 的最终值
+	// 计算最近 3 到 5 根 K 线 ATR 值的 EMA 或 SMA
+	atrEma3 := talib.Ema(atrVal, 3)
+	// 使用平滑后的 ATR 值作为最终的波动率指标
+	smoothedAtr := atrEma3[len(atrEma3)-1]
+
 	entryPrice := last.Close
 
 	if finalAction == model.CommandBuy {
 		// 开多时（压低一点买入）: 留 20% ATR 的空间
-		entryPrice = last.Close - 0.2*atr
+		entryPrice = last.Close - 0.2*smoothedAtr
 	} else if finalAction == model.CommandSell {
 		// 开空时（抬高一点卖出）: 留 20% ATR 的空间
-		entryPrice = last.Close + 0.2*atr
+		entryPrice = last.Close + 0.2*smoothedAtr
 	}
-	allIndicatorValues["atr"] = atr
+	if finalAction == model.CommandReversalBuy {
+		// 开多时（压低一点买入）: 留 10% ATR 的空间
+		entryPrice = last.Close - 0.1*smoothedAtr
+	} else if finalAction == model.CommandReversalSell {
+		// 开空时（抬高一点卖出）: 留 10% ATR 的空间
+		entryPrice = last.Close + 0.1*smoothedAtr
+	}
+	allIndicatorValues["atr"] = smoothedAtr
 	allIndicatorValues["close"] = last.Close
 
 	// --- 6. 构建 SignalDetails ---
 	details := model.SignalDetails{
 		HighFreqIndicators: allIndicatorValues,
 		BasisExplanation:   sg.createBasisText(finalAction, macdNow, rsiNow),
-		RecommendedSL:      sg.calculateSL(finalAction, entryPrice, atr),
-		RecommendedTP:      sg.calculateTP(finalAction, entryPrice, atr),
+		RecommendedSL:      sg.calculateSL(finalAction, entryPrice, smoothedAtr),
+		RecommendedTP:      sg.calculateTP(finalAction, entryPrice, smoothedAtr),
 	}
 
 	// --- 7. 构建原始信号对象 ---
@@ -198,6 +210,11 @@ func (sg *SignalGenerator) calculateSL(command model.CommandType, entryPrice flo
 	} else if command == model.CommandSell {
 		return entryPrice + 2.0*atr
 	}
+	if command == model.CommandReversalBuy {
+		return entryPrice - 3.0*atr
+	} else if command == model.CommandReversalSell {
+		return entryPrice + 3.0*atr
+	}
 	return 0.0
 }
 
@@ -208,6 +225,11 @@ func (sg *SignalGenerator) calculateTP(command model.CommandType, entryPrice flo
 		return entryPrice + 3.0*atr
 	} else if command == model.CommandSell {
 		return entryPrice - 3.0*atr
+	}
+	if command == model.CommandReversalBuy {
+		return entryPrice + 4.0*atr
+	} else if command == model.CommandReversalSell {
+		return entryPrice - 4.0*atr
 	}
 	return 0.0
 }

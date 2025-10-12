@@ -343,8 +343,8 @@ CREATE TABLE `bill` (
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `signals` (
                                          `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '信号唯一ID (主键)',
-                                         `symbol` VARCHAR(20) NOT NULL COMMENT '交易对 (e.g., BTCUSDT)',
-                                         `command` VARCHAR(10) NOT NULL COMMENT '原始指令 (BUY/SELL)',
+                                         `symbol` VARCHAR(30) NOT NULL COMMENT '交易对 (e.g., BTCUSDT)',
+                                         `command` VARCHAR(20) NOT NULL COMMENT '原始指令 (BUY/SELL)',
     -- 信号核心时间：K线收盘时间
                                          `timestamp` TIMESTAMP NOT NULL COMMENT '信号产生时间 (K线收盘)',
 
@@ -380,7 +380,7 @@ CREATE TABLE IF NOT EXISTS `trend_snapshots` (
 
                                                  `signal_id` BIGINT UNSIGNED NOT NULL COMMENT '关联的信号ID (外键)',
 
-                                                 `symbol` VARCHAR(20) NOT NULL COMMENT '交易对',
+                                                 `symbol` VARCHAR(30) NOT NULL COMMENT '交易对',
 
                                                  `timestamp` TIMESTAMP NOT NULL COMMENT '快照时间',
                                                  `direction` VARCHAR(10) NOT NULL COMMENT '趋势主方向',
@@ -406,3 +406,32 @@ CREATE TABLE IF NOT EXISTS `trend_snapshots` (
                                                  CONSTRAINT `fk_signal_id` FOREIGN KEY (`signal_id`)
                                                      REFERENCES `signals` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='趋势快照和指标数据表';
+
+-- --------------------------------------------------------
+-- 信号模拟结果表 (signal_outcomes) DDL
+-- --------------------------------------------------------
+-- 用于存储每个信号在模拟回测下的最终结果，用于计算历史胜率。
+CREATE TABLE IF NOT EXISTS `signal_outcomes` (
+                                                 `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '结果唯一ID (主键)',
+
+    -- 关联 signals 表的主键
+                                                 `signal_id` BIGINT UNSIGNED NOT NULL UNIQUE COMMENT '关联的信号ID (外键)',
+
+                                                 `symbol` VARCHAR(30) NOT NULL COMMENT '交易对',
+
+                                                 `outcome` VARCHAR(10) NOT NULL COMMENT '模拟结果 (HIT_TP, HIT_SL, EXPIRED)',
+
+    -- 存储 PnL 百分比，例如 4% 盈利记为 0.04，2% 亏损记为 -0.02
+                                                 `final_pnl_pct` DECIMAL(10,4) NOT NULL COMMENT '最终盈亏百分比',
+
+                                                 `candles_used` INT UNSIGNED NOT NULL COMMENT '达到结果所消耗的K线数量',
+                                                 `closed_at` TIMESTAMP NOT NULL COMMENT '平仓时间 (即触及TP/SL或过期的时间)',
+
+                                                 `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+                                                 PRIMARY KEY (`id`),
+                                                 UNIQUE KEY `uk_signal_id_outcome` (`signal_id`),
+    -- 外键约束:
+                                                FOREIGN KEY (`signal_id`) REFERENCES `signals`(`id`),
+                                                 INDEX `idx_symbol_outcome` (`symbol`, `outcome`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='信号模拟结果表';

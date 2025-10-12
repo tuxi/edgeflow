@@ -6,8 +6,16 @@ import (
 	"math"
 )
 
+// 指标结果
+type IndicatorResult struct {
+	Name     string
+	Values   map[string]float64
+	Signal   string  // "buy", "sell", "hold"
+	Strength float64 // 指标强度0～1
+}
+
 type Indicator interface {
-	Calculate([]model.Kline) model.IndicatorResult
+	Calculate([]model.Kline) IndicatorResult
 }
 
 // ========== EMA 指标 ==========
@@ -18,10 +26,10 @@ type EMAIndicator struct {
 	TrendPeriod int // 新增：用于多头/空头排列的第三条均线周期
 }
 
-func (e *EMAIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
+func (e *EMAIndicator) Calculate(klines []model.Kline) IndicatorResult {
 	closes := extractCloses(klines)
 	if len(closes) < e.SlowPeriod {
-		return model.IndicatorResult{Name: "EMA", Signal: "hold"}
+		return IndicatorResult{Name: "EMA", Signal: "hold"}
 	}
 
 	fastEMA := talib.Ema(closes, e.FastPeriod)
@@ -52,9 +60,9 @@ func (e *EMAIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
 	last := klines[len(klines)-1]
 	diff := fast - slow
 	strength := diff / last.Close
-	return model.IndicatorResult{
+	return IndicatorResult{
 		Name:     "EMA",
-		Values:   map[string]float64{"fast": fast, "slow": slow, "trend": trend},
+		Values:   map[string]float64{"ema_fast": fast, "ema_slow": slow, "ema_trend": trend},
 		Signal:   signal,
 		Strength: strength,
 	}
@@ -68,10 +76,10 @@ type MACDIndicator struct {
 	SignalPeriod int
 }
 
-func (m *MACDIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
+func (m *MACDIndicator) Calculate(klines []model.Kline) IndicatorResult {
 	closes := extractCloses(klines)
 	if len(closes) < m.SlowPeriod {
-		return model.IndicatorResult{Name: "MACD", Signal: "hold"}
+		return IndicatorResult{Name: "MACD", Signal: "hold"}
 	}
 
 	macd, signalLine, hist := talib.Macd(closes, m.FastPeriod, m.SlowPeriod, m.SignalPeriod)
@@ -97,9 +105,9 @@ func (m *MACDIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
 		}
 	}
 
-	return model.IndicatorResult{
+	return IndicatorResult{
 		Name:   "MACD",
-		Values: map[string]float64{"macd": lastMacd, "signal": lastSignal, "hist": lastHist},
+		Values: map[string]float64{"macd": lastMacd, "macd_signal": lastSignal, "macd_hist": lastHist},
 		Signal: signal,
 	}
 }
@@ -112,10 +120,10 @@ type RSIIndicator struct {
 	Sell   float64 // 超买 适合开空或者减仓空头
 }
 
-func (r *RSIIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
+func (r *RSIIndicator) Calculate(klines []model.Kline) IndicatorResult {
 	closes := extractCloses(klines)
 	if len(closes) < r.Period {
-		return model.IndicatorResult{Name: "RSI", Signal: "hold"}
+		return IndicatorResult{Name: "rsi", Signal: "hold"}
 	}
 
 	rsiArr := talib.Rsi(closes, r.Period)
@@ -128,9 +136,9 @@ func (r *RSIIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
 		signal = "sell"
 	}
 	rsiStrength := math.Abs(lastRsi-50) / 50
-	return model.IndicatorResult{
+	return IndicatorResult{
 		Name:     "RSI",
-		Values:   map[string]float64{"RSI": lastRsi},
+		Values:   map[string]float64{"rsi": lastRsi},
 		Signal:   signal,
 		Strength: rsiStrength,
 	}
@@ -145,7 +153,7 @@ func NewReversalDetector() *ReversalDetector {
 	return &ReversalDetector{Name: "ReversalDetector"}
 }
 
-func (r *ReversalDetector) Calculate(klines []model.Kline) model.IndicatorResult {
+func (r *ReversalDetector) Calculate(klines []model.Kline) IndicatorResult {
 	closes := make([]float64, len(klines))
 	highs := make([]float64, len(klines))
 	lows := make([]float64, len(klines))
@@ -213,19 +221,19 @@ func (r *ReversalDetector) Calculate(klines []model.Kline) model.IndicatorResult
 		strength = 1.0
 	}
 
-	return model.IndicatorResult{
+	return IndicatorResult{
 		Name:   r.Name,
 		Signal: action,
 		Values: map[string]float64{
-			"RSI":     lastRSI,
-			"MACD":    lastMACD,
-			"MACDsig": lastSignal,
-			"Upper":   lastUpper,
-			"Middle":  lastMiddle,
-			"Lower":   lastLower,
-			"Price":   lastPrice,
-			"K":       lastK,
-			"D":       lastD,
+			"rsi":        lastRSI,
+			"macd":       lastMACD,
+			"macd_sig":   lastSignal,
+			"upper":      lastUpper,
+			"middle":     lastMiddle,
+			"lower":      lastLower,
+			"last_price": lastPrice,
+			"k_val":      lastK,
+			"d_val":      lastD,
 		},
 		Strength: strength,
 	}
@@ -245,12 +253,12 @@ func NewADXIndicator() *ADXIndicator {
 }
 
 // ADX 指标应该只返回 强度，而 不返回 Buy/Sell 信号。如果非要返回信号，它应该返回“Trend_Strong”或“Trend_Weak”，并把 DI+ 和 DI− 的值添加到 Values 中，让聚合器根据 DI+ 和 DI− 的交叉来判断方向。
-func (a *ADXIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
+func (a *ADXIndicator) Calculate(klines []model.Kline) IndicatorResult {
 	highs, lows := extractHighsLows(klines)
 	closes := extractCloses(klines)
 
 	if len(klines) < a.Period {
-		return model.IndicatorResult{Name: a.Name, Signal: "weak_trend"}
+		return IndicatorResult{Name: a.Name, Signal: "weak_trend"}
 	}
 
 	adxValues := talib.Adx(highs, lows, closes, a.Period)
@@ -277,10 +285,10 @@ func (a *ADXIndicator) Calculate(klines []model.Kline) model.IndicatorResult {
 		strength = 1.0
 	}
 
-	return model.IndicatorResult{
+	return IndicatorResult{
 		Name:     a.Name,
 		Signal:   signal,
-		Values:   map[string]float64{"ADX": lastADX, "DI+": lastDIPlus, "DI-": lastDIMinus}, // 导出 DI+ 和 DI-
+		Values:   map[string]float64{"adx": lastADX, "di+": lastDIPlus, "di-": lastDIMinus}, // 导出 DI+ 和 DI-
 		Strength: strength,
 	}
 }

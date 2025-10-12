@@ -13,6 +13,7 @@ import (
 	"edgeflow/internal/router"
 	"edgeflow/internal/service"
 	signal2 "edgeflow/internal/service/signal"
+	"edgeflow/internal/service/signal/backtest"
 	"edgeflow/internal/service/signal/kline"
 	"edgeflow/internal/service/signal/model"
 	"edgeflow/internal/service/signal/trend"
@@ -42,7 +43,8 @@ func InitRouter(db *gorm.DB) Router {
 	symbolMgr := model.NewSymbolManager(symbols)
 	tm := trend.NewManager(okxEx, klineMgr, symbolMgr)
 	signalDao := query.NewSignalDao(db)
-	signalService := signal2.NewService(tm, signalDao, klineMgr, symbolMgr)
+	signalTracker := backtest.NewSignalTracker(10, signalDao)
+	signalService := signal2.NewService(tm, signalDao, klineMgr, symbolMgr, signalTracker)
 
 	// Trend Manager 的输入通道 (由 Kline Manager 触发)
 	trendInputCh := make(chan struct{}, 1)
@@ -103,7 +105,7 @@ func InitRouter(db *gorm.DB) Router {
 
 	userHandler := user.NewUserHandler(userService, deviceService)
 
-	signalHandler := signal3.NewSignalHandler(signalService)
+	signalHandler := signal3.NewSignalHandler(signalService, okxEx)
 
 	apiRouter := router.NewApiRouter(coinH, marketHandler, hyperHandler, userHandler, signalHandler)
 

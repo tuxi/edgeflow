@@ -2,8 +2,10 @@ package signal
 
 import (
 	"context"
+	"edgeflow/internal/exchange"
 	model22 "edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
+	"edgeflow/internal/service/signal/backtest"
 	"edgeflow/internal/service/signal/decision_tree"
 	"edgeflow/internal/service/signal/indicator"
 	"edgeflow/internal/service/signal/kline"
@@ -29,7 +31,8 @@ type SignalProcessorService struct {
 
 	KlineMgr *kline.KlineManager
 
-	SymbolMgr *model.SymbolManager ``
+	SymbolMgr     *model.SymbolManager
+	signalTracker *backtest.SignalTracker
 }
 
 func NewService(
@@ -37,14 +40,17 @@ func NewService(
 	signalRepo repository.SignalRepository,
 	KlineMgr *kline.KlineManager,
 	symbolMgr *model.SymbolManager,
+	signalTracker *backtest.SignalTracker,
+
 ) *SignalProcessorService {
 	return &SignalProcessorService{
-		TrendRepo:  trendRepo,
-		SignalRepo: signalRepo,
-		signalGen:  indicator.NewSignalGenerator(model2.Kline_15min),
-		DecTree:    decision_tree.NewDecisionTree(2.0, 1.0),
-		SymbolMgr:  symbolMgr,
-		KlineMgr:   KlineMgr,
+		TrendRepo:     trendRepo,
+		SignalRepo:    signalRepo,
+		signalGen:     indicator.NewSignalGenerator(model2.Kline_15min),
+		DecTree:       decision_tree.NewDecisionTree(2.0, 1.0),
+		SymbolMgr:     symbolMgr,
+		KlineMgr:      KlineMgr,
+		signalTracker: signalTracker,
 	}
 }
 
@@ -73,7 +79,7 @@ func (s *SignalProcessorService) runSignalLoop(ctx context.Context, updateKlineC
 			}
 
 			var wg sync.WaitGroup
-			semaphore := make(chan struct{}, 10) // 控制并发数，例如 5 个
+			semaphore := make(chan struct{}, 5) // 控制并发数，例如 5 个
 
 			// 循环并并发处理所有交易对的信号生成和过滤
 			for _, symbol := range symbols {
@@ -98,6 +104,10 @@ func (s *SignalProcessorService) processSingleSymbol(ctx context.Context, symbol
 
 	// Step 1: 获取 K线
 	klines15m, ok := s.KlineMgr.Get(symbol, s.signalGen.TimeFrame)
+
+	// 处理k线数据，分析信号盈亏
+	s.signalTracker.ProcessKlines(symbol, klines15m)
+
 	if !ok || len(klines15m) < 200 {
 		fmt.Println("警告：无法获取足够的 15m K线数据，跳过本次信号生成。")
 		return
@@ -143,8 +153,8 @@ func (s *SignalProcessorService) processSingleSymbol(ctx context.Context, symbol
 			FinalScore:         rawSignal.Score,
 			Explanation:        rawSignal.Details.BasisExplanation,
 			Period:             rawSignal.TimeFrame,
-			RecommendedSL:      rawSignal.Details.RecommendedTP,
-			RecommendedTP:      rawSignal.Details.RecommendedSL,
+			RecommendedSL:      rawSignal.Details.RecommendedSL,
+			RecommendedTP:      rawSignal.Details.RecommendedTP,
 			ChartSnapshotURL:   rawSignal.Details.ChartSnapshotURL,
 			HighFreqIndicators: string(indicatorsJSON),
 			EntryPrice:         rawSignal.EntryPrice,
@@ -172,6 +182,18 @@ func (s *SignalProcessorService) processSingleSymbol(ctx context.Context, symbol
 		if err != nil {
 			fmt.Printf("【致命错误】信号保存到数据库失败: %v\n", err)
 		} else {
+			s.signalTracker.AddSignal(&backtest.ActiveSignal{
+				ID:              sg.ID,
+				Symbol:          sg.Symbol,
+				EntryPrice:      sg.EntryPrice,
+				EntryTime:       sg.Timestamp,
+				IsLong:          sg.Command == "BUY",
+				TPPrice:         sg.RecommendedTP,
+				SLPrice:         sg.RecommendedSL,
+				Klines:          klines15m,
+				InitKlinesCount: len(klines15m),
+			})
+
 			fmt.Printf("【✅ 信号通过】%s 最终指令：%s。原因：%s\n", symbol, rawSignal.Command, reason)
 			// 推送到 MQ
 		}
@@ -181,9 +203,72 @@ func (s *SignalProcessorService) processSingleSymbol(ctx context.Context, symbol
 }
 
 func (s *SignalProcessorService) SignalGetList(ctx context.Context) ([]model22.Signal, error) {
-	return s.SignalRepo.GetAllActiveSignalList(ctx)
+	signals, err := s.SignalRepo.GetAllActiveSignalList(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, item := range signals {
+		summary, err := s.SignalRepo.GetSymbolPerformanceSummary(ctx, item.Symbol)
+		if err != nil {
+			continue
+		}
+		item.Summary = summary
+		signals[i] = item
+	}
+
+	return signals, nil
 }
 
 func (s *SignalProcessorService) SignalGetDetail(ctx context.Context, signalID int64) (*model22.SignalDetail, error) {
 	return s.SignalRepo.GetSignalDetailByID(ctx, uint(signalID))
+}
+
+func (s *SignalProcessorService) ExecuteOrder(ctx context.Context, signalID int64, ex exchange.Exchange) error {
+	// 查询信号
+	signal, err := s.SignalRepo.GetSignalByID(ctx, uint(signalID))
+	if err != nil {
+		return err
+	}
+
+	var side model22.OrderSide
+	switch signal.Command {
+	case "BUY", "REVERSAL_BUY":
+		side = model22.Buy
+	case "SELL", "REVERSAL_SELL":
+		side = model22.Sell
+	}
+
+	//if req.OrderType == "market" {
+	//	// 可考虑调用市场价格作为 fallback
+	//	price, err := t.Exchange.GetLastPrice(req.Symbol, tradeType)
+	//	if err != nil {
+	//		return err
+	//	}
+	//	req.Price = price
+	//}
+
+	order := model22.Order{
+		Symbol:      signal.Symbol,
+		Side:        side,
+		Price:       signal.EntryPrice,
+		Quantity:    0,
+		OrderType:   model22.Limit,
+		TPPrice:     signal.RecommendedTP,
+		SLPrice:     signal.RecommendedSL,
+		Strategy:    fmt.Sprintf("%v - %v", signal.Symbol, signal.Period),
+		Comment:     "",
+		TradeType:   model22.OrderTradeSwap,
+		MgnMode:     model22.OrderMgnModeIsolated,
+		Leverage:    5,
+		QuantityPct: 0.2,
+		Level:       3,
+		Timestamp:   time.Now(),
+	}
+	_, err = ex.PlaceOrder(ctx, &order)
+
+	if err != nil {
+		return err
+	}
+	return nil
 }

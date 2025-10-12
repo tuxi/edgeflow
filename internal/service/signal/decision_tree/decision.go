@@ -46,7 +46,7 @@ func (dt *DecisionTree) ApplyFilter(
 
 		// 动能抑制检查：如果 ADX 低于 20.0，判定为横盘/震荡，避免假信号、拒绝趋势信号
 		const MAX_ADX_FOR_TREND_ENTRY = 20.0
-		adx15m := rawSignal.Details.HighFreqIndicators["ADX"]
+		adx15m := rawSignal.Details.HighFreqIndicators["adx"]
 		if adx15m < MAX_ADX_FOR_TREND_ENTRY {
 			return false, fmt.Sprintf("Trend Follow REJECTED: ADX (%.2f) is too low. Market is consolidating.", adx15m)
 		}
@@ -54,7 +54,7 @@ func (dt *DecisionTree) ApplyFilter(
 		// 我们不允许在强烈逆势中跟随趋势（例如，4H 趋势强烈看跌，但 15M 给了 BUY 信号）
 		const MAX_COUNTER_TREND_SCORE = -2.0 // 4H 周期允许的最大逆势分数
 
-		// 信号爆炸性分数门槛：超过此分数（例如 4.0），则允许覆盖 4H 周期惯性。
+		// 信号爆炸性分数门槛：超过此分数（例如 4.0，最大5），则允许覆盖 4H 周期惯性。
 		const EXPLOSIVE_SCORE_OVERRIDE = 4.0
 		// 检查 4H 周期是否过于强势地逆向
 		isOverridden := false
@@ -64,32 +64,32 @@ func (dt *DecisionTree) ApplyFilter(
 			// 检查是否达到爆炸性分数：Score >= 4.0
 			if rawSignal.Score >= EXPLOSIVE_SCORE_OVERRIDE {
 				isOverridden = true
-			} else if trendState.Scores.Score4h < MAX_COUNTER_TREND_SCORE {
+			} else if trendState.Scores.TrendScore < MAX_COUNTER_TREND_SCORE {
 				// 只有在非爆炸性情况下，才执行正常的 4H 逆势检查
-				return false, fmt.Sprintf("Trend Follow BUY rejected: 4H score is too bearish (%.2f < %.2f).", trendState.Scores.Score4h, MAX_COUNTER_TREND_SCORE)
+				return false, fmt.Sprintf("Trend Follow BUY rejected: trend score is too bearish (%.2f < %.2f).", trendState.Scores.Score4h, MAX_COUNTER_TREND_SCORE)
 			}
 		} else if rawSignal.Command == model.CommandSell {
 			// 检查是否达到爆炸性分数：Score <= -4.0
 			if rawSignal.Score <= -EXPLOSIVE_SCORE_OVERRIDE {
 				isOverridden = true
-			} else if trendState.Scores.Score4h > math.Abs(MAX_COUNTER_TREND_SCORE) {
-				return false, fmt.Sprintf("Trend Follow SELL rejected: 4H score is too bullish (%.2f > %.2f).", trendState.Scores.Score4h, math.Abs(MAX_COUNTER_TREND_SCORE))
+			} else if trendState.Scores.TrendScore > math.Abs(MAX_COUNTER_TREND_SCORE) {
+				return false, fmt.Sprintf("Trend Follow SELL rejected: trend score is too bullish (%.2f > %.2f).", trendState.Scores.Score4h, math.Abs(MAX_COUNTER_TREND_SCORE))
 			}
 		}
 
 		if isOverridden {
 			// 记录覆盖行为，但继续执行 1H 检查，确保风险可控。
-			fmt.Printf("[INFO] Explosive Signal Override: %s (Score %.2f) bypassed 4H check (Score %.2f).\n", rawSignal.Command, rawSignal.Score, trendState.Scores.Score4h)
+			fmt.Printf("[INFO] Explosive Signal Override: %s (Score %.2f) bypassed trend check (Score %.2f).\n", rawSignal.Command, rawSignal.Score, trendState.Scores.Score4h)
 		}
 
-		// 2.2. 额外的安全检查：确保 1H 周期至少不强烈逆向
-		// 我们要求 1H 至少是中性偏向（例如，BUY 信号要求 1H score >= -1.0）
-		const MIN_ALIGNED_SCORE_1H = -1.5
-		if rawSignal.Command == model.CommandBuy && trendState.Scores.Score1h < MIN_ALIGNED_SCORE_1H {
-			return false, fmt.Sprintf("Trend Follow BUY rejected: 1H score is too low (%.2f).", trendState.Scores.Score1h)
+		// ********** 2.2. 额外的安全检查：确保 30M 周期至少不强烈逆向 **********
+		// 确保 30M 周期至少不是强劲的逆向动能 (MIN_ALIGNED_SCORE_30M = -1.5)
+		const MIN_ALIGNED_SCORE_30M = -1.5
+		if rawSignal.Command == model.CommandBuy && trendState.Scores.Score30m < MIN_ALIGNED_SCORE_30M {
+			return false, fmt.Sprintf("Trend Follow BUY rejected: 30M score is too low (%.2f). Requires at least %.2f.", trendState.Scores.Score30m, MIN_ALIGNED_SCORE_30M)
 		}
-		if rawSignal.Command == model.CommandSell && trendState.Scores.Score1h > math.Abs(MIN_ALIGNED_SCORE_1H) {
-			return false, fmt.Sprintf("Trend Follow SELL rejected: 1H score is too high (%.2f).", trendState.Scores.Score1h)
+		if rawSignal.Command == model.CommandSell && trendState.Scores.Score30m > math.Abs(MIN_ALIGNED_SCORE_30M) {
+			return false, fmt.Sprintf("Trend Follow SELL rejected: 30M score is too high (%.2f). Requires at most %.2f.", trendState.Scores.Score30m, math.Abs(MIN_ALIGNED_SCORE_30M))
 		}
 
 		return dt.finalizeSignal(rawSignal, trendState, "Trend Follow signal approved, aligned with higher timeframes.")

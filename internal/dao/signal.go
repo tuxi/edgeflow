@@ -14,6 +14,15 @@ type SignalDao interface {
 	GetActiveSignals(ctx context.Context, symbol string, limit int) ([]entity.Signal, error)
 	// 查找特定ID的信号，并预加载其趋势快照 (用于信号详情页和下单)
 	GetSignalDetailByID(ctx context.Context, id uint) (*model.SignalDetail, error)
+	GetSignalByID(ctx context.Context, id uint) (*entity.Signal, error)
 	// 获取信号列表
 	GetAllActiveSignalList(ctx context.Context) ([]model.Signal, error)
+
+	// 保存一个信号的盈亏
+	SaveSignalOutcome(ctx context.Context, outcome *entity.SignalOutcome) error
+	// GetSymbolWinRate 计算给定交易对的历史策略胜率 (盈亏率百分比)。
+	GetSymbolWinRate(ctx context.Context, symbol string) (float64, error)
+	// 计算给定交易对的总收益率百分比（FinalPnlPct 的总和）。
+	GetSymbolTotalPnL(ctx context.Context, symbol string) (float64, error)
+	GetSymbolPerformanceSummary(ctx context.Context, symbol string) (*model.PerformanceSummary, error)
 }

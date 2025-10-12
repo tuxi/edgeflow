@@ -102,6 +102,7 @@ type IndicatorSnapshot struct {
 	MACD       float64 `json:"macd"`        // MACD Line
 	MACDSignal float64 `json:"macd_signal"` // MACD Signal Line
 	MACDHist   float64 `json:"macd_hist"`   // MACD Histogram
+	Reasons    string  `json:"reasons"`
 }
 
 // TransformSnapshotsToJSONMap 将 map[KlinePeriod]IndicatorSnapshot 转换为 GORM JSON 字段所需格式。

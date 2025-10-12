@@ -27,7 +27,7 @@ type TrendScores struct {
 	Score1h  float64 `json:"score_1h"`
 	Score4h  float64 `json:"score_4h"`
 
-	// 子趋势分数 (方便复盘你的 calcTrendScores 内部逻辑)
+	// 长趋势分数 ( calcTrendScores 内部逻辑)
 	TrendScore float64 `json:"trend_score"` // 4h/1h 长期趋势分数（固定权重）
 }
 

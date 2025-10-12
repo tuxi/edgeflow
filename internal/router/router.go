@@ -57,6 +57,7 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 	{
 		sg.GET("/list", api.signalHandler.SignalGetList())
 		sg.GET("/detail", api.signalHandler.GetSignalDetailByID())
+		sg.POST("/execute", api.signalHandler.ExecuteSignal())
 	}
 
 	u := base.Group("/user", middleware.AuthToken())
