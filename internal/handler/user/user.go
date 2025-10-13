@@ -522,15 +522,6 @@ func (handler *UserHandler) UserPasswordReset() gin.HandlerFunc {
 	}
 }
 
-// @Summary		获取当前用户的邀请链接
-// @title			Swagger API
-// @version		1.0
-// @description	获取当前用户的邀请链接
-// @Produce		application/json
-// @Param			Authorization	header		string				false	"Bearer 用户令牌"
-// @Param			object	body		true	"查询参数"
-// @Success		200				{object}	response.ApiResponse{data=model.UserInviteLinkRes}
-// @Router			/api/v1/user/invitelink [post]
 func (handler *UserHandler) UserInviteLinkGet() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		res, err := handler.service.UserInviteLinkGet(ctx)
