@@ -36,7 +36,7 @@ func (s *Server) Run(rs ...Router) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	// 设置gin启动模式，必须在创建gin实例之前
-	//gin.SetMode(s.config.Mode)
+	gin.SetMode(s.config.Mode)
 	g := gin.New()
 	s.routerLoad(g, rs...)
 	// gin validator替换
