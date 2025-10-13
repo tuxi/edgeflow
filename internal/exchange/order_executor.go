@@ -32,7 +32,7 @@ type Exchange interface {
 		    0,                // since=0 表示最新
 		)
 	*/
-	GetKlineRecords(symbol string, period model2.KlinePeriod, size, since int, tradeType model.OrderTradeType, dropUnclosed bool) ([]model.Kline, error)
+	GetKlineRecords(symbol string, period model2.KlinePeriod, size int, start, end int64, tradeType model.OrderTradeType) ([]model.Kline, error)
 }
 
 // Account 账号结构接口

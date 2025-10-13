@@ -27,5 +27,5 @@ type Bill struct {
 }
 
 func (Bill) TableName() string {
-	return "public.bill"
+	return "bill"
 }

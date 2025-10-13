@@ -221,7 +221,44 @@ func (s *SignalProcessorService) SignalGetList(ctx context.Context) ([]model22.S
 }
 
 func (s *SignalProcessorService) SignalGetDetail(ctx context.Context, signalID int64) (*model22.SignalDetail, error) {
-	return s.SignalRepo.GetSignalDetailByID(ctx, uint(signalID))
+	detail, err := s.SignalRepo.GetSignalDetailByID(ctx, uint(signalID))
+	if err != nil {
+		return nil, err
+	}
+
+	// 192 是48个小时的15分钟k线数量
+	start, end := calcKlineTimeRange(detail.Timestamp, 15, 192, time.Now())
+	klines, err := s.KlineMgr.FetchKlines(detail.Symbol, start, end, 192, model2.Kline_15min, model22.OrderTradeSwap)
+	if err == nil {
+		detail.Klines = klines
+	}
+	return detail, nil
+}
+
+func calcKlineTimeRange(signalTime time.Time, periodMinutes int, count int, latestTime time.Time) (startTimeMs, endTimeMs int64) {
+	periodSec := int64(periodMinutes * 60)
+	signalUnix := signalTime.Unix()
+	latestUnix := latestTime.Unix()
+
+	// 默认：信号居中
+	halfCount := count / 2
+	startTime := signalUnix - int64(halfCount)*periodSec
+	endTime := signalUnix + int64(halfCount)*periodSec
+
+	// ✅ 如果信号靠近最新（比如距离最新时间少于 halfCount 根K线）
+	if endTime > latestUnix {
+		endTime = latestUnix
+		startTime = endTime - int64(count)*periodSec
+	}
+
+	// ✅ 防止时间为负（极端情况）
+	if startTime < 0 {
+		startTime = 0
+	}
+
+	startTimeMs = startTime * 1000
+	endTimeMs = endTime * 1000
+	return
 }
 
 func (s *SignalProcessorService) ExecuteOrder(ctx context.Context, signalID int64, ex exchange.Exchange) error {

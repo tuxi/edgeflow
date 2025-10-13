@@ -21,7 +21,7 @@ type DeviceToken struct {
 }
 
 func (DeviceToken) TableName() string {
-	return "public.devicetoken"
+	return "devicetoken"
 }
 
 // 通过UserDevice表关联User表和DeviceToken表，而不让User和DeviceToken直接关联，要实现无用户登陆的推送
@@ -48,7 +48,7 @@ type UserDevice struct {
 }
 
 func (UserDevice) TableName() string {
-	return "public.userdevice"
+	return "userdevice"
 }
 
 type Device struct {
@@ -96,7 +96,7 @@ type Device struct {
 }
 
 func (Device) TableName() string {
-	return "public.device"
+	return "device"
 }
 
 // 客户端版本
@@ -117,7 +117,7 @@ type Version struct {
 }
 
 func (Version) TableName() string {
-	return "public.version"
+	return "version"
 }
 
 func (ud *UserDevice) UserDeviceEncrypt(payload interface{}) (s, n, content string, er error) {

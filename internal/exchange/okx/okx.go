@@ -24,7 +24,7 @@ type OkxService interface {
 	GetLastPrice(symbol string) (float64, error)
 	GetExchangeInfo() (map[string]model.CurrencyPair, []byte, error)
 	AmendAlgoOrder(instId string, algoId string, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx float64) ([]byte, error)
-	GetKlineRecords(symbol string, period model.KlinePeriod, size, since int) ([]model2.Kline, error)
+	GetKlineRecords(symbol string, period model.KlinePeriod, size int, start, end int64) ([]model2.Kline, error)
 }
 
 // OKX 三种交易的基础结构：swap、future、spot
@@ -152,7 +152,7 @@ func (e *Okx) GetExchangeInfo() (map[string]model.CurrencyPair, []byte, error) {
 	return info, data, err
 }
 
-func (e *Okx) GetKlineRecords(symbol string, period model.KlinePeriod, size, since int) ([]model2.Kline, error) {
+func (e *Okx) GetKlineRecords(symbol string, period model.KlinePeriod, size int, start, end int64) ([]model2.Kline, error) {
 	pair, err := e.toCurrencyPair(symbol)
 	if err != nil {
 		return nil, err
@@ -163,6 +163,18 @@ func (e *Okx) GetKlineRecords(symbol string, period model.KlinePeriod, size, sin
 		opts = append(opts, model.OptionParameter{
 			Key:   "limit",
 			Value: strconv.Itoa(size),
+		})
+	}
+	if start > 0 {
+		opts = append(opts, model.OptionParameter{
+			Key:   "before",
+			Value: fmt.Sprintf("%v", start),
+		})
+	}
+	if end > 0 {
+		opts = append(opts, model.OptionParameter{
+			Key:   "after",
+			Value: fmt.Sprintf("%v", end),
 		})
 	}
 	info, _, err := e.getPub().GetKline(pair, period, opts...)

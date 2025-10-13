@@ -141,13 +141,12 @@ type PositionInfo struct {
 //}
 
 type Kline struct {
-	//Pair      CurrencyPair `json:"pair"`
-	Timestamp time.Time `json:"t"`
-	Open      float64   `json:"o"`
-	Close     float64   `json:"s"`
-	High      float64   `json:"h"`
-	Low       float64   `json:"l"`
-	Vol       float64   `json:"v"`
+	Timestamp time.Time `json:"time"`
+	Open      float64   `json:"open"`
+	Close     float64   `json:"close"`
+	High      float64   `json:"high"`
+	Low       float64   `json:"low"`
+	Vol       float64   `json:"vol"`
 }
 
 // 指标结果

@@ -29,7 +29,7 @@ type User struct {
 }
 
 func (User) TableName() string {
-	return "public.user"
+	return "user"
 }
 
 // 角色订阅
@@ -46,7 +46,7 @@ type SubscribeProduct struct {
 }
 
 func (SubscribeProduct) TableName() string {
-	return "public.subscribeproduct"
+	return "subscribeproduct"
 }
 
 // 关联订阅和用户之间的关系
@@ -66,7 +66,7 @@ type UserSubscriptions struct {
 }
 
 func (UserSubscriptions) TableName() string {
-	return "public.usersubscriptions"
+	return "usersubscriptions"
 }
 
 func (s *UserSubscriptions) IsExpired() bool {

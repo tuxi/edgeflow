@@ -12,5 +12,5 @@ type Invite struct {
 }
 
 func (Invite) TableName() string {
-	return "public.invite"
+	return "invite"
 }

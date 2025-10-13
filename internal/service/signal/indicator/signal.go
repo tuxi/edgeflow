@@ -3,8 +3,8 @@ package indicator
 import (
 	model2 "edgeflow/internal/model"
 	"edgeflow/internal/service/signal/model"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/markcheno/go-talib"
 	model3 "github.com/nntaoli-project/goex/v2/model"
 	"math"
@@ -51,13 +51,16 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 	// 用于强度计算的变量和 Basis 文本所需的指标
 	var rsiStrength, adxStrength float64
 	var diPlus, diMinus float64
-	var macdNow, rsiNow float64 // 用于 Basis 文本
+	var rsiNow float64                                                           // 用于 Basis 文本
+	var totalRationale = make(map[string]IndicatorRationale, len(sg.Indicators)) // 用于存储所有指标的依据文本
 
 	// --- 1. 指标计算与加权评分 ---
 	for _, ind := range sg.Indicators {
 		res := ind.Calculate(klines)
 
 		weight := sg.Weights[res.Name]
+		// 收集每个指标的依据文本
+		totalRationale[ind.GetName()] = res.Rationale
 
 		switch res.Signal {
 		case "buy", "strong_trend":
@@ -79,14 +82,21 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 		case "RSI":
 			rsiStrength = res.Strength
 			rsiNow = res.Values["rsi"]
-		case "MACD":
-			macdNow = res.Values["macd"]
+		//case "MACD":
+		//macdNow = res.Values["macd"]
 		case "ADX":
 			adxStrength = res.Strength
 			diPlus = res.Values["di+"]
 			diMinus = res.Values["di-"]
 		}
 
+	}
+
+	// 信号依据详情
+	totalRationaleJson, err := json.Marshal(totalRationale)
+	var finalRationale string
+	if err == nil {
+		finalRationale = string(totalRationaleJson)
 	}
 
 	// --- 2. 最终方向判断（Command） ---
@@ -173,7 +183,7 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 	// --- 6. 构建 SignalDetails ---
 	details := model.SignalDetails{
 		HighFreqIndicators: allIndicatorValues,
-		BasisExplanation:   sg.createBasisText(finalAction, macdNow, rsiNow),
+		BasisExplanation:   finalRationale,
 		RecommendedSL:      sg.calculateSL(finalAction, entryPrice, smoothedAtr),
 		RecommendedTP:      sg.calculateTP(finalAction, entryPrice, smoothedAtr),
 	}
@@ -196,11 +206,6 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 }
 
 // --- 辅助函数：根据新的信号结构所需添加 ---
-
-// createBasisText 生成信号依据的解释文本（占位符实现）
-func (sg *SignalGenerator) createBasisText(command model.CommandType, macd float64, rsi float64) string {
-	return fmt.Sprintf("基于加权投票机制，最终信号为 %s。MACD (%.2f) 和 RSI (%.2f) 作为动量和超买超卖辅助确认，且 ADX 趋势强度适中。", command, macd, rsi)
-}
 
 // calculateSL 计算推荐止损（占位符实现）
 func (sg *SignalGenerator) calculateSL(command model.CommandType, entryPrice float64, atr float64) float64 {

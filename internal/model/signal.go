@@ -30,6 +30,10 @@ type SignalDetailReq struct {
 type SignalDetail struct {
 	ID int64 `gorm:"column:id" json:"signal_id"` // 唯一的信号 ID
 
+	Symbol string `gorm:"column:symbol" json:"symbol"`
+
+	Timestamp time.Time `gorm:"column:timestamp" json:"timestamp"` // k线收盘时间
+
 	FinalScore  float64 `gorm:"column:final_score;type:decimal(5,2);not null" json:"final_score"` // 信号分数
 	Explanation string  `gorm:"type:text" json:"explanation"`
 
@@ -47,6 +51,8 @@ type SignalDetail struct {
 
 	// GORM 关联：使用 SignalID 关联到 TrendSnapshot (关键点)
 	TrendSnapshot *TrendSnapshot `gorm:"foreignKey:SignalID;references:ID" json:"trend_snapshot"`
+
+	Klines []Kline `gorm:"-" json:"klines"`
 }
 
 func (SignalDetail) TableName() string {

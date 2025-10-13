@@ -47,5 +47,5 @@ type UserLog struct {
 }
 
 func (UserLog) TableName() string {
-	return "public.userlog"
+	return "userlog"
 }

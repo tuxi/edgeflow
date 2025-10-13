@@ -2,20 +2,28 @@ package indicator
 
 import (
 	"edgeflow/internal/model"
+	"fmt"
 	"github.com/markcheno/go-talib"
 	"math"
 )
 
+type IndicatorRationale struct {
+	Text   string `json:"text"`
+	Signal string `json:"signal"`
+}
+
 // 指标结果
 type IndicatorResult struct {
-	Name     string
-	Values   map[string]float64
-	Signal   string  // "buy", "sell", "hold"
-	Strength float64 // 指标强度0～1
+	Name      string
+	Values    map[string]float64
+	Signal    string             // "buy", "sell", "hold"
+	Strength  float64            // 指标强度0～1
+	Rationale IndicatorRationale // 指标给出的判断依据文本
 }
 
 type Indicator interface {
 	Calculate([]model.Kline) IndicatorResult
+	GetName() string
 }
 
 // ========== EMA 指标 ==========
@@ -26,10 +34,14 @@ type EMAIndicator struct {
 	TrendPeriod int // 新增：用于多头/空头排列的第三条均线周期
 }
 
+func (*EMAIndicator) GetName() string {
+	return "EMA"
+}
+
 func (e *EMAIndicator) Calculate(klines []model.Kline) IndicatorResult {
 	closes := extractCloses(klines)
 	if len(closes) < e.SlowPeriod {
-		return IndicatorResult{Name: "EMA", Signal: "hold"}
+		return IndicatorResult{Name: e.GetName(), Signal: "hold"}
 	}
 
 	fastEMA := talib.Ema(closes, e.FastPeriod)
@@ -42,29 +54,46 @@ func (e *EMAIndicator) Calculate(klines []model.Kline) IndicatorResult {
 
 	// 策略：使用三均线排列确认更强的趋势
 	signal := "hold"
+	var rationale string
+	//var score float64
 
-	// 看涨趋势确认（多头排列）
 	if fast > slow && slow > trend {
+		// 看涨趋势确认（多头排列）
 		signal = "buy"
+		//score = 2.0
+		rationale = fmt.Sprintf("EMA 三均线多头排列 (Fast: %.2f > Slow: %.2f > Trend: %.2f)，趋势强劲看涨。", fast, slow, trend)
 	} else if fast < slow && slow < trend {
 		// 看跌趋势确认（空头排列）
 		signal = "sell"
+		//score = -2.0
+		rationale = fmt.Sprintf("EMA 三均线空头排列 (Fast: %.2f < Slow: %.2f < Trend: %.2f)，趋势强劲看跌。", fast, slow, trend)
 	} else if fast > slow {
-		// 快速上穿慢速，但不是完美排列，给予弱买
+		// 快速上穿慢速, (金叉，弱买)，但不是完美排列，给予弱买
 		signal = "weak_buy"
+		//score = 1.0
+		rationale = fmt.Sprintf("EMA 金叉: 快速线 (%.2f) 上穿慢速线 (%.2f)，趋势可能转为多头。", fast, slow)
 	} else if fast < slow {
-		// 快速下穿慢速，给予弱卖
+		// 快速下穿慢速，（死叉，弱卖）给予弱卖
 		signal = "weak_sell"
+		//score = -1.0
+		rationale = fmt.Sprintf("EMA 死叉: 快速线 (%.2f) 下穿慢速线 (%.2f)，趋势可能转为空头。", fast, slow)
+	} else {
+		//score = 0
+		rationale = "EMA 均线纠缠，排列不明确，市场处于盘整或震荡阶段。"
 	}
 
 	last := klines[len(klines)-1]
 	diff := fast - slow
 	strength := diff / last.Close
 	return IndicatorResult{
-		Name:     "EMA",
+		Name:     e.GetName(),
 		Values:   map[string]float64{"ema_fast": fast, "ema_slow": slow, "ema_trend": trend},
 		Signal:   signal,
 		Strength: strength,
+		Rationale: IndicatorRationale{
+			Text:   rationale,
+			Signal: signal,
+		},
 	}
 }
 
@@ -74,6 +103,10 @@ type MACDIndicator struct {
 	FastPeriod   int
 	SlowPeriod   int
 	SignalPeriod int
+}
+
+func (*MACDIndicator) GetName() string {
+	return "MACD"
 }
 
 func (m *MACDIndicator) Calculate(klines []model.Kline) IndicatorResult {
@@ -89,26 +122,50 @@ func (m *MACDIndicator) Calculate(klines []model.Kline) IndicatorResult {
 	lastHist := hist[len(hist)-1]
 
 	signal := "hold"
+	var rationale string
+	//var score float64
 	// MACD 交叉判断
+	// 金叉 (MACD > Signal)
 	if lastMacd > lastSignal {
 		// 检查MACD是否在零轴上方，作为动量确认
 		if lastMacd > 0 {
+			// 强买：零轴上方金叉，动能强劲
 			signal = "buy"
+			//score = 2.0
+			rationale = fmt.Sprintf("MACD 金叉确认 (Line: %.4f > Signal: %.4f)，且在零轴上方，多头动能强劲。", lastMacd, lastSignal)
 		} else {
+			// 弱买：零轴下方金叉，可能只是短暂反弹
 			signal = "weak_buy" // 零轴下方交叉，动量较弱
+			//score = 1.0
+			rationale = fmt.Sprintf("MACD 形成金叉 (Line: %.4f > Signal: %.4f)，但仍处于零轴下方，动能较弱，需警惕。", lastMacd, lastSignal)
 		}
 	} else if lastMacd < lastSignal {
+		// 死叉 (MACD < Signal)
 		if lastMacd < 0 {
+			// 强卖：零轴下方死叉，空头趋势确认
 			signal = "sell"
+			//score = -2.0
+			rationale = fmt.Sprintf("MACD 死叉确认 (Line: %.4f < Signal: %.4f)，且在零轴下方，空头动能强劲。", lastMacd, lastSignal)
 		} else {
 			signal = "weak_sell" // 零轴上方交叉，动量较弱
+			// 弱卖：零轴上方死叉，可能只是回调
+			//score = -1.0
+			rationale = fmt.Sprintf("MACD 形成死叉 (Line: %.4f < Signal: %.4f)，但仍处于零轴上方，需确认趋势反转。", lastMacd, lastSignal)
 		}
+	} else {
+		// 3. 粘合 (MACD == Signal)
+		//score = 0.0
+		rationale = "MACD 线与信号线粘合，市场处于震荡或方向选择阶段。"
 	}
 
 	return IndicatorResult{
-		Name:   "MACD",
+		Name:   m.GetName(),
 		Values: map[string]float64{"macd": lastMacd, "macd_signal": lastSignal, "macd_hist": lastHist},
 		Signal: signal,
+		Rationale: IndicatorRationale{
+			Text:   rationale,
+			Signal: signal,
+		},
 	}
 }
 
@@ -120,37 +177,67 @@ type RSIIndicator struct {
 	Sell   float64 // 超买 适合开空或者减仓空头
 }
 
+func (*RSIIndicator) GetName() string {
+	return "RSI"
+}
+
 func (r *RSIIndicator) Calculate(klines []model.Kline) IndicatorResult {
 	closes := extractCloses(klines)
 	if len(closes) < r.Period {
-		return IndicatorResult{Name: "rsi", Signal: "hold"}
+		return IndicatorResult{Name: r.GetName(), Signal: "hold"}
 	}
 
 	rsiArr := talib.Rsi(closes, r.Period)
 	lastRsi := rsiArr[len(rsiArr)-1]
 
 	signal := "hold"
+	//var score float64
+	var rationale string
+
+	// rsi 超买 超卖
 	if lastRsi < r.Buy {
+		// 极度超卖，看多得分高
+		//score = 2.0
 		signal = "buy"
+		rationale = fmt.Sprintf("RSI (%.2f) 极度超卖，强烈看多信号。", lastRsi)
 	} else if lastRsi > r.Sell {
+		// 极度超买，看空得分高
 		signal = "sell"
+		//score = -2.0
+		rationale = fmt.Sprintf("RSI (%.2f) 极度超买，强烈看空信号。", lastRsi)
+	} else if lastRsi >= 40 && lastRsi <= 60 {
+		// 中性偏多，提供微弱支持
+		signal = "hold"
+		//score = 0.5
+		rationale = fmt.Sprintf("RSI (%.2f) 处于中性区域，无明显方向。", lastRsi)
+	} else {
+		//score = 0.0
+		rationale = fmt.Sprintf("RSI (%.2f) 处于中等区域。", lastRsi)
 	}
+
 	rsiStrength := math.Abs(lastRsi-50) / 50
 	return IndicatorResult{
-		Name:     "RSI",
+		Name:     r.GetName(),
 		Values:   map[string]float64{"rsi": lastRsi},
 		Signal:   signal,
 		Strength: rsiStrength,
+		Rationale: IndicatorRationale{
+			Text:   rationale,
+			Signal: signal,
+		},
 	}
 }
 
 // 用来计算反转的指标
 type ReversalDetector struct {
-	Name string
 }
 
 func NewReversalDetector() *ReversalDetector {
-	return &ReversalDetector{Name: "ReversalDetector"}
+	return &ReversalDetector{}
+}
+
+func (*ReversalDetector) GetName() string {
+	return "ReversalDetector"
 }
 
 func (r *ReversalDetector) Calculate(klines []model.Kline) IndicatorResult {
@@ -222,7 +309,7 @@ func (r *ReversalDetector) Calculate(klines []model.Kline) IndicatorResult {
 	}
 
 	return IndicatorResult{
-		Name:   r.Name,
+		Name:   r.GetName(),
 		Signal: action,
 		Values: map[string]float64{
 			"rsi":        lastRSI,
@@ -243,6 +330,10 @@ func (r *ReversalDetector) Calculate(klines []model.Kline) IndicatorResult {
 type ADXIndicator struct {
 	Name   string
 	Period int
+}
+
+func (i *ADXIndicator) GetName() string {
+	return i.Name
 }
 
 func NewADXIndicator() *ADXIndicator {
@@ -270,26 +361,60 @@ func (a *ADXIndicator) Calculate(klines []model.Kline) IndicatorResult {
 	lastDIMinus := diMinusValues[len(diMinusValues)-1]
 
 	var signal string
-	// ADX 阈值判断：25 - 强趋势，20 - 震荡/趋势弱
-	if lastADX > 25 {
-		signal = "strong_trend"
-	} else if lastADX < 20 {
-		signal = "weak_trend" // 趋势不明显，可能震荡
+	//var score float64
+	var rationale string
+
+	// ADX 阈值设置
+	const strongThreshold = 25.0 // 强趋势阈值
+	const weakThreshold = 20.0   // 弱趋势/震荡阈值
+
+	// 趋势方向判断 (DI+ vs DI-)
+	isBullish := lastDIPlus > lastDIMinus
+
+	// 2. 趋势强度和得分判断
+	if lastADX > strongThreshold {
+		signal = "strong_trend" // 不论空还是多，adx只作为动能，不判断方向
+		// 强趋势
+		if isBullish {
+			//score = 2.0 // 强劲多头趋势
+			rationale = fmt.Sprintf("ADX (%.2f) > %.0f 确认趋势强劲，且 DI+ (%.2f) 领先 DI- (%.2f)，多头趋势确认。",
+				lastADX, strongThreshold, lastDIPlus, lastDIMinus)
+		} else {
+			//score = -2.0 // 强劲空头趋势
+			rationale = fmt.Sprintf("ADX (%.2f) > %.0f 确认趋势强劲，且 DI- (%.2f) 领先 DI+ (%.2f)，空头趋势确认。",
+				lastADX, strongThreshold, lastDIMinus, lastDIPlus)
+		}
+	} else if lastADX > weakThreshold {
+		// 中等趋势，可能震荡
+		signal = "weak_trend"
+		if isBullish {
+			//score = 1.0 // 中等多头趋势
+			rationale = fmt.Sprintf("ADX (%.2f) 处于中等强度，但 DI+ 领先，多头动能占据优势。", lastADX)
+		} else {
+			//score = -1.0 // 中等空头趋势
+			rationale = fmt.Sprintf("ADX (%.2f) 处于中等强度，但 DI- 领先，空头动能占据优势。", lastADX)
+		}
 	} else {
+		// 弱趋势或盘整
+		//score = 0.0
 		signal = "hold"
+		rationale = fmt.Sprintf("ADX (%.2f) < %.0f，趋势强度极低，市场可能处于盘整或震荡状态。", lastADX, weakThreshold)
 	}
 
-	// ADX 本身就是强度指标，将其归一化 0~1
+	// ADX 本身就是强度指标
+	// 强度计算 (使用 ADX/50.0 归一化)
 	strength := lastADX / 50.0
-	if strength > 1.0 {
-		strength = 1.0
-	}
+	strength = math.Min(strength, 1.0) // 确保强度不超过 1.0
 
 	return IndicatorResult{
 		Name:     a.Name,
 		Signal:   signal,
 		Values:   map[string]float64{"adx": lastADX, "di+": lastDIPlus, "di-": lastDIMinus}, // 导出 DI+ 和 DI-
 		Strength: strength,
+		Rationale: IndicatorRationale{
+			Text:   rationale,
+			Signal: signal,
+		},
 	}
 }
 
