@@ -20,20 +20,6 @@ func NewHyperLiquidDao(db *gorm.DB) *hyperLiquidDao {
 	}
 }
 
-// ---------------------------
-// 插入或更新 Whale 基础信息
-func (dao *hyperLiquidDao) WhaleUpsert(ctx context.Context, w *entity.Whale) error {
-	if w == nil {
-		return gorm.ErrInvalidData
-	}
-	return dao.db.WithContext(ctx).
-		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "address"}},
-			UpdateAll: true, // 存在则更新
-		}).
-		Create(w).Error
-}
-
 // 批量 Upsert Whale
 func (dao *hyperLiquidDao) WhaleUpsertBatch(ctx context.Context, whales []*entity.Whale) error {
 	if len(whales) == 0 {
@@ -298,36 +284,6 @@ func filterByFundingFee(status string) func(db *gorm.DB) *gorm.DB {
 			return db // 不筛选
 		}
 	}
-}
-
-// 获取hyper鲸鱼的多空数量
-func (s *hyperLiquidDao) GetWhaleLongShortRatio(ctx context.Context) (*model.WhaleLongShortRatio, error) {
-	//查询逻辑是把所有仓位按方向分组求总价值
-	//得到多仓总价值和空仓总价值后，计算多空比
-	var res []model.WhaleLongShortResult
-	err := s.db.WithContext(ctx).
-		Model(&entity.HyperWhalePosition{}).
-		// side as direction选取方向列，取别名direction
-		// SUM(position_value) as total 将同一个方向的仓位价值累加
-		Select("side as direction, SUM(position_value) as total").
-		// 按仓位方向分组
-		Group("side").
-		Scan(&res).Error
-	ratio := &model.WhaleLongShortRatio{}
-	for _, r := range res {
-		switch r.Direction {
-		case "long":
-			ratio.LongValue = float64(r.Total)
-		case "short":
-			ratio.ShortValue = float64(r.Total)
-		}
-	}
-	if ratio.ShortValue > 0 {
-		ratio.Ratio = ratio.LongValue / ratio.ShortValue
-	} else {
-		ratio.Ratio = 0
-	}
-	return ratio, err
 }
 
 func (h *hyperLiquidDao) periodOrderBy(period string) string {

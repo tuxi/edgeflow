@@ -55,7 +55,6 @@ const (
 	UserFillOrderKey                   = "UserFillOrder"
 	UserNonFundingLedger               = "UserNonFundingLedger"
 	WhalePositionsTop                  = "whale:positions:top"
-	WhaleLongShortRatio                = "whale:longshort:ratio"
 	HyperWhaleLeaderBoardInfoByAddress = "whale:boardInfo:address"
 	WhalePositionsAnalyze              = "WhalePositionsAnalyze"
 )

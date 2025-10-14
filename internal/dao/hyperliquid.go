@@ -7,8 +7,6 @@ import (
 )
 
 type HyperLiquidDao interface {
-	// 更新一条鲸鱼信息
-	WhaleUpsert(ctx context.Context, w *entity.Whale) error
 	// 批量更新鲸鱼信息
 	WhaleUpsertBatch(ctx context.Context, whales []*entity.Whale) error
 	// 插入或更新排行榜数据
@@ -26,8 +24,6 @@ type HyperLiquidDao interface {
 	CreatePositionInBatches(ctx context.Context, items []*entity.HyperWhalePosition) error
 	// 获取前100仓位
 	GetTopWhalePositions(ctx context.Context, req model.WhalePositionFilterReq) (*model.WhalePositionFilterRes, error)
-	// 获取仓位多空
-	GetWhaleLongShortRatio(ctx context.Context) (*model.WhaleLongShortRatio, error)
 	// 查询某个用户的排行数据
 	WhaleLeaderBoardInfoGetByAddress(ctx context.Context, address string) (*model.HyperWhaleLeaderBoard, error)
 }

@@ -17,17 +17,104 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 )
 
 type HyperLiquidService struct {
-	dao           dao.HyperLiquidDao
-	rc            *redis.Client
-	marketService *MarketDataService
+	dao                        dao.HyperLiquidDao
+	rc                         *redis.Client
+	marketService              *MarketDataService
+	isUpdatePositionsLoading   bool // 是否正在更细仓位信息
+	updatePositionsLock        sync.Mutex
+	leaderboardLock            sync.Mutex
+	isUpdateLeaderboardLoading bool // 是否正在更新排行数据
 }
 
 func NewHyperLiquidService(dao dao.HyperLiquidDao, rc *redis.Client, marketService *MarketDataService) *HyperLiquidService {
 	return &HyperLiquidService{dao: dao, rc: rc, marketService: marketService}
+}
+
+// 定时任务：每隔N分钟更新一次鲸鱼持仓
+func (s *HyperLiquidService) StartScheduler(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				// 更新仓位信息是耗时操作，需要请求100个仓位接口的数据，也就是100次request
+				s.updatePositionsLock.Lock()
+				if s.isUpdatePositionsLoading {
+					s.updatePositionsLock.Unlock()
+					continue
+				}
+				s.isUpdatePositionsLoading = true
+				s.updatePositionsLock.Unlock()
+
+				// 启动一个独立goroutine来执行耗时操作和清理
+				// 确保耗时操作不糊i阻塞ticker的下一次触发
+				go func() {
+					defer func() {
+						s.updatePositionsLock.Lock()
+						s.isUpdatePositionsLoading = false
+						s.updatePositionsLock.Unlock()
+					}()
+
+					// 检查上下文是否已经被取消（虽然 ticker 也会响应 ctx.Done，但这里也做一次检查更安全）
+					// if ctx.Err() != nil { return } // 实际应用中可以省略，因为 updatePositions 应该处理 ctx
+					// 执行耗时的更新操作
+					if err := s.updatePositions(ctx); err != nil {
+						// 4. 错误处理使用 log.Printf 更规范
+						log.Printf("HyperLiquidService updatePositions error: %v\n", err)
+					}
+				}()
+
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// 开启定时任务抓取hyper排行榜数据
+func (h *HyperLiquidService) StartLeaderboardUpdater(ctx context.Context, interval time.Duration) {
+	go func() {
+		// 创建一个定时器为5秒间隔，这样C通道会立即触发，实现立即执行首次任务
+		timer := time.NewTimer(time.Second * 5)
+		// 确保在函数退出时停止定时器，释放资源
+		defer timer.Stop()
+
+		for {
+			select {
+			// 监听Timer的通道
+			case <-timer.C:
+				// 立即重置Timer为设定的interval间隔
+				timer.Reset(interval)
+				h.leaderboardLock.Lock()
+				if h.isUpdateLeaderboardLoading {
+					h.leaderboardLock.Unlock()
+					continue
+				}
+				h.isUpdateLeaderboardLoading = true
+				h.leaderboardLock.Unlock()
+				// 把耗时操作放入新的goroutine中执行
+				go func() {
+					defer func() {
+						h.leaderboardLock.Lock()
+						h.isUpdateLeaderboardLoading = false
+						h.leaderboardLock.Unlock()
+					}()
+					if err := h.fetchData(); err != nil {
+						fmt.Printf("HyperLiquidService fetchData error: %v\n", err)
+					}
+				}()
+			case <-ctx.Done(): // context的退出机制
+				fmt.Println("HyperLiquidService LeaderboardUpdater stopped by context.")
+				return
+			}
+		}
+	}()
 }
 
 func (h *HyperLiquidService) WhaleAccountSummaryGet(ctx context.Context, address string) (*types.MarginData, error) {
@@ -135,26 +222,6 @@ func (h *HyperLiquidService) GetTopWhales(ctx context.Context, limit int, datePe
 	}
 
 	return res, nil
-}
-
-// 开启定时任务抓取hyper排行榜数据
-func (h *HyperLiquidService) StartLeaderboardUpdater(interval time.Duration) {
-	go func() {
-		_ = h.fetchData()
-
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				err := h.fetchData()
-				if err != nil {
-					continue
-				}
-			}
-		}
-	}()
 }
 
 func (h *HyperLiquidService) fetchData() error {
@@ -392,23 +459,9 @@ func (h *HyperLiquidService) updateWhaleLeaderboard(rawLeaderboard []types.Trade
 	return h.dao.WhaleStatUpsertBatch(ctx, whaleStats)
 }
 
-// 定时任务：每隔N分钟更新一次鲸鱼持仓
-func (s *HyperLiquidService) StartScheduler(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	for {
-		select {
-		case <-ticker.C:
-			if err := s.updatePositions(ctx); err != nil {
-				fmt.Println("HyperLiquidService updateSnapshots error:", err)
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
 // 获取前100个鲸鱼地址的仓位
 func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
+
 	// 1. 获取前100鲸鱼
 	topWhales, err := h.dao.GetTopWhales(ctx, "vlm_day", 100)
 
@@ -487,7 +540,6 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 	err = h.rc.Set(ctx, rdsKey, bytes, time.Minute*10).Err()
 	if err != nil {
 		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
-
 	}
 	return nil
 }
@@ -501,42 +553,6 @@ func (h *HyperLiquidService) GetTopWhalePositions(ctx context.Context, req model
 	}
 
 	return res, nil
-}
-
-func (h *HyperLiquidService) GetLongShortRatio(ctx context.Context) (*model.WhaleLongShortRatio, error) {
-	rdsKey := consts.WhaleLongShortRatio
-	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
-
-	var res *model.WhaleLongShortRatio
-	if err == nil {
-		err = json.Unmarshal(bytes, &res)
-		if err == nil {
-			return res, nil
-		}
-	} else {
-		if err != redis.Nil {
-			logger.Errorf("Redis连接异常:%v", err.Error())
-		}
-	}
-
-	res, err = h.dao.GetWhaleLongShortRatio(ctx)
-	if err != nil {
-		log.Printf("HyperLiquidService GetLongShortRatio error: %v", err)
-		return nil, err
-	}
-	bytes, err = json.Marshal(&res)
-	if err != nil {
-		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
-		return res, nil
-	}
-
-	// 存储redis中，30秒过期
-	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*10).Err()
-	if err != nil {
-		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
-
-	}
-	return res, err
 }
 
 // 获取最新仓位数据分析

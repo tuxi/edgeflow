@@ -19,7 +19,6 @@ import (
 	"edgeflow/internal/service/signal/trend"
 	"edgeflow/pkg/cache"
 	"gorm.io/gorm"
-	"time"
 )
 
 func InitRouter(db *gorm.DB) Router {
@@ -111,9 +110,6 @@ func InitRouter(db *gorm.DB) Router {
 
 	// 同步最新币种
 	instrumentService.StartInstrumentSyncWorker(context.Background())
-
-	// 开始广播价格
-	go hyperService.StartScheduler(context.Background(), 30*time.Second)
 
 	return apiRouter
 }

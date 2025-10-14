@@ -34,6 +34,12 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		c.GET("/all", api.coinHandler.InstrumentGetAll())
 	}
 
+	m := base.Group("/market", middleware.RequestValidationMiddleware())
+	{
+		// 获取排序好的ids
+		m.GET("/sorted-inst-ids", api.mh.SortedInstIDsGet())
+	}
+
 	p := base.Group("/ticker", middleware.RequestValidationMiddleware())
 	{
 		p.GET("/ws", api.mh.ServeWS) // 通过websocket连接获取价格

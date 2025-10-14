@@ -2,6 +2,7 @@ package market
 
 import (
 	"edgeflow/internal/service"
+	"edgeflow/pkg/response"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -270,5 +271,13 @@ func (h *MarketHandler) handleGetPage(c *ClientConn, clientMsg *ClientMessage) {
 	case c.Send <- data:
 	default:
 		log.Println("Client send channel full, dropping paged data.")
+	}
+}
+
+func (h *MarketHandler) SortedInstIDsGet() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		currentIDs := h.marketService.GetSortedIDsl()
+
+		response.JSON(ctx, nil, currentIDs)
 	}
 }

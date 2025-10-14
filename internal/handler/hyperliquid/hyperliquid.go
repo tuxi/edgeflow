@@ -1,6 +1,7 @@
 package hyperliquid
 
 import (
+	"context"
 	"edgeflow/internal/model"
 	"edgeflow/internal/service"
 	"edgeflow/pkg/errors"
@@ -15,7 +16,8 @@ type Handler struct {
 }
 
 func NewHandler(service *service.HyperLiquidService) *Handler {
-	service.StartLeaderboardUpdater(time.Minute * 5)
+	service.StartLeaderboardUpdater(context.Background(), time.Minute*5)
+	service.StartScheduler(context.Background(), 30*time.Second)
 	return &Handler{
 		service: service,
 	}
