@@ -465,22 +465,16 @@ func clampStrength(rawScore, maxScore float64) float64 {
 	return math.Min(strength, 1.0)
 }
 
-// ========== VOL 指标 ==========
-type volumeIndicator struct {
-	Period int
-}
-
-func NewVolumeIndicator() *volumeIndicator {
-	return &volumeIndicator{
-		Period: 20,
-	}
-}
-
-func (v *volumeIndicator) Calculate(klines []model.Kline) (IndicatorResult) {
+// GetVolumeConfirmationScore 根据交易量、信号方向和K线方向计算分数
+// kline: 当前 K 线数据
+// volStrength: vol强度
+// isBuySignal: 调度中心当前正在评估的是买入信号 (true) 还是卖出信号 (false)
+// 返回值: 交易量对当前信号的贡献分数
+func CalculateVolumeConfirmationScores(klines []model.Kline) (buyConfirmationScore, sellConfirmationScore float64) {
 	n := len(klines)
-
-	if n < v.Period {
-		return IndicatorResult{}
+	period := 20
+	if n < period {
+		return
 	}
 
 	closes := make([]float64, n)
@@ -494,25 +488,56 @@ func (v *volumeIndicator) Calculate(klines []model.Kline) (IndicatorResult) {
 		volumes[i] = k.Vol
 	}
 
-	// 计算成交量的20周期EMA
-	volumeEMA20 := talib.Ema(volumes, v.Period)        // 计算成交量的 20 周期 EMA
+	last := klines[len(klines)-1]
+	volumeEMA20 := talib.Ema(volumes, period)          // 计算成交量的 20 周期 EMA
 	volumeEMA20Last := volumeEMA20[len(volumeEMA20)-1] // 获取最新成交量的EMA
-	volumeLast := volumes[len(volumes)-1]
+	ratio := last.Vol / volumeEMA20Last
+	volMagnitude := getVolMagnitude(ratio) // 获取 VOL 绝对强度 (非负数)
 
-	return IndicatorResult{
-		Name: v.GetName(),
-		Values: map[string]float64{
-			"vol":       volumeLast,
-			"vol_ema20": volumeEMA20Last,
-		},
-		Signal:   "",
-		Strength: 0,
-		Rationale: IndicatorRationale{
-			Text:   "",
-			Signal: "",
-		},
+	// 中性情况 (0.9 <= ratio <= 1.0)
+	if volMagnitude == 0.0 {
+		return 0, 0
+	}
+
+	// --- 阳线/阴线判断 ---
+	isBullishKLine := last.Close > last.Open
+
+	if ratio < 0.9 {
+		// --- 交易死寂惩罚 ---
+		// 对 BUY 和 SELL 都是风险，都应该扣分
+		buyConfirmationScore = -volMagnitude
+		sellConfirmationScore = -volMagnitude
+		return
+	} else {
+		// --- 放量确认/否决 ---
+		if isBullishKLine {
+			// 阳线放量：对 BUY 是确认，对 SELL 是抵抗
+			buyConfirmationScore = volMagnitude   // 加分 (+1.0 to +2.5)
+			sellConfirmationScore = -volMagnitude // 否决/减分 (-1.0 to -2.5)
+			return
+		} else {
+			// 阴线放量：对 SELL 是确认，对 BUY 是抛压
+			buyConfirmationScore = -volMagnitude // 否决/减分 (-1.0 to -2.5)
+			sellConfirmationScore = volMagnitude // 加分 (+1.0 to +2.5)
+			return
+		}
 	}
 }
-func (v *volumeIndicator) GetName() string {
-	return "VOL"
+
+func getVolMagnitude(ratio float64) float64 {
+	if ratio > 1.5 {
+		return 2.5
+	} else if ratio > 1.2 {
+		return 2.0
+	} else if ratio > 1.1 {
+		return 1.5
+	} else if ratio > 1.0 {
+		return 1.0
+	}
+	// 对于 0.9 <= ratio <= 1.0，返回 0.0 (中性，不加分)
+	// 对于 ratio < 0.9 (交易死寂)，返回一个惩罚强度，例如 1.5
+	if ratio < 0.9 {
+		return 1.5 // 惩罚的绝对力度
+	}
+	return 0.0 // 默认中性
 }

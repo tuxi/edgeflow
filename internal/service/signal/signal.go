@@ -109,7 +109,7 @@ func (s *SignalProcessorService) processSingleSymbol(ctx context.Context, symbol
 	s.signalTracker.ProcessKlines(symbol, klines15m)
 
 	if !ok || len(klines15m) < 200 {
-		fmt.Println("警告：无法获取足够的 15m K线数据，跳过本次信号生成。")
+		fmt.Printf("警告%v：无法获取足够的 15m K线数据，跳过本次信号生成。\n", symbol)
 		return
 	}
 	rawSignal, err := s.signalGen.Generate(symbol, klines15m)

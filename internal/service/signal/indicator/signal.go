@@ -5,7 +5,6 @@ import (
 	"edgeflow/internal/service/signal/model"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/markcheno/go-talib"
 	model3 "github.com/nntaoli-project/goex/v2/model"
 	"math"
@@ -20,6 +19,7 @@ type SignalGenerator struct {
 	TimeFrame  model3.KlinePeriod
 }
 
+// 本策略的核心：捕捉趋势、辅以动能、过滤超买超卖
 func NewSignalGenerator(timeFrame model3.KlinePeriod) *SignalGenerator {
 	// 定义权重：EMA (趋势) > MACD (动量) > RSI (过滤)
 	defaultWeights := map[string]float64{
@@ -94,16 +94,6 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 
 	}
 
-	// 成交量指标
-	volIndicator := NewVolumeIndicator()
-	volRes := volIndicator.Calculate(klines)
-	volumeLast := volRes.Values["vol"]
-	volumeEMA20Last := volRes.Values["vol_ema20"]
-
-	for k, v := range volRes.Values {
-		allIndicatorValues[k] = v
-	}
-
 	// --- 2. 最终方向判断（Command） ---
 	var isReversalSignal bool = false // 用于标记是否触发了反转信号
 
@@ -125,39 +115,36 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 	var finalAction model.CommandType
 	//reversaStrength := rdRes.Strength
 	if rdRes.Signal == "strong_reversal_buy" {
-		// 反转买入规则 1: 必须有衰竭式放量确认 (Volume Capitulation)
-		if volumeLast >= volumeEMA20Last*REVERSAL_VOLUME_MULTIPLIER {
-			// 高量反转是高置信度的信号，直接返回
-			finalAction = model.CommandReversalBuy
-			isReversalSignal = true
-		}
+		finalAction = model.CommandReversalBuy
+		isReversalSignal = true
 	} else if rdRes.Signal == "strong_reversal_sell" {
-		// 反转卖出规则 1: 必须有衰竭式放量确认
-		if volumeLast >= volumeEMA20Last*REVERSAL_VOLUME_MULTIPLIER {
-			// 判断是否出现超买/逃顶卖出机会
-			finalAction = model.CommandReversalSell
-			isReversalSignal = true
-		}
+		// 判断是否出现超买/逃顶卖出机会
+		finalAction = model.CommandReversalSell
+		isReversalSignal = true
 	}
 
-	// --- 2. 【趋势跟随判断】核心投票逻辑（仅在没有反转信号时执行） ---
+	// 计算 VOL 倍数
+	buyConfirmationScore, sellConfirmationScore := CalculateVolumeConfirmationScores(klines)
+	volScore := 0.0
+
+	if finalScore > 0 {
+		// 核心指标偏向 BUY，我们只需要 VOL 对 BUY 的贡献！
+		// 此时 buyConfirmationScore 可能是正的确认分 (+1.5) 或负的否决分 (-1.5)
+		volScore = buyConfirmationScore
+	} else if finalScore < 0 {
+		// 核心指标偏向 SELL，我们只需要 VOL 对 SELL 的贡献！
+		// 此时 sellConfirmationScore 可能是正的确认分 (+1.5) 或负的否决分 (-1.5)
+		volScore = sellConfirmationScore
+	} else {
+		// 核心指标中立 (scoreCore == 0)，VOL 不应该影响方向
+		volScore = 0.0
+	}
+
+	// 加入成交量分数
+	finalScore += volScore
+
+	// --- 【趋势跟随判断】核心投票逻辑（仅在没有反转信号时执行） ---
 	if !isReversalSignal {
-
-		// 如果没有满足高置信度的反转信号，继续检查趋势跟随信号
-
-		// ----------------------------------------------------
-		// 3. 趋势跟随信号 (Trend Follow) - 成交量硬性过滤
-		// ----------------------------------------------------
-		const TREND_FOLLOW_VOLUME_MULTIPLIER = 1.2 // 趋势跟随所需成交量倍数：当前量必须达到 VMA 的 1.2 倍
-
-		// 规则 2: 趋势跟随信号必须有成交量放大确认 (Volume Confirmation)
-		isVolumeConfirmed := volumeLast >= volumeEMA20Last*TREND_FOLLOW_VOLUME_MULTIPLIER
-
-		if !isVolumeConfirmed {
-			// 【成交量硬性过滤器】拒绝所有低量触发的趋势跟随信号，以减少噪音和假突破
-			return nil, fmt.Errorf("成交量(%v)较低，拒绝趋势跟随信号，以减少噪音和假突破", volumeLast) // 低量，不生成信号
-		}
-
 		if finalScore > 1.0 {
 			finalAction = model.CommandBuy
 		} else if finalScore < -1.0 {
