@@ -37,7 +37,7 @@ func InitRouter(db *gorm.DB) Router {
 	// 信号管理
 	//sm := signal.NewDefaultSignalManager(appCfg.Strategy)
 
-	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT", "LTC/USDT", "AAVE/USDT", "BNB/USDT", "XRP/USDT"}
+	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT", "LTC/USDT", "AAVE/USDT", "BNB/USDT", "XRP/USDT", "XPL/USDT", "LINK/USDT", "ENA/USDT"}
 	klineMgr := kline.NewKlineManager(okxEx, symbols)
 	symbolMgr := model.NewSymbolManager(symbols)
 	tm := trend.NewManager(okxEx, klineMgr, symbolMgr)

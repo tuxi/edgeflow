@@ -88,21 +88,24 @@ type DecisionResult struct {
 // IndicatorSnapshot 存储了 ScoreForPeriod 计算出的所有原始指标的最终值。
 // 它可以直接用于填充 TrendSnapshot 或 IndicatorSnapshot 表中的字段。
 type IndicatorSnapshot struct {
-	LastPrice  float64 `json:"last_price"`
-	EMA20      float64 `json:"ema20"`
-	EMA50      float64 `json:"ema50"`
-	EMA200     float64 `json:"ema200"`
-	ADX        float64 `json:"adx"`
-	BBWidth    float64 `json:"bb_width"`     // 当前布林带宽度
-	BBWidthAvg float64 `json:"bb_width_avg"` // 历史平均布林带宽度
-	KVal       float64 `json:"k_val"`        // KDJ K 值
-	DVal       float64 `json:"d_val"`        // KDJ D 值
-	JVal       float64 `json:"j_val"`        // KDJ J 值
-	RSI        float64 `json:"rsi"`
-	MACD       float64 `json:"macd"`        // MACD Line
-	MACDSignal float64 `json:"macd_signal"` // MACD Signal Line
-	MACDHist   float64 `json:"macd_hist"`   // MACD Histogram
-	Reasons    string  `json:"reasons"`
+	LastPrice   float64 `json:"last_price"`
+	EMA20       float64 `json:"ema20"`
+	EMA50       float64 `json:"ema50"`
+	EMA200      float64 `json:"ema200"`
+	ADX         float64 `json:"adx"`
+	BBWidth     float64 `json:"bb_width"`     // 当前布林带宽度
+	BBWidthAvg  float64 `json:"bb_width_avg"` // 历史平均布林带宽度
+	KVal        float64 `json:"k_val"`        // KDJ K 值
+	DVal        float64 `json:"d_val"`        // KDJ D 值
+	JVal        float64 `json:"j_val"`        // KDJ J 值
+	RSI         float64 `json:"rsi"`
+	MACD        float64 `json:"macd"`         // MACD Line
+	MACDSignal  float64 `json:"macd_signal"`  // MACD Signal Line
+	MACDHist    float64 `json:"macd_hist"`    // MACD Histogram
+	LastVolume  float64 `json:"last_volume"`  // 当前 K 线成交量
+	VolumeEMA20 float64 `json:"volume_ema20"` // 20周期成交量 EMA
+
+	Reasons string `json:"reasons"`
 }
 
 // TransformSnapshotsToJSONMap 将 map[KlinePeriod]IndicatorSnapshot 转换为 GORM JSON 字段所需格式。

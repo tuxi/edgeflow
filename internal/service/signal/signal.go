@@ -114,6 +114,7 @@ func (s *SignalProcessorService) processSingleSymbol(ctx context.Context, symbol
 	}
 	rawSignal, err := s.signalGen.Generate(symbol, klines15m)
 	if err != nil {
+		fmt.Printf("%v生成信号失败: %v\n", symbol, err)
 		return
 	}
 

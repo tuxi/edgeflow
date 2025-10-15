@@ -142,13 +142,6 @@ func (dt *DecisionTree) finalizeSignal(rawSignal *model.Signal, trendState *mode
 
 	// 1. 丰富数据
 	rawSignal.Details.FinalScoreUsed = trendState.Scores.FinalScore
-	//rawSignal.Details.BasisExplanation = fmt.Sprintf(
-	//	"%s | 趋势详情: 4H(%.2f), 1H(%.2f), 30M(%.2f)",
-	//	approvalReason,
-	//	trendState.Scores.Score4h,
-	//	trendState.Scores.Score1h,
-	//	trendState.Scores.Score30m,
-	//)
 	// 2. 更新信号状态
 	rawSignal.Status = "ACTIVE"
 

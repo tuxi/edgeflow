@@ -11,6 +11,7 @@ import (
 	"github.com/markcheno/go-talib"
 	"github.com/nntaoli-project/goex/v2/model"
 	"log"
+	"math"
 	"strings"
 	"sync"
 )
@@ -274,10 +275,12 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 	closes := make([]float64, n)
 	highs := make([]float64, n)
 	lows := make([]float64, n)
+	volumes := make([]float64, n)
 	for i, k := range klines {
 		closes[i] = k.Close
 		highs[i] = k.High
 		lows[i] = k.Low
+		volumes[i] = k.Vol
 	}
 
 	last := len(closes) - 1
@@ -290,10 +293,14 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 	upper, middle, lower := talib.BBands(closes, 20, 2, 2, 0)
 	kVals, dVals := talib.Stoch(highs, lows, closes, 9, 3, talib.SMA, 3, talib.SMA)
 
+	// 计算成交量的20周期EMA
+	volumeEMA20 := talib.Ema(volumes, 20) // 计算成交量的 20 周期 EMA
+
 	ema20Last := ema20[last]
 	ema50Last := ema50[last]
 	ema200Last := ema200[last]
 	adxLast := adx[last]
+	volumeEMA20Last := volumeEMA20[last] // 获取最新成交量的EMA
 	bbWidthLast := (upper[last] - lower[last]) / middle[last]
 
 	var bbSum float64
@@ -418,6 +425,25 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 	// 水下金叉
 	//cross := IsWaterMACDGoldenCross(closes)
 
+	// 新增：成交量确认打分
+	if volumes[last] > volumeEMA20Last*1.2 { // 当前量 > 平均量 20%
+		const VOLUME_SCORE_WEIGHT = 0.5
+		if score > 1.0 { // 仅在有明确多头倾向时加分
+			score += VOLUME_SCORE_WEIGHT
+			reasons = append(reasons, fmt.Sprintf("+%.1f(高量确认多头)", VOLUME_SCORE_WEIGHT))
+		} else if score < -1.0 { // 仅在有明确空头倾向时减分
+			score -= VOLUME_SCORE_WEIGHT
+			reasons = append(reasons, fmt.Sprintf("-%.1f(高量确认空头)", VOLUME_SCORE_WEIGHT))
+		} else {
+			// 如果趋势不明确，高量可能意味着顶部或底部争夺，不打分
+			reasons = append(reasons, fmt.Sprintf("0(高量但趋势中性)", VOLUME_SCORE_WEIGHT))
+		}
+	} else if volumes[last] < volumeEMA20Last*0.7 { // 当前量 < 平均量 30%
+		// 低成交量表示当前趋势动能减弱，无论方向如何，都应给予惩罚
+		score -= 0.5
+		reasons = append(reasons, "-0.5(低量警告)")
+	}
+
 	// --- 填充 IndicatorSnapshot ---
 	snapshot = model3.IndicatorSnapshot{
 		LastPrice:  price,
@@ -437,12 +463,9 @@ func (tm *Manager) ScoreForPeriod(klines []model2.Kline, period model.KlinePerio
 		Reasons:    strings.Join(reasons, ", "),
 	}
 
-	if score > 3 {
-		score = 3
-	}
-	if score < -3 {
-		score = -3
-	}
+	// 限制分数范围
+	score = math.Min(score, 3)
+	score = math.Max(score, -3)
 
 	return score, snapshot
 }

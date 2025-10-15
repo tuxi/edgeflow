@@ -464,3 +464,55 @@ func clampStrength(rawScore, maxScore float64) float64 {
 	strength := math.Abs(rawScore) / maxScore
 	return math.Min(strength, 1.0)
 }
+
+// ========== VOL 指标 ==========
+type volumeIndicator struct {
+	Period int
+}
+
+func NewVolumeIndicator() *volumeIndicator {
+	return &volumeIndicator{
+		Period: 20,
+	}
+}
+
+func (v *volumeIndicator) Calculate(klines []model.Kline) (IndicatorResult) {
+	n := len(klines)
+
+	if n < v.Period {
+		return IndicatorResult{}
+	}
+
+	closes := make([]float64, n)
+	highs := make([]float64, n)
+	lows := make([]float64, n)
+	volumes := make([]float64, n)
+	for i, k := range klines {
+		closes[i] = k.Close
+		highs[i] = k.High
+		lows[i] = k.Low
+		volumes[i] = k.Vol
+	}
+
+	// 计算成交量的20周期EMA
+	volumeEMA20 := talib.Ema(volumes, v.Period)        // 计算成交量的 20 周期 EMA
+	volumeEMA20Last := volumeEMA20[len(volumeEMA20)-1] // 获取最新成交量的EMA
+	volumeLast := volumes[len(volumes)-1]
+
+	return IndicatorResult{
+		Name: v.GetName(),
+		Values: map[string]float64{
+			"vol":       volumeLast,
+			"vol_ema20": volumeEMA20Last,
+		},
+		Signal:   "",
+		Strength: 0,
+		Rationale: IndicatorRationale{
+			Text:   "",
+			Signal: "",
+		},
+	}
+}
+func (v *volumeIndicator) GetName() string {
+	return "VOL"
+}
