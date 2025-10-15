@@ -47,7 +47,7 @@ type MarketDataService struct {
 	baseCoins map[string]entity.CryptoInstrument
 
 	// 统一的内存存储：所有活跃的交易对数据
-	TradingItems map[string]TradingItem
+	tradingItems map[string]TradingItem
 
 	// 排序缓存：按成交量排序的 InstID 列表
 	SortedInstIDs []string
@@ -72,7 +72,7 @@ type MarketDataService struct {
 func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher) *MarketDataService {
 	m := &MarketDataService{
 		baseCoins:          make(map[string]entity.CryptoInstrument),
-		TradingItems:       make(map[string]TradingItem),
+		tradingItems:       make(map[string]TradingItem),
 		SortedInstIDs:      make([]string, 0),
 		tickerClient:       ticker,
 		instrumentFetcher:  instrumentFetcher,
@@ -119,10 +119,10 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 	for instID, ticker := range tickerMap {
 
 		// A. 尝试更新已存在的 TradingItem
-		if item, ok := m.TradingItems[instID]; ok {
+		if item, ok := m.tradingItems[instID]; ok {
 			// 直接更新 Ticker 数据
 			item.Ticker = ticker
-			m.TradingItems[instID] = item
+			m.tradingItems[instID] = item
 
 			// 将此 Ticker 加入转发列表
 			tickersToForward = append(tickersToForward, ticker)
@@ -132,7 +132,7 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 		// B. 新数据：尝试组合
 		if coin, ok := m.baseCoins[instID]; ok {
 			// 成功组合：基础数据 + 实时数据
-			m.TradingItems[instID] = TradingItem{
+			m.tradingItems[instID] = TradingItem{
 				Coin:   coin,
 				Ticker: ticker,
 			}
@@ -183,8 +183,8 @@ func (m *MarketDataService) startSortingScheduler() {
 func (m *MarketDataService) performSortAndCache() {
 	m.mu.RLock()
 	// 将所有 TradingItem 转换为一个切片 (Slice)
-	items := make([]TradingItem, 0, len(m.TradingItems))
-	for _, item := range m.TradingItems {
+	items := make([]TradingItem, 0, len(m.tradingItems))
+	for _, item := range m.tradingItems {
 		items = append(items, item)
 	}
 	m.mu.RUnlock()
@@ -413,10 +413,10 @@ func (m *MarketDataService) PerformPeriodicUpdate(ctx context.Context) error {
 		}
 	}
 
-	// 6.清理 TradingItems：移除 delisted 的数据
+	// 6.清理 tradingItems：移除 delisted 的数据
 	for _, instID := range toUnsubscribe {
-		delete(m.TradingItems, instID)
-		log.Printf("Cleaned up delisted instrument %s from TradingItems.", instID)
+		delete(m.tradingItems, instID)
+		log.Printf("Cleaned up delisted instrument %s from tradingItems.", instID)
 	}
 
 	return nil
@@ -467,17 +467,17 @@ func (m *MarketDataService) GetPagedData(page, limit int) ([]TradingItem, error)
 
 	results := make([]TradingItem, 0, len(pagedIDs))
 
-	// 遍历当前页的 ID 列表，并从 TradingItems 字典中快速查找数据
+	// 遍历当前页的 ID 列表，并从 tradingItems 字典中快速查找数据
 	for _, instID := range pagedIDs {
-		if item, ok := m.TradingItems[instID]; ok {
+		if item, ok := m.tradingItems[instID]; ok {
 			if item.Coin.ID == 0 {
 				log.Printf("error")
 			}
 			// ⚠️ 注意：这里返回的是 TradingItem 的值类型副本
 			results = append(results, item)
 		} else {
-			// 理论上不应该发生：如果 ID 在 SortedInstIDs 中，它就应该在 TradingItems 中。
-			log.Printf("WARN: InstID %s found in SortedInstIDs cache but not in TradingItems map.", instID)
+			// 理论上不应该发生：如果 ID 在 SortedInstIDs 中，它就应该在 tradingItems 中。
+			log.Printf("WARN: InstID %s found in SortedInstIDs cache but not in tradingItems map.", instID)
 			// 在生产环境中，可能需要返回一个带占位符的 TradingItem
 		}
 	}
@@ -525,7 +525,7 @@ func (m *MarketDataService) GetInstrumentUpdateChannel() <-chan BaseInstrumentUp
 func (m *MarketDataService) GetPrices() map[string]float64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	items := m.TradingItems
+	items := m.tradingItems
 	prices := make(map[string]float64)
 	for k, v := range items {
 		price, _ := strconv.ParseFloat(v.Ticker.LastPrice, 64)

@@ -232,6 +232,9 @@ func (e *OkxExchange) getKlineRecords(symbol string, period model.KlinePeriod, s
 		if err == nil {
 			return result, err // 成功直接返回
 		}
+		if err != nil && err.Error() == "not found currency pair" {
+			return nil, err
+		}
 		log.Printf("GetKlineRecords failed (try %d): %v", i+1, err)
 		time.Sleep(time.Second * time.Duration(i+1)) // 指数退避: 1s, 2s, 3s
 	}

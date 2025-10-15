@@ -583,13 +583,8 @@ func (h *HyperLiquidService) AnalyzeTopPositions(ctx context.Context) (*model.Wh
 	if err != nil {
 		return nil, err
 	}
-	priceDict := h.marketService.TradingItems
-	prices := make(map[string]float64)
-	for k, v := range priceDict {
-		price, _ := strconv.ParseFloat(v.Ticker.LastPrice, 64)
-		prices[k] = price
-	}
-	res = h.analyzePositions(posList.Positions, prices)
+	priceDict := h.marketService.GetPrices()
+	res = h.analyzePositions(posList.Positions, priceDict)
 
 	if err != nil {
 		log.Printf("HyperLiquidService AnalyzeTopPositions error: %v", err)

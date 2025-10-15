@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/markcheno/go-talib"
 	"math"
+	"strings"
 )
 
 type IndicatorRationale struct {
@@ -115,11 +116,11 @@ func (m *MACDIndicator) Calculate(klines []model.Kline) IndicatorResult {
 		return IndicatorResult{Name: "MACD", Signal: "hold"}
 	}
 
-	macd, signalLine, hist := talib.Macd(closes, m.FastPeriod, m.SlowPeriod, m.SignalPeriod)
+	macdLine, macdSignal, macdHist := talib.Macd(closes, m.FastPeriod, m.SlowPeriod, m.SignalPeriod)
 
-	lastMacd := macd[len(macd)-1]
-	lastSignal := signalLine[len(signalLine)-1]
-	lastHist := hist[len(hist)-1]
+	lastMacd := macdLine[len(macdLine)-1]
+	lastSignal := macdSignal[len(macdSignal)-1]
+	lastHist := macdHist[len(macdHist)-1]
 
 	signal := "hold"
 	var rationale string
@@ -225,104 +226,6 @@ func (r *RSIIndicator) Calculate(klines []model.Kline) IndicatorResult {
 			Text:   rationale,
 			Signal: signal,
 		},
-	}
-}
-
-// 用来计算反转的指标
-type ReversalDetector struct {
-}
-
-func NewReversalDetector() *ReversalDetector {
-	return &ReversalDetector{}
-}
-
-func (*ReversalDetector) GetName() string {
-	return "ReversalDetector"
-}
-
-func (r *ReversalDetector) Calculate(klines []model.Kline) IndicatorResult {
-	closes := make([]float64, len(klines))
-	highs := make([]float64, len(klines))
-	lows := make([]float64, len(klines))
-
-	for i, k := range klines {
-		closes[i] = k.Close
-		highs[i] = k.High
-		lows[i] = k.Low
-	}
-
-	// --- RSI ---
-	rsi := talib.Rsi(closes, 14)
-	lastRSI := rsi[len(rsi)-1]
-
-	// --- MACD ---
-	macd, signal, _ := talib.Macd(closes, 12, 26, 9)
-	lastMACD := macd[len(macd)-1]
-	lastSignal := signal[len(signal)-1]
-
-	// --- Bollinger Bands ---
-	upper, middle, lower := talib.BBands(closes, 20, 2.0, 2.0, 0)
-	lastUpper, lastMiddle, lastLower := upper[len(upper)-1], middle[len(middle)-1], lower[len(lower)-1]
-	lastPrice := closes[len(closes)-1]
-
-	// --- KDJ ---
-	k, d := talib.Stoch(highs, lows, closes, 9, 3, 0, 3, 0)
-	lastK := k[len(k)-1]
-	lastD := d[len(d)-1]
-
-	// --- 反转判定 + 加权 ---
-	action := "hold"
-	strength := 0.0
-
-	// RSI 超买/超卖作为反转基准
-	if lastRSI < 30 {
-		action, strength = "buy", strength+0.3
-	} else if lastRSI > 70 {
-		action, strength = "sell", strength+0.3
-	}
-
-	// MACD 金叉/死叉结合RSI
-	if lastMACD > lastSignal && lastRSI < 50 { // MACD金叉发生在RSI中轴下方
-		action, strength = "buy", strength+0.3
-	}
-	if lastMACD < lastSignal && lastRSI > 50 { // MACD死叉发生在RSI中轴上方
-		action, strength = "sell", strength+0.3
-	}
-
-	// 布林带极端突破
-	if lastPrice < lastLower {
-		action, strength = "buy", strength+0.2
-	} else if lastPrice > lastUpper {
-		action, strength = "sell", strength+0.2
-	}
-
-	// KDJ 超买超卖
-	if lastK < 20 && lastD < 20 {
-		action, strength = "buy", strength+0.2
-	} else if lastK > 80 && lastD > 80 {
-		action, strength = "sell", strength+0.2
-	}
-
-	// 限制在 0~1 之间
-	if strength > 1.0 {
-		strength = 1.0
-	}
-
-	return IndicatorResult{
-		Name:   r.GetName(),
-		Signal: action,
-		Values: map[string]float64{
-			"rsi":        lastRSI,
-			"macd":       lastMACD,
-			"macd_sig":   lastSignal,
-			"upper":      lastUpper,
-			"middle":     lastMiddle,
-			"lower":      lastLower,
-			"last_price": lastPrice,
-			"k_val":      lastK,
-			"d_val":      lastD,
-		},
-		Strength: strength,
 	}
 }
 
@@ -436,26 +339,128 @@ func extractHighsLows(klines []model.Kline) (highs, lows []float64) {
 	return highs, lows
 }
 
-// CalcATR 保持不变，用于止损计算
-//func CalcATR(klines []model.Kline, period int) float64 {
-//	if len(klines) < period+1 {
-//		return 0
-//	}
-//	trs := make([]float64, 0, len(klines)-1)
-//	for i := 1; i < len(klines); i++ {
-//		high := klines[i].High
-//		low := klines[i].Low
-//		prevClose := klines[i-1].Close
-//		tr := math.Max(high-low, math.Max(math.Abs(high-prevClose), math.Abs(low-prevClose)))
-//		trs = append(trs, tr)
-//	}
-//	sum := 0.0
-//	start := len(trs) - period
-//	if start < 0 {
-//		start = 0
-//	}
-//	for i := start; i < len(trs); i++ {
-//		sum += trs[i]
-//	}
-//	return sum / float64(period)
-//}
+// ===================================
+// 反转确认指标 (ReversalConfirmationIndicator)
+// ===================================
+
+type ReversalConfirmationIndicator struct{}
+
+// Calculate 整合多种指标的极值信号，生成一个高分确认。
+func (r *ReversalConfirmationIndicator) Calculate(rsi, macdLine, macdSignal float64, klines []model.Kline) IndicatorResult {
+	// 假设 data 中包含了所有必要的指标最新值
+	lastRSI := rsi
+	lastMACD := macdLine
+	lastSignal := macdSignal
+
+	highs, lows := extractHighsLows(klines)
+	closes := extractCloses(klines)
+
+	// 布林带 (BBands)：上轨, 下轨
+	// 默认参数 (20, 2, 2, SMA)
+	upper, _, lower := talib.BBands(closes, 20, 2, 2, talib.SMA)
+	lastUpper := upper[len(upper)-1]
+	lastLower := lower[len(lower)-1]
+	// 注意：BBANDS的MIDDLE线可以用于EMA等其他指标的基准
+
+	// 随机指标 (KDJ / Stochastics) - K 值, D 值
+	// KDJ 默认参数 (9, 3, 3)
+	// 注意：Go-TA-Lib 中的 Stoch 对应 KDJ
+	kVal, dVal := talib.Stoch(highs, lows, closes, 9, 3, talib.SMA, 3, 0)
+	lastK := kVal[len(kVal)-1]
+	lastD := dVal[len(dVal)-1]
+
+	lastPrice := closes[len(closes)-1]
+
+	buyCount := 0
+	sellCount := 0
+	reasons := []string{}
+	const maxReversalScore = 2.5 // 最大原始分数（5个点 * 0.5）
+
+	// --- 1. RSI 超买/超卖作为反转基准 (权重 2) ---
+	if lastRSI < 30 {
+		buyCount += 2
+		reasons = append(reasons, "RSI超卖(<30)")
+	} else if lastRSI > 70 {
+		sellCount += 2
+		reasons = append(reasons, "RSI超买(>70)")
+	}
+
+	// --- 2. MACD 金叉/死叉结合RSI中轴 (权重 1) ---
+	if lastMACD > lastSignal && lastRSI < 50 {
+		buyCount++
+		reasons = append(reasons, "MACD金叉且RSI<50")
+	}
+	if lastMACD < lastSignal && lastRSI > 50 {
+		sellCount++
+		reasons = append(reasons, "MACD死叉且RSI>50")
+	}
+
+	// --- 3. 布林带极端突破 (权重 1) ---
+	if lastPrice < lastLower {
+		buyCount++
+		reasons = append(reasons, "布林带下轨突破")
+	} else if lastPrice > lastUpper {
+		sellCount++
+		reasons = append(reasons, "布林带上轨突破")
+	}
+
+	// --- 4. KDJ 超买超卖 (权重 1) ---
+	if lastK < 20 && lastD < 20 {
+		buyCount++
+		reasons = append(reasons, "KDJ极度超卖(<20)")
+	} else if lastK > 80 && lastD > 80 {
+		sellCount++
+		reasons = append(reasons, "KDJ极度超买(>80)")
+	}
+
+	// 5. 最终得分和依据文本生成
+	rawScore := 0.0
+	var rationaleText string
+	var detailedSignal string = "hold"
+
+	// 只有当至少 3 个点确认同一方向时，才输出分数
+	if buyCount >= 3 && sellCount == 0 {
+		rawScore = float64(buyCount) * 0.5
+		detailedSignal = "strong_reversal_buy"
+		rationaleText = fmt.Sprintf("【多重反转确认】买入（%d点）：%s。", buyCount, strings.Join(reasons, ", "))
+	} else if sellCount >= 3 && buyCount == 0 {
+		rawScore = float64(sellCount) * -0.5
+		detailedSignal = "strong_reversal_sell"
+		rationaleText = fmt.Sprintf("【多重反转确认】卖出（%d点）：%s。", sellCount, strings.Join(reasons, ", "))
+	} else {
+		detailedSignal = "hold"
+		rationaleText = fmt.Sprintf("反转指标确认不足或方向冲突 (买入点:%d, 卖出点:%d)。", buyCount, sellCount)
+	}
+
+	// 确保分数不超过 maxReversalScore
+	if math.Abs(rawScore) > maxReversalScore {
+		if rawScore > 0 {
+			rawScore = maxReversalScore
+		} else {
+			rawScore = -maxReversalScore
+		}
+	}
+
+	return IndicatorResult{
+		Name: "ReversalConfirm",
+		Values: map[string]float64{
+			"bb_upper":   lastUpper,
+			"bb_lower":   lastLower,
+			"k_val":      lastK,
+			"d_val":      lastD,
+			"last_price": lastPrice,
+		},
+		Signal:   detailedSignal,
+		Strength: clampStrength(rawScore, maxReversalScore),
+		Rationale: IndicatorRationale{
+			Text:   rationaleText,
+			Signal: detailedSignal,
+		},
+	}
+}
+
+// 将绝对分数映射到 0.0 到 1.0 的强度范围，并设置上限。
+func clampStrength(rawScore, maxScore float64) float64 {
+	strength := math.Abs(rawScore) / maxScore
+	return math.Min(strength, 1.0)
+}

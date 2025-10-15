@@ -51,7 +51,7 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 	// 用于强度计算的变量和 Basis 文本所需的指标
 	var rsiStrength, adxStrength float64
 	var diPlus, diMinus float64
-	var rsiNow float64                                                           // 用于 Basis 文本
+	var rsiNow, macdNow, macdSignal float64                                      // 用于 Basis 文本
 	var totalRationale = make(map[string]IndicatorRationale, len(sg.Indicators)) // 用于存储所有指标的依据文本
 
 	// --- 1. 指标计算与加权评分 ---
@@ -82,8 +82,9 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 		case "RSI":
 			rsiStrength = res.Strength
 			rsiNow = res.Values["rsi"]
-		//case "MACD":
-		//macdNow = res.Values["macd"]
+		case "MACD":
+			macdNow = res.Values["macd"]
+			macdSignal = res.Values["macd_signal"]
 		case "ADX":
 			adxStrength = res.Strength
 			diPlus = res.Values["di+"]
@@ -92,32 +93,29 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 
 	}
 
-	// 信号依据详情
-	totalRationaleJson, err := json.Marshal(totalRationale)
-	var finalRationale string
-	if err == nil {
-		finalRationale = string(totalRationaleJson)
-	}
-
 	// --- 2. 最终方向判断（Command） ---
 	var isReversalSignal bool = false // 用于标记是否触发了反转信号
 
 	// 假设 finalScore 和 ADX 相关的指标已计算并传入
 	finalScore := score // 使用 core score 作为最终分数
 
-	// --- 【反转信号判断】抄底/逃顶逻辑（优先级最高） ---
-	const RSI_OVERSOLD = 30.0   // 极度超卖
-	const RSI_OVERBOUGHT = 70.0 // 极度超买
+	// --- 3. 反转指标（独立运行，只获取值）---
+	rd := ReversalConfirmationIndicator{}
+
+	rdRes := rd.Calculate(rsiNow, macdNow, macdSignal, klines)
+	for k, v := range rdRes.Values {
+		//allIndicatorValues["rev_"+k] = v // 将反转指标值带前缀存入
+		allIndicatorValues[k] = v
+	}
 
 	// 如果 isReversalSignal 为 true，那么 finalAction 已经是 REVERSAL_BUY/SELL
 	// 否则 finalAction 是 BUY/SELL 或空（如果 ADX 也无法确认）
 	var finalAction model.CommandType
-
-	// 判断是否出现超卖/抄底买入机会
-	if rsiNow <= RSI_OVERSOLD {
+	//reversaStrength := rdRes.Strength
+	if rdRes.Signal == "strong_reversal_buy" {
 		finalAction = model.CommandReversalBuy
 		isReversalSignal = true
-	} else if rsiNow >= RSI_OVERBOUGHT {
+	} else if rdRes.Signal == "strong_reversal_sell" {
 		// 判断是否出现超买/逃顶卖出机会
 		finalAction = model.CommandReversalSell
 		isReversalSignal = true
@@ -137,13 +135,8 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 				finalAction = model.CommandSell
 			}
 		}
-	}
-
-	// --- 3. 反转指标（独立运行，只获取值）---
-	rd := NewReversalDetector()
-	rdRes := rd.Calculate(klines)
-	for k, v := range rdRes.Values {
-		allIndicatorValues["rev_"+k] = v // 将反转指标值带前缀存入
+	} else {
+		totalRationale[rdRes.Name] = rdRes.Rationale
 	}
 
 	// --- 4. 综合强度计算 (并存储) ---
@@ -179,6 +172,13 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 	}
 	allIndicatorValues["atr"] = smoothedAtr
 	allIndicatorValues["close"] = last.Close
+
+	// 信号依据详情
+	totalRationaleJson, err := json.Marshal(totalRationale)
+	var finalRationale string
+	if err == nil {
+		finalRationale = string(totalRationaleJson)
+	}
 
 	// --- 6. 构建 SignalDetails ---
 	details := model.SignalDetails{
