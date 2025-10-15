@@ -62,10 +62,16 @@ type OKXTickerService struct {
 	lastRequest time.Time
 	// 新增：系统必须保持订阅的币种列表
 	defaultSymbols []string
-	// 连接成功建立后，会向此通道发送一个信号
+	// 连接成功建立后，会向此通道发送一个信号，用于外部监听所有连接/重连事件的通道 (事件流)
 	connectionNotifier chan struct{}
 	// 收到行情变化的通道
 	tickersCh chan map[string]TickerData
+
+	// 使用一个布尔状态标记和 RWMutex
+	isReady bool
+	// 使用一个广播通道，用于同步等待“第一次连接成功”的通道 (同步信号）
+	readyCh chan struct{}
+	mu      sync.RWMutex
 }
 
 // NewOKXTickerService 创建实例并连接 OKX WebSocket
@@ -91,6 +97,7 @@ func NewOKXTickerService(defaultSymbols []string) *OKXTickerService {
 		closeCh:            make(chan struct{}),
 		defaultSymbols:     defaultSymbols,
 		connectionNotifier: make(chan struct{}), //非缓冲冲到
+		readyCh:            make(chan struct{}),
 	}
 
 	go s.run()
@@ -185,13 +192,19 @@ func (s *OKXTickerService) run() {
 		s.Lock()
 		s.conn = conn
 
-		// 每次连接成功后，通知外部
-		// 使用 select 防止通道满或重复发送导致阻塞
+		//  readyCh 的广播逻辑（只执行一次）
+		if !s.isReady {
+			close(s.readyCh) // 关闭 readyCh，通知所有等待者（WaitForConnectionReady）
+			s.isReady = true
+		}
+
+		// connectionNotifier 的事件流逻辑（每次连接成功都尝试发送）
+		// 外部监听的是这个通道
 		select {
 		case s.connectionNotifier <- struct{}{}:
 			log.Println("OKX WebSocket connection established and ready.")
 		default:
-			// 已经是 ready 状态，忽略
+			log.Println("OKX WS ready, but connectionNotifier has no receiver (event dropped).")
 		}
 
 		// 关键：重置订阅状态，因为这是一个新连接
@@ -223,6 +236,13 @@ func (s *OKXTickerService) run() {
 		// 启动数据读取循环
 		// 这个 runListen 协程会阻塞直到连接断开
 		s.runListen(conn) // <-- 启动读取协程，等待连接断开
+
+		// 连接断开后，进入重连前
+		s.mu.Lock()
+		s.isReady = false
+		// 重新创建一个 readyCh，用于下一次连接成功时广播
+		s.readyCh = make(chan struct{})
+		s.mu.Unlock()
 
 		// 6. runListen 退出（连接断开），循环继续，开始下一次重连尝试
 		log.Println("OKXTickerService lost connection. Restarting reconnect loop...")
@@ -269,9 +289,21 @@ func (s *OKXTickerService) sendSubscribe(symbols []string) error {
 
 // 同步等待连接建立
 func (s *OKXTickerService) WaitForConnectionReady(ctx context.Context) error {
+	s.mu.RLock()
+	// 1. 检查状态：如果已经连接并准备好，立即返回。
+	if s.isReady {
+		s.mu.RUnlock()
+		return nil
+	}
+
+	// 2. 获取当前等待的通道
+	waitCh := s.readyCh
+	s.mu.RUnlock()
+
+	// 3. 阻塞等待 readyCh 被关闭，或者 context 超时
 	select {
-	case <-s.connectionNotifier:
-		return nil // 信号已收到，连接已就绪
+	case <-waitCh: // readyCh 被关闭，连接已就绪
+		return nil
 	case <-ctx.Done():
 		return ctx.Err() // 超时或 context 被取消
 	}
