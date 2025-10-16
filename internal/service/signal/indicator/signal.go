@@ -124,7 +124,7 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 	}
 
 	// 计算 VOL 倍数
-	buyConfirmationScore, sellConfirmationScore := CalculateVolumeConfirmationScores(klines)
+	buyConfirmationScore, sellConfirmationScore, rationale := CalculateVolumeConfirmationScores(klines)
 	volScore := 0.0
 
 	if finalScore > 0 {
@@ -138,6 +138,26 @@ func (sg *SignalGenerator) Generate(symbol string, klines []model2.Kline) (*mode
 	} else {
 		// 核心指标中立 (scoreCore == 0)，VOL 不应该影响方向
 		volScore = 0.0
+	}
+
+	// 根据 volScore 的正负来确定 Signal
+	var volSignal string
+	if volScore > 0 {
+		// VOL 为正，表示对核心指标方向的强烈支持
+		volSignal = "vol_confirm"
+	} else if volScore < 0 {
+		// VOL 为负，表示对核心指标方向的强烈反对（即过滤/拒绝）
+		volSignal = "vol_reject"
+	} else {
+		// VOL 为零，表示中立或在 VOL 的正常范围内
+		//volSignal = "vol_neutral"
+	}
+	if volSignal != "" {
+		// 填充总的 Rationale 结构体
+		totalRationale["VOL"] = IndicatorRationale{
+			Text:   rationale, // 这里的 Text 包含了 K线形态和量价关系的解读
+			Signal: volSignal, // 填充 CONFIRM, REJECT, 或 NEUTRAL
+		}
 	}
 
 	// 加入成交量分数

@@ -93,6 +93,24 @@ func (r *signalDao) GetActiveSignals(ctx context.Context, symbol string, limit i
 	return signals, nil
 }
 
+func (r *signalDao) GetSignalsByTimeRange(ctx context.Context, symbol string, start, end time.Time) ([]model.SignalHistory, error) {
+	var signals []model.SignalHistory
+	result := r.db.WithContext(ctx).
+		Where("symbol = ?", symbol).
+		Where("timestamp >= ?", start). // 信号时间大于或等于起始时间
+		Where("timestamp < ?", end).    // 信号时间小于或等于结束时间
+		Find(&signals)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to retrieve signals for %s in time range %s to %s: %w",
+			symbol, start.Format(time.RFC3339), end.Format(time.RFC3339), result.Error)
+	}
+
+	fmt.Printf("[DAO] Found %d signals for %s between %s and %s.\n",
+		len(signals), symbol, start.Format("2006-01-02 15:04"), end.Format("2006-01-02 15:04"))
+
+	return signals, nil
+}
+
 // GetSignalDetailByID 查找特定ID的信号，并预加载其趋势快照 (用于信号详情页和下单)。
 func (r *signalDao) GetSignalDetailByID(ctx context.Context, id uint) (*model.SignalDetail, error) {
 	var signal model.SignalDetail

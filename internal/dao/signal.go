@@ -4,6 +4,7 @@ import (
 	"context"
 	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
+	"time"
 )
 
 type SignalDao interface {
@@ -17,6 +18,8 @@ type SignalDao interface {
 	GetSignalByID(ctx context.Context, id uint) (*entity.Signal, error)
 	// 获取信号列表
 	GetAllActiveSignalList(ctx context.Context) ([]model.Signal, error)
+	// 根据给定的时间范围（包含开始和结束时间）查找特定交易对的所有信号
+	GetSignalsByTimeRange(ctx context.Context, symbol string, start, end time.Time) ([]model.SignalHistory, error)
 
 	// 保存一个信号的盈亏
 	SaveSignalOutcome(ctx context.Context, outcome *entity.SignalOutcome) error

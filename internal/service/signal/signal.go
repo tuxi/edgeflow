@@ -232,6 +232,14 @@ func (s *SignalProcessorService) SignalGetDetail(ctx context.Context, signalID i
 	klines, err := s.KlineMgr.FetchKlines(detail.Symbol, start, end, 192, model2.Kline_15min, model22.OrderTradeSwap)
 	if err == nil {
 		detail.Klines = klines
+		if len(klines) >= 2 {
+			startTime := klines[0].Timestamp
+			endTime := detail.Timestamp
+			siganls, err := s.SignalRepo.GetSignalsByTimeRange(ctx, detail.Symbol, startTime, endTime)
+			if err == nil {
+				detail.SignalHistories = siganls
+			}
+		}
 	}
 	return detail, nil
 }

@@ -1,6 +1,8 @@
 package model
 
-import "time"
+import (
+	"time"
+)
 
 type Signal struct {
 	SignalID   int64   `gorm:"column:id" json:"signal_id"` // 唯一的信号 ID
@@ -52,10 +54,26 @@ type SignalDetail struct {
 	// GORM 关联：使用 SignalID 关联到 TrendSnapshot (关键点)
 	TrendSnapshot *TrendSnapshot `gorm:"foreignKey:SignalID;references:ID" json:"trend_snapshot"`
 
-	Klines []Kline `gorm:"-" json:"klines"`
+	Klines          []Kline         `gorm:"-" json:"klines"`
+	SignalHistories []SignalHistory `gorm:"-" json:"signal_histories"` // 历史信号
 }
 
 func (SignalDetail) TableName() string {
+	return "signals"
+}
+
+type SignalHistory struct {
+	SignalID        int64     `gorm:"column:id" json:"signal_id"` // 唯一的信号 ID
+	Symbol          string    `gorm:"column:symbol" json:"symbol"`
+	Timestamp       time.Time `gorm:"column:timestamp" json:"timestamp"`               // k线收盘时间
+	ExpiryTimestamp time.Time `gorm:"column:expiry_timestamp" json:"expiry_timestamp"` // 信号失效时间
+	Command         string    `gorm:"column:command" json:"command"`
+	EntryPrice      float64   `gorm:"column:entry_price;type:decimal(15,8)" json:"entry_price"` // 建议入场价格
+	RecommendedSL   float64   `gorm:"column:recommended_sl;type:decimal(15,8)" json:"recommended_sl"`
+	RecommendedTP   float64   `gorm:"column:recommended_tp;type:decimal(15,8)" json:"recommended_tp"`
+}
+
+func (SignalHistory) TableName() string {
 	return "signals"
 }
 

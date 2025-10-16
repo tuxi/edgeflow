@@ -470,7 +470,7 @@ func clampStrength(rawScore, maxScore float64) float64 {
 // volStrength: vol强度
 // isBuySignal: 调度中心当前正在评估的是买入信号 (true) 还是卖出信号 (false)
 // 返回值: 交易量对当前信号的贡献分数
-func CalculateVolumeConfirmationScores(klines []model.Kline) (buyConfirmationScore, sellConfirmationScore float64) {
+func CalculateVolumeConfirmationScores(klines []model.Kline) (buyConfirmationScore, sellConfirmationScore float64, rationale string) {
 	n := len(klines)
 	period := 20
 	if n < period {
@@ -496,31 +496,48 @@ func CalculateVolumeConfirmationScores(klines []model.Kline) (buyConfirmationSco
 
 	// 中性情况 (0.9 <= ratio <= 1.0)
 	if volMagnitude == 0.0 {
-		return 0, 0
+		return 0, 0, "量价中立：成交量处于平均水平，不提供额外方向确认。"
 	}
 
+	correctionFactor := model.GetKLinePowerCorrection(last.High, last.Low, last.Open, last.Close)
+	// 修正 VOL 强度：将其作为确认/否决的权重
+	correctedMagnitude := volMagnitude * correctionFactor
 	// --- 阳线/阴线判断 ---
-	isBullishKLine := last.Close > last.Open
+	isBullishKLine := last.Close > last.Open // 基础方向判断不变
 
+	// --- 交易死寂惩罚 (Ratio < 0.9) ---
 	if ratio < 0.9 {
-		// --- 交易死寂惩罚 ---
 		// 对 BUY 和 SELL 都是风险，都应该扣分
-		buyConfirmationScore = -volMagnitude
-		sellConfirmationScore = -volMagnitude
+		buyConfirmationScore = -volMagnitude  // -1.5 (惩罚)
+		sellConfirmationScore = -volMagnitude // -1.5 (惩罚)
+		rationale = "流动性风险：成交量极度萎缩（地量），市场交易死寂。强力否决任何买入/卖出信号。"
+		return
+	}
+
+	if isBullishKLine {
+		// 阳线放量：对 BUY 是确认，对 SELL 是抵抗/抛压
+		rationale = "价涨量增：阳线放量，趋势健康。"
+		if correctionFactor < 1.0 {
+			rationale += "（但K线影线较长，存在一定多空争夺。）"
+		} else if correctionFactor > 1.0 {
+			rationale += "（K线实体饱满，多头力量极强。）"
+		}
+		buyConfirmationScore = correctedMagnitude
+		sellConfirmationScore = -correctedMagnitude
+
 		return
 	} else {
-		// --- 放量确认/否决 ---
-		if isBullishKLine {
-			// 阳线放量：对 BUY 是确认，对 SELL 是抵抗
-			buyConfirmationScore = volMagnitude   // 加分 (+1.0 to +2.5)
-			sellConfirmationScore = -volMagnitude // 否决/减分 (-1.0 to -2.5)
-			return
-		} else {
-			// 阴线放量：对 SELL 是确认，对 BUY 是抛压
-			buyConfirmationScore = -volMagnitude // 否决/减分 (-1.0 to -2.5)
-			sellConfirmationScore = volMagnitude // 加分 (+1.0 to +2.5)
-			return
+		// 阴线放量：对 SELL 是确认，对 BUY 是抛压/否决
+		rationale = "价跌量增：阴线放量，存在抛售压力。"
+		if correctionFactor < 1.0 {
+			rationale += "（但K线影线较长，表明底部存在买盘抵抗。）" // 这里的长下影线正是您想捕获的信号！
+		} else if correctionFactor > 1.0 {
+			rationale += "（K线实体饱满，空头力量极强。）"
 		}
+		buyConfirmationScore = -correctedMagnitude
+		sellConfirmationScore = correctedMagnitude
+
+		return
 	}
 }
 

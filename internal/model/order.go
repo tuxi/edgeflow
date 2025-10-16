@@ -1,6 +1,7 @@
 package model
 
 import (
+	"math"
 	"time"
 )
 
@@ -155,4 +156,40 @@ type IndicatorResult struct {
 	Values   map[string]float64
 	Signal   string  // "buy", "sell", "hold"
 	Strength float64 // 指标强度0～1
+}
+
+// GetKLinePowerCorrection 根据 K 线形态计算 VOL 强度的修正因子
+// 目标：长影线削弱实体，长实体增强 VOL 确认力度。
+func GetKLinePowerCorrection(high, low, open, close float64) float64 {
+	// 整个 K 线的总振幅
+	klineRange := high - low
+
+	// 如果价格没有波动，直接返回中性
+	if klineRange == 0 {
+		return 0.0
+	}
+
+	// 实体长度
+	bodySize := math.Abs(close - open)
+
+	// ----------------------------------------------------
+	// 计算 K 线实体占总幅度的比例 (Body/Range Ratio)
+	// 比例越大 (接近 1)，K 线越干净，趋势越强劲，VOL 确认度越高
+	// 比例越小 (接近 0)，K 线影线越长，多空争夺越激烈，VOL 确认度越低
+	// ----------------------------------------------------
+
+	bodyRatio := bodySize / klineRange
+
+	// 修正因子的定义：
+	// - 实体比例 > 0.6 时，给予 VOL 适度增强 (例如 1.2 倍)
+	// - 实体比例 < 0.3 时，对 VOL 确认力度进行削弱 (例如 0.5 倍)
+
+	if bodyRatio >= 0.6 {
+		return 1.2 // K 线趋势强劲，VOL 确认力度增强 20%
+	} else if bodyRatio <= 0.3 {
+		// 长影线 (例如锤子线/十字星)：VOL 确认力度削弱 50%
+		return 0.5
+	} else {
+		return 1.0 // 中性 K 线，VOL 确认力度不变
+	}
 }

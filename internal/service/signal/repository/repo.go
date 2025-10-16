@@ -4,6 +4,7 @@ import (
 	"context"
 	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
+	"time"
 )
 
 // SignalRepository 负责最终信号的持久化（通常是 PostgreSQL/MySQL）
@@ -12,6 +13,8 @@ type SignalRepository interface {
 	SaveSignalWithSnapshot(ctx context.Context, signal *entity.Signal) error
 	// 获取指定交易对的活跃信号列表 (用于信号列表页)
 	GetActiveSignals(ctx context.Context, symbol string, limit int) ([]entity.Signal, error)
+	// 根据给定的时间范围（包含开始和结束时间）查找特定交易对的所有信号
+	GetSignalsByTimeRange(ctx context.Context, symbol string, start, end time.Time) ([]model.SignalHistory, error)
 	// 查找特定ID的信号，并预加载其趋势快照 (用于信号详情页和下单)
 	GetSignalDetailByID(ctx context.Context, id uint) (*model.SignalDetail, error)
 	// 查询信号全部信息
