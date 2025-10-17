@@ -98,7 +98,7 @@ func (r *signalDao) GetSignalsByTimeRange(ctx context.Context, symbol string, st
 	result := r.db.WithContext(ctx).
 		Where("symbol = ?", symbol).
 		Where("timestamp >= ?", start). // 信号时间大于或等于起始时间
-		Where("timestamp < ?", end).    // 信号时间小于或等于结束时间
+		Where("timestamp <= ?", end).   // 信号时间小于或等于结束时间
 		Find(&signals)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to retrieve signals for %s in time range %s to %s: %w",

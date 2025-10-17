@@ -171,7 +171,7 @@ func (tm *KlineManager) fetchKAllLines() {
 func (tm *KlineManager) fetchKlines(symbols []string, timeframe model2.KlinePeriod) error {
 	var errs error
 	for _, symbol := range symbols {
-		kLines, err := tm.ex.GetKlineRecords(symbol, timeframe, 210, 0, 0, model.OrderTradeSwap)
+		kLines, err := tm.ex.GetKlineRecords(symbol, timeframe, 210, 0, 0, model.OrderTradeSwap, false)
 		if err != nil {
 			log.Printf("[TrendManager] fetch %v kline error for %s: %v", timeframe, symbol, err)
 			errs = multierr.Append(errs, err) // 使用 multierror 记录所有错误
@@ -198,7 +198,7 @@ func (km *KlineManager) Get(symbol string, period model2.KlinePeriod) ([]model.K
 }
 
 func (t *KlineManager) FetchKlines(symbol string, start, end int64, limit int, period model2.KlinePeriod, tradeType model.OrderTradeType) ([]model.Kline, error) {
-	kLines, err := t.ex.GetKlineRecords(symbol, period, limit, start, end, tradeType)
+	kLines, err := t.ex.GetKlineRecords(symbol, period, limit, start, end, tradeType, true)
 	if err != nil {
 		return nil, err
 	}

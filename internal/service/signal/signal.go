@@ -234,7 +234,7 @@ func (s *SignalProcessorService) SignalGetDetail(ctx context.Context, signalID i
 		detail.Klines = klines
 		if len(klines) >= 2 {
 			startTime := klines[0].Timestamp
-			endTime := detail.Timestamp
+			endTime := klines[len(klines)-1].Timestamp
 			siganls, err := s.SignalRepo.GetSignalsByTimeRange(ctx, detail.Symbol, startTime, endTime)
 			if err == nil {
 				detail.SignalHistories = siganls

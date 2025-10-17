@@ -24,7 +24,7 @@ type OkxService interface {
 	GetLastPrice(symbol string) (float64, error)
 	GetExchangeInfo() (map[string]model.CurrencyPair, []byte, error)
 	AmendAlgoOrder(instId string, algoId string, newSlTriggerPx, newSlOrdPx, newTpTriggerPx, newTpOrdPx float64) ([]byte, error)
-	GetKlineRecords(symbol string, period model.KlinePeriod, size int, start, end int64) ([]model2.Kline, error)
+	GetKlineRecords(symbol string, period model.KlinePeriod, size int, start, end int64, includeUnclosed bool) ([]model2.Kline, error)
 }
 
 // OKX 三种交易的基础结构：swap、future、spot
@@ -152,7 +152,7 @@ func (e *Okx) GetExchangeInfo() (map[string]model.CurrencyPair, []byte, error) {
 	return info, data, err
 }
 
-func (e *Okx) GetKlineRecords(symbol string, period model.KlinePeriod, size int, start, end int64) ([]model2.Kline, error) {
+func (e *Okx) GetKlineRecords(symbol string, period model.KlinePeriod, size int, start, end int64, includeUnclosed bool) ([]model2.Kline, error) {
 	pair, err := e.toCurrencyPair(symbol)
 	if err != nil {
 		return nil, err
@@ -177,15 +177,24 @@ func (e *Okx) GetKlineRecords(symbol string, period model.KlinePeriod, size int,
 			Value: fmt.Sprintf("%v", end),
 		})
 	}
+
 	info, _, err := e.getPub().GetKline(pair, period, opts...)
 	if err != nil {
 		return nil, err
 	}
 
 	//fmt.Printf("[GetKlineRecords] data = %v", string(data))
-
+	now := time.Now().UnixMilli()
+	intervalMs := getIntervalMs(string(period))
 	var items []model2.Kline
+
 	for _, item := range info {
+		ts := item.Timestamp
+		// 过滤未收盘的k线
+		if !includeUnclosed && now < ts+intervalMs {
+			continue // 未收盘，跳过
+		}
+
 		items = append(items, model2.Kline{
 			Timestamp: time.UnixMilli(item.Timestamp),
 			Open:      item.Open,
@@ -193,8 +202,53 @@ func (e *Okx) GetKlineRecords(symbol string, period model.KlinePeriod, size int,
 			High:      item.High,
 			Low:       item.Low,
 			Vol:       item.Vol,
+			VolCcy:    item.VolCcy,
 		})
 	}
 
 	return items, nil
+}
+
+// ---- 工具函数 ----
+func getIntervalMs(bar string) int64 {
+	switch bar {
+	case "1m":
+		return 60_000
+	case "3m":
+		return 180_000
+	case "5m":
+		return 300_000
+	case "15m":
+		return 900_000
+	case "30m":
+		return 1_800_000
+	case "1h":
+		return 3_600_000
+	case "2h":
+		return 7_200_000
+	case "4h":
+		return 14_400_000
+	case "6h":
+		return 21_600_000
+	case "12h":
+		return 43_200_000
+	case "1day":
+		return 86_400_000
+	case "1week":
+		return 604_800_000
+	case "1month":
+		return 2_592_000_000
+	default:
+		return 60_000
+	}
+}
+
+func parseFloat(s string) float64 {
+	v, _ := strconv.ParseFloat(s, 64)
+	return v
+}
+
+func parseInt64(s string) int64 {
+	v, _ := strconv.ParseInt(s, 10, 64)
+	return v
 }

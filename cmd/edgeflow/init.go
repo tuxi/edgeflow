@@ -83,7 +83,7 @@ func InitRouter(db *gorm.DB) Router {
 	hyperDao := query.NewHyperLiquidDao(db)
 	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "AAVE", "AVAX", "ADA", "LINK", "TRX"}
 	tickerService := service.NewOKXTickerService(defaultsCoins)
-	marketService := service.NewMarketDataService(tickerService, instrumentDao)
+	marketService := service.NewMarketDataService(tickerService, instrumentDao, okxEx, signalDao)
 	marketService.InitializeBaseInstruments(context.Background(), 1)
 
 	rds := cache.GetRedisClient()

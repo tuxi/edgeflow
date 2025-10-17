@@ -38,6 +38,8 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 	{
 		// 获取排序好的ids
 		m.GET("/sorted-inst-ids", api.mh.SortedInstIDsGet())
+		// 获取详情
+		m.POST("/detail", api.mh.GetDetail())
 	}
 
 	p := base.Group("/ticker", middleware.RequestValidationMiddleware())

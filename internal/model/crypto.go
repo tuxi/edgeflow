@@ -73,3 +73,18 @@ type Exchange struct {
 type InstrumentGetAllReq struct {
 	ExId string `json:"ex_id" form:"ex_id" validate:"required"`
 }
+
+type MarketDetailReq struct {
+	InstrumentID string         `json:"instrument_id" form:"instrument_id" validate:"required"`
+	TimePeriod   string         `json:"time_period" form:"time_period" validate:"required"`
+	Size         int            `json:"size" form:"size" validate:"required"`
+	EndTime      int64          `json:"end_time" form:"end_time"` // 结束时间（秒级时间戳），默认不传就是最新时间
+	TradeType    OrderTradeType `json:"trade_type"`               // 交易类型
+}
+
+type MarketDetail struct {
+	InstrumentID   string          `json:"instrument_id"`
+	HistoryKlines  []Kline         `json:"history_klines"`  // 历史k线
+	HistorySignals []SignalHistory `json:"history_signals"` // 历史信号
+	PricePrecision string          `json:"price_precision"`
+}

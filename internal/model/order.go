@@ -147,7 +147,8 @@ type Kline struct {
 	Close     float64   `json:"close"`
 	High      float64   `json:"high"`
 	Low       float64   `json:"low"`
-	Vol       float64   `json:"vol"`
+	Vol       float64   `json:"vol"`     // 成交量 以币为单位
+	VolCcy    float64   `json:"vol_ccy"` // 成交额 以USDT为单位
 }
 
 // 指标结果

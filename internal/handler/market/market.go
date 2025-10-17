@@ -1,7 +1,10 @@
 package market
 
 import (
+	"edgeflow/internal/model"
 	"edgeflow/internal/service"
+	"edgeflow/pkg/errors"
+	"edgeflow/pkg/errors/ecode"
 	"edgeflow/pkg/response"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
@@ -279,5 +282,22 @@ func (h *MarketHandler) SortedInstIDsGet() gin.HandlerFunc {
 		currentIDs := h.marketService.GetSortedIDsl()
 
 		response.JSON(ctx, nil, currentIDs)
+	}
+}
+
+func (m *MarketHandler) GetDetail() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req model.MarketDetailReq
+		if err := ctx.ShouldBindBodyWithJSON(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+
+		res, err := m.marketService.GetDetailByID(ctx, req)
+		if err != nil {
+			response.JSON(ctx, err, nil)
+		} else {
+			response.JSON(ctx, nil, res)
+		}
 	}
 }

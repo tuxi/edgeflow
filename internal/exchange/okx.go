@@ -205,8 +205,8 @@ func (e *OkxExchange) AmendAlgoOrder(instId string, tradeType model2.OrderTradeT
 	return api.AmendAlgoOrder(instId, algoId, newSlTriggerPx, -1, newTpTriggerPx, -1)
 }
 
-func (e *OkxExchange) GetKlineRecords(symbol string, period model.KlinePeriod, size int, start, end int64, tradeType model2.OrderTradeType) ([]model2.Kline, error) {
-	klines, err := e.getKlineRecords(symbol, period, size, start, end, tradeType)
+func (e *OkxExchange) GetKlineRecords(symbol string, period model.KlinePeriod, size int, start, end int64, tradeType model2.OrderTradeType, includeUnclosed bool) ([]model2.Kline, error) {
+	klines, err := e.getKlineRecords(symbol, period, size, start, end, tradeType, includeUnclosed)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func (e *OkxExchange) GetKlineRecords(symbol string, period model.KlinePeriod, s
 	return reLines, nil
 }
 
-func (e *OkxExchange) getKlineRecords(symbol string, period model.KlinePeriod, size int, start, end int64, tradeType model2.OrderTradeType) ([]model2.Kline, error) {
+func (e *OkxExchange) getKlineRecords(symbol string, period model.KlinePeriod, size int, start, end int64, tradeType model2.OrderTradeType, includeUnclosed bool) ([]model2.Kline, error) {
 
 	api, err := e.getApi(tradeType)
 	if err != nil {
@@ -228,7 +228,7 @@ func (e *OkxExchange) getKlineRecords(symbol string, period model.KlinePeriod, s
 	var result []model2.Kline
 	// 最多重试 3 次
 	for i := 0; i < 3; i++ {
-		result, err = api.GetKlineRecords(symbol, period, size, start, end)
+		result, err = api.GetKlineRecords(symbol, period, size, start, end, includeUnclosed)
 		if err == nil {
 			return result, err // 成功直接返回
 		}

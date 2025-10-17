@@ -2,12 +2,17 @@ package service
 
 import (
 	"context"
+	"edgeflow/internal/exchange"
+	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
+	"edgeflow/internal/service/signal/repository"
 	"errors"
 	"fmt"
+	model2 "github.com/nntaoli-project/goex/v2/model"
 	"log"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -67,9 +72,12 @@ type MarketDataService struct {
 
 	// 用于通知handler 基础数据结构变化的通道instrumentUpdateCh
 	instrumentUpdateCh chan BaseInstrumentUpdate
+
+	ex         exchange.Exchange
+	signalRepo repository.SignalRepository // DB 接口
 }
 
-func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher) *MarketDataService {
+func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher, ex exchange.Exchange, SignalRepo repository.SignalRepository) *MarketDataService {
 	m := &MarketDataService{
 		baseCoins:          make(map[string]entity.CryptoInstrument),
 		tradingItems:       make(map[string]TradingItem),
@@ -81,6 +89,8 @@ func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher Instrument
 		priceUpdateCh:      make(chan TickerData, 500),
 		currentSortField:   SortByVolume,                        // 默认按成交量排序
 		instrumentUpdateCh: make(chan BaseInstrumentUpdate, 10), // 缓冲区小，因为频率低
+		ex:                 ex,
+		signalRepo:         SignalRepo,
 	}
 	// 启动 MarketService 的核心 Worker
 	go m.startDataWorkers()
@@ -532,4 +542,47 @@ func (m *MarketDataService) GetPrices() map[string]float64 {
 		prices[k] = price
 	}
 	return prices
+}
+
+func (m *MarketDataService) GetDetailByID(ctx context.Context, req model.MarketDetailReq) (*model.MarketDetail, error) {
+	m.mu.Lock()
+	coin, ok := m.baseCoins[req.InstrumentID]
+	m.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("不存在的交易对:%v", req.InstrumentID)
+	}
+
+	var detail model.MarketDetail
+	detail.InstrumentID = coin.InstrumentID
+	detail.PricePrecision = coin.PricePrecision
+	tradeType := req.TradeType
+	if tradeType == "" {
+		tradeType = model.OrderTradeSpot
+	}
+	kLines, err := m.ex.GetKlineRecords(req.InstrumentID, model2.KlinePeriod(req.TimePeriod), req.Size, 0, req.EndTime, tradeType, true)
+	if err != nil {
+		return nil, err
+	}
+	detail.HistoryKlines = kLines
+
+	if len(kLines) >= 2 {
+		startTime := kLines[0].Timestamp
+		endTime := kLines[len(kLines)-1].Timestamp
+		siganls, err := m.signalRepo.GetSignalsByTimeRange(ctx, req.InstrumentID, startTime, endTime)
+		if err == nil {
+			detail.HistorySignals = siganls
+		}
+		if len(siganls) == 0 {
+			strs := strings.Split(req.InstrumentID, "-")
+			var symbol string
+			if len(strs) >= 2 {
+				symbol = strs[0] + "/" + strs[1]
+			}
+			siganls, err := m.signalRepo.GetSignalsByTimeRange(ctx, symbol, startTime, endTime)
+			if err == nil {
+				detail.HistorySignals = siganls
+			}
+		}
+	}
+	return &detail, nil
 }
