@@ -4,6 +4,7 @@ import (
 	"context"
 	"edgeflow/internal/model"
 	"edgeflow/internal/position"
+	"edgeflow/internal/service/signal/kline"
 	"edgeflow/internal/signal"
 	"edgeflow/internal/trend"
 	"edgeflow/pkg/utils"
@@ -26,7 +27,7 @@ type SignalStrategy struct {
 	mu           sync.Mutex
 	isTesting    bool
 	tradeLimiter *signal.TradeLimiter
-	kLineManager *trend.KlineManager
+	kLineManager *kline.KlineManager
 }
 
 // 你可以把这些参数抽成配置
@@ -37,7 +38,7 @@ const (
 	stopLoss        = -0.15            // 达到 -15% 强制止损
 )
 
-func NewSignalStrategy(trendMgr *trend.Manager, ps *position.PositionService, kLineManager *trend.KlineManager) *SignalStrategy {
+func NewSignalStrategy(trendMgr *trend.Manager, ps *position.PositionService, kLineManager *kline.KlineManager) *SignalStrategy {
 	config := signal.TradeLimiterConfig{
 		MaxConsecutiveOpens: 2,                // 最多连续开仓2次
 		MaxConsecutiveAdds:  2,                // 最多连续加仓2次

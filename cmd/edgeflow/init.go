@@ -90,7 +90,8 @@ func InitRouter(db *gorm.DB) Router {
 	hyperService := service.NewHyperLiquidService(hyperDao, rds, marketService)
 	hyperHandler := hyperliquid.NewHandler(hyperService)
 
-	marketHandler := market.NewMarketHandler(marketService)
+	okxCandleService := service.NewOKXCandleService()
+	marketHandler := market.NewMarketHandler(marketService, okxCandleService)
 	instrumentService := service.NewInstrumentService(instrumentDao, func() {
 		marketService.PerformPeriodicUpdate(context.Background())
 	})

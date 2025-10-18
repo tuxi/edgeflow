@@ -105,11 +105,6 @@ func NewOKXTickerService(defaultSymbols []string) *OKXTickerService {
 	return s
 }
 
-// GetTickerChannel 供下游服务（如 MarketDataService）获取并监听 Ticker 数据流
-func (s *OKXTickerService) GetTickerChannel() <-chan map[string]TickerData {
-	return s.tickersCh
-}
-
 // startPingLoop 在每次新连接建立后调用
 func (s *OKXTickerService) startPingLoop(conn *websocket.Conn) {
 	// 间隔时间应该小于 OKX 的超时时间 (例如 30s，我们设置为 15s)
@@ -547,6 +542,11 @@ func (s *OKXTickerService) handleTickers(dataArr []interface{}) {
 // 供外部 MarketDataService 监听的接口
 func (s *OKXTickerService) ConnectionEvents() <-chan struct{} {
 	return s.connectionNotifier
+}
+
+// GetTickerChannel 供下游服务（如 MarketDataService）获取并监听 Ticker 数据流
+func (s *OKXTickerService) GetTickerChannel() <-chan map[string]TickerData {
+	return s.tickersCh
 }
 
 // parseFloat 辅助解析 float

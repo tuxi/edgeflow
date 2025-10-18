@@ -1,17 +1,21 @@
 package market
 
 import (
+	"context"
 	"edgeflow/internal/model"
 	"edgeflow/internal/service"
 	"edgeflow/pkg/errors"
 	"edgeflow/pkg/errors/ecode"
 	"edgeflow/pkg/response"
 	"encoding/json"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 /*
@@ -42,28 +46,38 @@ get_page	{"action": "get_page", "page": 1, "limit": 50}	1. 读取 MarketDataServ
 // MarketHandler 负责客户端连接管理和数据分发
 type MarketHandler struct {
 	marketService *service.MarketDataService
-	mu            sync.RWMutex
+	candleClient  *service.OKXCandleService // 实时k线数据源
+	mu            sync.Mutex                // 这里使用Mutx （只需要在写操作时保护client的更新）
 
 	// 仅维护所有活跃的连接
-	clients map[*ClientConn]struct{}
+	// 存储*ClientConn 集合快照，使用atomic.Value 保证读取时无损，这就是使用Copy-onWrite(CoW)模式减少对公共资源的锁竞争和持有时间
+	clients atomic.Value // 存储 map[*ClientConn]struct{}
 
 	upgrader websocket.Upgrader
 }
 
-func NewMarketHandler(ms *service.MarketDataService) *MarketHandler {
+func NewMarketHandler(ms *service.MarketDataService, candleClient *service.OKXCandleService) *MarketHandler {
 	h := &MarketHandler{
 		marketService: ms,
-		clients:       make(map[*ClientConn]struct{}),
+		candleClient:  candleClient,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
+	// 首次初始化clients map
+	h.clients.Store(make(map[*ClientConn]struct{}))
+
 	// ⚠️ 核心：启动协程监听 MarketDataService 的排序结果通道
 	go h.listenForSortedIDs()
 	// 启动实时价格推送
 	go h.listenForPriceUpdates()
 	// 启动币种上新下架推送
 	go h.listenForInstrumentUpdates()
+	// 启动 K 线实时推送
+	// 这与 listenForPriceUpdates 互不干扰，完全隔离
+	go h.listenForCandleUpdates()
+	// 启动订阅消息的错误
+	go h.listenForSubscriptionErrors()
 	return h
 }
 
@@ -84,16 +98,19 @@ func (h *MarketHandler) listenForInstrumentUpdates() {
 			continue
 		}
 
+		// 无锁获取当前clients的快照，原本的map需要使用h.mu.RLock()
+		currentClients, ok := h.clients.Load().(map[*ClientConn]struct{})
+		if !ok {
+			return
+		}
 		// 2. 广播给所有客户端
-		h.mu.RLock()
-		for client := range h.clients {
+		for client := range currentClients {
 			select {
 			case client.Send <- data:
 			default:
 				// 队列满则丢弃
 			}
 		}
-		h.mu.RUnlock()
 	}
 }
 
@@ -115,17 +132,22 @@ func (h *MarketHandler) listenForPriceUpdates() {
 			continue
 		}
 
+		// 无锁获取当前clients的快照
+		currentClients, ok := h.clients.Load().(map[*ClientConn]struct{})
+		if !ok {
+			return
+		}
+
 		// 2. 广播给所有活跃的客户端
 		// ⚠️ 注意：价格更新通常需要全量广播，因为所有客户端都需要它。
-		h.mu.RLock()
-		for client := range h.clients {
+
+		for client := range currentClients {
 			select {
 			case client.Send <- data:
 			default:
 				// 队列满则丢弃，保证主循环不阻塞
 			}
 		}
-		h.mu.RUnlock()
 	}
 }
 
@@ -147,16 +169,100 @@ func (h *MarketHandler) listenForSortedIDs() {
 			continue
 		}
 
+		// 无所获取当前clients的快照
+		currentClients, ok := h.clients.Load().(map[*ClientConn]struct{})
+		if !ok {
+			return
+		}
+
 		// 2. 广播给所有活跃的客户端
-		h.mu.RLock()
-		for client := range h.clients {
+
+		for client := range currentClients {
 			select {
 			case client.Send <- data:
 			default:
 				// 队列满则丢弃
 			}
 		}
-		h.mu.RUnlock()
+	}
+}
+
+// 监听新的k线数据，并定向推送给需要的客户端
+func (h *MarketHandler) listenForCandleUpdates() {
+	candleCh := h.candleClient.GetCandleChannel()
+
+	for kline := range candleCh {
+		// 无锁获取clients的快照
+		currentClients, ok := h.clients.Load().(map[*ClientConn]struct{})
+		if !ok {
+			return
+		}
+		// kline: map[string]model2.Kline (Key: "BTC-USDT-15m")
+		// 迭代所有客户端，需要加读锁
+		for client := range currentClients {
+			// 迭代收到的k线数据
+			for subKey, klineData := range kline { // subKey 是 "BTC-USDT-15m"
+				// 过滤订阅了这条数据的客户端
+				if _, subscribed := client.CandleSubscriptions[subKey]; subscribed {
+					// 构造消息
+					message := map[string]interface{}{
+						"action": "candle_update",
+						"data":   klineData,
+					}
+					data, _ := json.Marshal(message)
+					// 定向推送
+					select {
+					case client.Send <- data:
+					default:
+						// 队列满则丢弃
+					}
+				}
+			}
+		}
+	}
+
+}
+
+// MarketHandler
+func (h *MarketHandler) listenForSubscriptionErrors() {
+	// 获取错误通道
+	errorCh := h.candleClient.GetErrorChannel()
+
+	for subErr := range errorCh {
+
+		// 1. 构造一个错误消息给客户端
+		// 这个错误通常只通知给**发起请求的客户端**。
+		// 由于这里是广播，我们假设您可能希望通知所有客户端，或仅记录日志。
+
+		jsonData, err := json.Marshal(subErr)
+		if err != nil {
+			log.Printf("Error marshalling subscription error: %v", err)
+			continue
+		}
+
+		period := subErr.Data["period"]
+		symbol := subErr.Data["symbol"]
+
+		// 无锁获取clients的快照
+		currentLients, ok := h.clients.Load().(map[*ClientConn]struct{})
+		if !ok {
+			return
+		}
+
+		// 2. 广播给所有客户端（如果您不知道哪个客户端发起的请求）
+		// 如果您的业务要求只通知发起请求的客户端，您需要在订阅时记录 clientID/connID
+
+		for client := range currentLients {
+			if client.isSubscribedCandle(symbol, period) {
+				// 这里可以加入 client 过滤逻辑，例如：
+				// if client.isSubscribed(subErr.Symbol, subErr.Period) { ... }
+				select {
+				case client.Send <- jsonData:
+				default:
+					// 队列满则丢弃
+				}
+			}
+		}
 	}
 }
 
@@ -169,14 +275,26 @@ func (h *MarketHandler) ServeWS(c *gin.Context) {
 	}
 
 	client := &ClientConn{
-		Conn:    conn,
-		Send:    make(chan []byte, 100),
-		Symbols: make(map[string]struct{}), // 保持 ClientConn 结构不变，但 Symbols 不再用于订阅 OKX
+		Conn:                conn,
+		Send:                make(chan []byte, 100),
+		Symbols:             make(map[string]struct{}), // 保持 ClientConn 结构不变，但 Symbols 不再用于订阅 OKX
+		CandleSubscriptions: make(map[string]struct{}),
 	}
 
 	// 加入管理 map
 	h.mu.Lock()
-	h.clients[client] = struct{}{}
+	// 获取旧的clients map副本
+	oldClients := h.clients.Load().(map[*ClientConn]struct{})
+	// 创建一个新的clients map 副本
+	newClients := make(map[*ClientConn]struct{}, len(oldClients)+1)
+	// 拷贝旧数据
+	for k, v := range oldClients {
+		newClients[k] = v
+	}
+	// 添加新的client
+	newClients[client] = struct{}{}
+	// 原子性替换
+	h.clients.Store(newClients)
 	h.mu.Unlock()
 
 	// 连接成功后，立即发送当前的 SortedInstIDs 状态，客户端不需要获取就主动推送一次
@@ -185,9 +303,36 @@ func (h *MarketHandler) ServeWS(c *gin.Context) {
 	defer func() {
 		// 清理连接
 		h.mu.Lock()
-		delete(h.clients, client)
+		oldClients := h.clients.Load().(map[*ClientConn]struct{})
+		newClients := make(map[*ClientConn]struct{}, len(oldClients)+1)
+		// 拷贝旧的数据，并移除client
+		for k, v := range oldClients {
+			if k != client {
+				newClients[k] = v
+			}
+		}
+		h.clients.Store(newClients)
 		h.mu.Unlock()
 		conn.Close()
+
+		client.mu.Lock()
+		// 处理客户端所有未取消的k线订阅
+		for subKey := range client.CandleSubscriptions {
+			// 找到对应的symbol和period
+			parts := strings.Split(subKey, "-")
+			if len(parts) >= 3 {
+				symbol := parts[0] + "-" + parts[1]
+				period := parts[2]
+				// 取消订阅
+				err := h.candleClient.UnsubscribeCandle(context.Background(), symbol, period)
+				if err != nil {
+					log.Printf("WARNING: Cleanup unsubscribe failed for %s: %v", subKey, err)
+				} else {
+
+				}
+			}
+		}
+		client.mu.Unlock()
 	}()
 
 	// 不断从 Send channel 取消息，然后写入 webscoekt
@@ -223,16 +368,16 @@ func (h *MarketHandler) sendInitialSortData(client *ClientConn) {
 }
 
 // MarketHandler.handleChangeSort 示例
-func (h *MarketHandler) handleChangeSort(c *ClientConn, msg ClientMessage) {
-	if msg.SortBy == "" {
+func (h *MarketHandler) handleChangeSort(c *ClientConn, sortBy string) {
+	if sortBy == "" {
 		log.Println("SortBy field missing in change_sort request.")
 		return
 	}
 
 	// 1. 调用 MarketDataService 更改全局排序配置
-	err := h.marketService.ChangeSortField(msg.SortBy)
+	err := h.marketService.ChangeSortField(sortBy)
 	if err != nil {
-		log.Printf("Failed to change sort field to %s: %v", msg.SortBy, err)
+		log.Printf("Failed to change sort field to %s: %v", sortBy, err)
 		// 建议向客户端发送错误通知
 		return
 	}
@@ -243,21 +388,81 @@ func (h *MarketHandler) handleChangeSort(c *ClientConn, msg ClientMessage) {
 
 	// 可选：立即返回当前第一页数据
 
-	h.handleGetPage(c, &ClientMessage{Action: "get_page", Page: 1, Limit: 50})
+	h.handleGetPage(c, 1, 50)
 }
 
-// handleGetPage 处理客户端的分页请求
-func (h *MarketHandler) handleGetPage(c *ClientConn, clientMsg *ClientMessage) {
-	if clientMsg.Page <= 0 {
-		clientMsg.Page = 1
+// 收到订阅k线行情的消息
+func (h *MarketHandler) handleSubscribeCandle(client *ClientConn, symbol string, period string) {
+	subKey := fmt.Sprintf("%s-%s", symbol, period) // e.g., "BTC-USDT-15m"
+	// 管理客户端订阅状态，必须加锁
+	client.mu.Lock()
+	client.CandleSubscriptions[subKey] = struct{}{}
+	client.mu.Unlock()
+
+	// SubscribeCandle内部会检查是否有其他客户端已订阅了该频道
+	err := h.candleClient.SubscribeCandle(context.Background(), symbol, period)
+	if err != nil {
+		log.Printf("Failed to subscribe %s to OKX: %v", subKey, err)
+		// 订阅失败，回滚客户端状态（可选）
+		client.mu.Lock()
+		delete(client.CandleSubscriptions, subKey)
+		client.mu.Unlock()
+
+		//  构造错误消息
+		errMsg := fmt.Sprintf("Subscription to %s failed: %v", subKey, err)
+		clientErr := model.NewClientError("subscribe_candle", "400", errMsg, map[string]string{
+			"symbol": symbol,
+			"period": period,
+		})
+
+		data, marshalErr := json.Marshal(clientErr)
+		if marshalErr != nil {
+			log.Printf("Error marshalling internal error message: %v", marshalErr)
+			return
+		}
+
+		// 定向发送错误给发起请求的客户端
+		select {
+		case client.Send <- data:
+			log.Printf("Sent subscription failure notification to client.")
+		default:
+			log.Println("Client send channel full during error notification.")
+		}
+
 	}
-	if clientMsg.Limit <= 0 {
-		clientMsg.Limit = 50
+
+}
+
+func (h *MarketHandler) handleUnsubscribeCandle(client *ClientConn, symbol string, period string) error {
+	subKey := fmt.Sprintf("%s-%s", symbol, period)
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if _, exists := client.CandleSubscriptions[subKey]; !exists {
+		return nil
+	}
+
+	// 从客户端本地状态中移除
+	delete(client.CandleSubscriptions, subKey)
+
+	err := h.candleClient.UnsubscribeCandle(context.Background(), symbol, period)
+	if err != nil {
+		// 发送错误消息给客户端
+	}
+	return err
+}
+
+// handleGetPage 收到处理客户端的分页请求
+func (h *MarketHandler) handleGetPage(c *ClientConn, page, limit int) {
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 50
 	}
 
 	// 1. 从 MarketDataService 获取分页后的 TradingItem 列表（包含 K线和 Ticker）
 	// 假设 GetPagedData(page, limit) 返回 []TradingItem
-	pagedData, err := h.marketService.GetPagedData(clientMsg.Page, clientMsg.Limit)
+	pagedData, err := h.marketService.GetPagedData(page, limit)
 	if err != nil {
 		log.Println("Error getting paged data:", err)
 		return

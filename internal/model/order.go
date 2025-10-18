@@ -151,6 +151,38 @@ type Kline struct {
 	VolCcy    float64   `json:"vol_ccy"` // 成交额 以USDT为单位
 }
 
+type WSKline struct {
+	Data       Kline  `json:"data"`
+	InstId     string `json:"inst_id"`
+	TimePeriod string `json:"time_period"`
+}
+
+// SubscriptionKey 用于唯一标识一个 K 线订阅 (币种+周期)
+type SubscriptionKey struct {
+	Symbol string // 例如 BTC-USDT
+	Period string // 例如 15m
+}
+
+// 统一的错误消息结构，用于发送给客户端
+type ClientError struct {
+	Action string            `json:"action"` // "error"
+	Data   map[string]string `json:"data"`
+}
+
+func NewClientError(targetAction string, message string, code string, data map[string]string) ClientError {
+	m := make(map[string]string)
+	for k, v := range data {
+		m[k] = v
+	}
+	m["target_action"] = targetAction
+	m["message"] = message
+	m["code"] = code
+	return ClientError{
+		Action: "error",
+		Data:   m,
+	}
+}
+
 // 指标结果
 type IndicatorResult struct {
 	Name     string
