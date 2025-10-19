@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 /*
@@ -53,7 +54,12 @@ type MarketHandler struct {
 	clients atomic.Value // 存储 map[string]*ClientConn
 
 	upgrader websocket.Upgrader
+	// 用于在断开连接后，临时保留 ClientConn 状态，等待重连宽限期
+	// Key: ClientID, Value: *ClientConn
+	cleanupMap sync.Map
 }
+
+const CleanupGracePeriod = 15 * time.Second // 10 秒宽限期
 
 func NewMarketHandler(ms *service.MarketDataService, candleClient *service.OKXCandleService) *MarketHandler {
 	h := &MarketHandler{
@@ -108,58 +114,72 @@ func (h *MarketHandler) ServeWS(c *gin.Context) {
 
 	// 收集需要恢复的订阅列表
 	var subscriptionsToRestore []string
-
-	// 2. 覆盖旧连接 (原子操作)
 	var oldClient *ClientConn
+	var isFromCleanupMap bool
 
+	// 查找旧连接：先查找活跃的map，后查找cleanup map
+	// 从活跃连接中查找
+	h.mu.Lock()
+	oldClients := h.clients.Load().(map[string]*ClientConn)
+	if existingClient, found := oldClients[clientID]; found {
+		oldClient = existingClient
+	}
+	h.mu.Unlock()
+
+	// 如果活跃连接中没有，则检查 cleanupMap (处理宽限期内的重连)
+	if oldClient == nil {
+		if conn, loaded := h.cleanupMap.Load(clientID); loaded {
+			oldClient = conn.(*ClientConn)
+			isFromCleanupMap = true
+			log.Printf("ClientID %s found in cleanup map. Restoring state from grace period.", clientID)
+			// 立即从 cleanupMap 中移除，阻止计时器清理
+			h.cleanupMap.Delete(clientID)
+		}
+	}
+
+	// 执行状态迁移 （前提是找到了旧的连接）
+	if oldClient != nil {
+		log.Printf("ClientID %s reconnected. Starting state migration.", clientID)
+
+		// 🚨 锁住旧连接的本地状态，执行迁移
+		oldClient.mu.Lock()
+		// 复制订阅状态到新连接
+		for subKey := range oldClient.CandleSubscriptions {
+			newClient.CandleSubscriptions[subKey] = struct{}{}
+			subscriptionsToRestore = append(subscriptionsToRestore, subKey)
+		}
+
+		// 标记旧连接已被替换，阻止其 defer/cleanup 逻辑执行 Unsubscribe
+		oldClient.replaced = true
+		// 清空旧连接的订阅状态
+		oldClient.CandleSubscriptions = make(map[string]struct{}, 1) // 不要设置为nil
+		oldClient.mu.Unlock()
+
+		log.Printf("ClientID %s: Migrated %d subscriptions to new connection.", clientID, len(subscriptionsToRestore))
+	}
+
+	// 执行CoW替换新连接 （原子操作）
 	h.mu.Lock()
 	{
-		oldClients := h.clients.Load().(map[string]*ClientConn)
-
-		// 检查是否有旧连接，如果有，先保存旧连接，以便关闭
-		if existingClient, found := oldClients[clientID]; found {
-			oldClient = existingClient
-			log.Printf("ClientID %s reconnected. Replacing old connection.", clientID)
-
-			// --- 状态迁移核心逻辑 ---
-			// 1. 获取旧连接的 CandleSubscriptions 状态
-			oldClient.mu.Lock() // 锁住旧连接的本地状态
-			// 复制订阅状态到新连接
-			for subKey := range oldClient.CandleSubscriptions {
-				newClient.CandleSubscriptions[subKey] = struct{}{}
-				subscriptionsToRestore = append(subscriptionsToRestore, subKey) // 收集 key
-			}
-			log.Printf("ClientID %s: Migrated %d subscriptions to new connection.", clientID, len(newClient.CandleSubscriptions))
-
-			// ⚠️ 关键点：对于外部资源 (h.candleClient)，不需要在此时调用 UnsubscribeCandle，
-			// 因为订阅是基于 (symbol, period) 的引用计数，只要有一个活跃连接订阅了，
-			// h.candleClient 就不会真正取消订阅。
-			// 我们只需要在旧连接的 defer 中阻止它执行不必要的 UnsubscribeCandle 即可。
-			// -----------------------
-
-			// 标记旧连接已被替换，阻止其 defer 逻辑执行 Unsubscribe
-			oldClient.replaced = true
-			// 💡 可以在此清空 oldClient.CandleSubscriptions，以节省内存和确保安全
-			oldClient.CandleSubscriptions = nil
-			oldClient.mu.Unlock()
-			log.Printf("ClientID %s: Migrated %d subscriptions to new connection.",
-				clientID, len(newClient.CandleSubscriptions))
-		}
-
-		// 创建新副本并替换/添加
+		// 重新加载最新的活跃连接 map
+		oldClients = h.clients.Load().(map[string]*ClientConn)
 		newClients := make(map[string]*ClientConn, len(oldClients))
+
+		// 复制旧的 map
 		for k, v := range oldClients {
 			newClients[k] = v
+			subscriptionsToRestore = append(subscriptionsToRestore, k) // 收集 key
 		}
 
-		newClients[clientID] = newClient // 替换或添加
+		// 替换或添加新连接
+		newClients[clientID] = newClient
 		h.clients.Store(newClients)
 	}
 	h.mu.Unlock()
 
-	// 3. 异步清理旧连接
+	// 异步清理旧连接
 	// 立即关闭旧连接，使其 readPump/writePump 退出，defer 逻辑触发
-	if oldClient != nil {
+	if oldClient != nil && !isFromCleanupMap {
 		// 先关闭底层连接，关闭后会触发旧 client 的 defer 逻辑
 		go oldClient.Close() // 推荐异步关闭，避免阻塞 ServeWS
 		log.Printf("Closed old connection for ClientID %s.", clientID)
@@ -168,7 +188,7 @@ func (h *MarketHandler) ServeWS(c *gin.Context) {
 	// 连接成功后，立即发送当前的 SortedInstIDs 状态，客户端不需要获取就主动推送一次
 	go h.sendInitialSortData(newClient)
 
-	// 4. 异步恢复外部订阅 (新连接特有的步骤)
+	// 异步恢复外部订阅 (新连接特有的步骤)
 	// 必须异步执行，以避免阻塞 ServeWS 主线程
 	if len(subscriptionsToRestore) > 0 {
 		go h.restoreCandleSubscriptions(newClient, subscriptionsToRestore)
@@ -176,7 +196,7 @@ func (h *MarketHandler) ServeWS(c *gin.Context) {
 
 	defer func() {
 
-		// 4. 清理当前新连接（在连接断开时）
+		// 清理当前新连接（在连接断开时）
 		h.mu.Lock()
 		{
 			oldClients := h.clients.Load().(map[string]*ClientConn)
@@ -197,30 +217,58 @@ func (h *MarketHandler) ServeWS(c *gin.Context) {
 		}
 		h.mu.Unlock()
 
-		conn.Close()
-
+		// 延迟清理逻辑
+		// **判断是否已被新连接替换**
 		newClient.mu.Lock()
-		// 检查是否已被替换：如果被替换，则跳过 Unsubscribe 逻辑
-		if newClient.replaced {
-			log.Printf("ClientID %s: Skip external unsubscribe (replaced by new connection).", newClient.ClientID)
-			newClient.mu.Unlock()
+		isReplaced := newClient.replaced // 检查是否是由于重连而断开的
+		newClient.mu.Unlock()
+
+		if isReplaced {
+			log.Printf("ClientID %s defer: Connection was replaced by a new connection, no cleanup needed.", clientID)
 			return
 		}
-		// 处理客户端所有未取消的k线订阅
-		for subKey := range newClient.CandleSubscriptions {
-			// 找到对应的symbol和period
-			symbol, period, ok := newClient.GetInstIdByCandleKey(subKey)
-			if ok {
-				// 取消订阅
-				err := h.candleClient.UnsubscribeCandle(context.Background(), symbol, period)
-				if err != nil {
-					log.Printf("WARNING: Cleanup unsubscribe failed for %s: %v", subKey, err)
-				} else {
 
+		// 此时，连接是由于超时或客户端主动断开的，但未被替换，需要启动宽限期清理。
+		log.Printf("ClientID %s defer: Connection lost. Starting %s cleanup grace period.", clientID, CleanupGracePeriod)
+
+		// 启动宽限期清理
+		// 立即从活跃连接 map 中移除后，将其移交给 cleanupMap
+		h.cleanupMap.Store(clientID, newClient)
+
+		// 启动一个协程，在宽限期后执行清理
+		go func() {
+			time.Sleep(CleanupGracePeriod)
+
+			// 1. 检查 cleanupMap 中是否仍存在这个 ClientID
+			if conn, loaded := h.cleanupMap.Load(clientID); loaded {
+				// 2. 再次检查 conn.replaced 标记 (防止竞态条件)
+				clientToCleanup := conn.(*ClientConn)
+				clientToCleanup.mu.Lock()
+				defer clientToCleanup.mu.Unlock()
+
+				if !clientToCleanup.replaced {
+					log.Printf("ClientID %s: Grace period ended. Executing final cleanup for %d subscriptions.",
+						clientID, len(clientToCleanup.CandleSubscriptions))
+					// 处理客户端所有未取消的k线订阅
+					for subKey := range clientToCleanup.CandleSubscriptions {
+						// 找到对应的symbol和period
+						symbol, period, ok := clientToCleanup.GetInstIdByCandleKey(subKey)
+						if ok {
+							// 取消订阅
+							err := h.candleClient.UnsubscribeCandle(context.Background(), symbol, period)
+							if err != nil {
+								log.Printf("WARNING: Cleanup unsubscribe failed for %s: %v", subKey, err)
+							} else {
+
+							}
+						}
+					}
 				}
+
+				// 3. 无论是清理还是被替换，最终都从 cleanupMap 中移除
+				h.cleanupMap.Delete(clientID)
 			}
-		}
-		newClient.mu.Unlock()
+		}()
 
 		// 确保资源关闭
 		newClient.Close()
