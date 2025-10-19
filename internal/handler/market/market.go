@@ -13,7 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -51,7 +50,7 @@ type MarketHandler struct {
 
 	// 仅维护所有活跃的连接
 	// 存储*ClientConn 集合快照，使用atomic.Value 保证读取时无损，这就是使用Copy-onWrite(CoW)模式减少对公共资源的锁竞争和持有时间
-	clients atomic.Value // 存储 map[*ClientConn]struct{}
+	clients atomic.Value // 存储 map[string]*ClientConn
 
 	upgrader websocket.Upgrader
 }
@@ -65,7 +64,7 @@ func NewMarketHandler(ms *service.MarketDataService, candleClient *service.OKXCa
 		},
 	}
 	// 首次初始化clients map
-	h.clients.Store(make(map[*ClientConn]struct{}))
+	h.clients.Store(map[string]*ClientConn{})
 
 	// ⚠️ 核心：启动协程监听 MarketDataService 的排序结果通道
 	go h.listenForSortedIDs()
@@ -79,6 +78,159 @@ func NewMarketHandler(ms *service.MarketDataService, candleClient *service.OKXCa
 	// 启动订阅消息的错误
 	go h.listenForSubscriptionErrors()
 	return h
+}
+
+// ServeWS 仅处理连接建立和断开
+func (h *MarketHandler) ServeWS(c *gin.Context) {
+
+	// 获取clientId
+	clientID := c.Query("client_id")
+	if clientID == "" {
+		// 强制要求客户端提供唯一的ID，否则拒绝连接
+		// 或者生成一个临时的UUID作为Client ID
+		log.Println("客户单缺少client_id 拒绝连接.")
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Println("upgrade error:", err)
+		return
+	}
+
+	newClient := &ClientConn{
+		ClientID:            clientID,
+		Conn:                conn,
+		Send:                make(chan []byte, 100),
+		CandleSubscriptions: make(map[string]struct{}),
+	}
+
+	// 收集需要恢复的订阅列表
+	var subscriptionsToRestore []string
+
+	// 2. 覆盖旧连接 (原子操作)
+	var oldClient *ClientConn
+
+	h.mu.Lock()
+	{
+		oldClients := h.clients.Load().(map[string]*ClientConn)
+
+		// 检查是否有旧连接，如果有，先保存旧连接，以便关闭
+		if existingClient, found := oldClients[clientID]; found {
+			oldClient = existingClient
+			log.Printf("ClientID %s reconnected. Replacing old connection.", clientID)
+
+			// --- 状态迁移核心逻辑 ---
+			// 1. 获取旧连接的 CandleSubscriptions 状态
+			oldClient.mu.Lock() // 锁住旧连接的本地状态
+			// 复制订阅状态到新连接
+			for subKey := range oldClient.CandleSubscriptions {
+				newClient.CandleSubscriptions[subKey] = struct{}{}
+				subscriptionsToRestore = append(subscriptionsToRestore, subKey) // 收集 key
+			}
+			log.Printf("ClientID %s: Migrated %d subscriptions to new connection.", clientID, len(newClient.CandleSubscriptions))
+
+			// ⚠️ 关键点：对于外部资源 (h.candleClient)，不需要在此时调用 UnsubscribeCandle，
+			// 因为订阅是基于 (symbol, period) 的引用计数，只要有一个活跃连接订阅了，
+			// h.candleClient 就不会真正取消订阅。
+			// 我们只需要在旧连接的 defer 中阻止它执行不必要的 UnsubscribeCandle 即可。
+			// -----------------------
+
+			// 标记旧连接已被替换，阻止其 defer 逻辑执行 Unsubscribe
+			oldClient.replaced = true
+			// 💡 可以在此清空 oldClient.CandleSubscriptions，以节省内存和确保安全
+			oldClient.CandleSubscriptions = nil
+			oldClient.mu.Unlock()
+			log.Printf("ClientID %s: Migrated %d subscriptions to new connection.",
+				clientID, len(newClient.CandleSubscriptions))
+		}
+
+		// 创建新副本并替换/添加
+		newClients := make(map[string]*ClientConn, len(oldClients))
+		for k, v := range oldClients {
+			newClients[k] = v
+		}
+
+		newClients[clientID] = newClient // 替换或添加
+		h.clients.Store(newClients)
+	}
+	h.mu.Unlock()
+
+	// 3. 异步清理旧连接
+	// 立即关闭旧连接，使其 readPump/writePump 退出，defer 逻辑触发
+	if oldClient != nil {
+		// 先关闭底层连接，关闭后会触发旧 client 的 defer 逻辑
+		go oldClient.Close() // 推荐异步关闭，避免阻塞 ServeWS
+		log.Printf("Closed old connection for ClientID %s.", clientID)
+	}
+
+	// 连接成功后，立即发送当前的 SortedInstIDs 状态，客户端不需要获取就主动推送一次
+	go h.sendInitialSortData(newClient)
+
+	// 4. 异步恢复外部订阅 (新连接特有的步骤)
+	// 必须异步执行，以避免阻塞 ServeWS 主线程
+	if len(subscriptionsToRestore) > 0 {
+		go h.restoreCandleSubscriptions(newClient, subscriptionsToRestore)
+	}
+
+	defer func() {
+
+		// 4. 清理当前新连接（在连接断开时）
+		h.mu.Lock()
+		{
+			oldClients := h.clients.Load().(map[string]*ClientConn)
+			// 只有当要移除的 client 仍然是当前 ClientID 对应的 *ClientConn 时才移除
+			if currentClient, exists := oldClients[clientID]; exists && currentClient == newClient {
+				newClients := make(map[string]*ClientConn, len(oldClients))
+				for k, v := range oldClients {
+					if k != clientID { // 按 ClientID 移除
+						newClients[k] = v
+					}
+				}
+				h.clients.Store(newClients)
+				log.Printf("ClientID %s connection removed from handler.", clientID)
+			} else {
+				// 如果不相等，说明这个连接已经被一个更新的连接覆盖了，无需从 clients map 中移除
+				log.Printf("ClientID %s defer: Connection already replaced, skip map removal.", clientID)
+			}
+		}
+		h.mu.Unlock()
+
+		conn.Close()
+
+		newClient.mu.Lock()
+		// 检查是否已被替换：如果被替换，则跳过 Unsubscribe 逻辑
+		if newClient.replaced {
+			log.Printf("ClientID %s: Skip external unsubscribe (replaced by new connection).", newClient.ClientID)
+			newClient.mu.Unlock()
+			return
+		}
+		// 处理客户端所有未取消的k线订阅
+		for subKey := range newClient.CandleSubscriptions {
+			// 找到对应的symbol和period
+			symbol, period, ok := newClient.GetInstIdByCandleKey(subKey)
+			if ok {
+				// 取消订阅
+				err := h.candleClient.UnsubscribeCandle(context.Background(), symbol, period)
+				if err != nil {
+					log.Printf("WARNING: Cleanup unsubscribe failed for %s: %v", subKey, err)
+				} else {
+
+				}
+			}
+		}
+		newClient.mu.Unlock()
+
+		// 确保资源关闭
+		newClient.Close()
+	}()
+
+	// 启动协程
+	go newClient.writePump() // 不断从 Send channel 取消息，然后写入 webscoekt
+	// 循环读取客户端发来的消息，要求阻塞线程
+	// ⚠️这里会阻塞serverWs方法，直到客户端断开连接，断开后会进入defer 清理
+	newClient.readPump(h)
 }
 
 // listenForInstrumentUpdates 监听币种上下架通知并广播给所有客户端
@@ -99,17 +251,13 @@ func (h *MarketHandler) listenForInstrumentUpdates() {
 		}
 
 		// 无锁获取当前clients的快照，原本的map需要使用h.mu.RLock()
-		currentClients, ok := h.clients.Load().(map[*ClientConn]struct{})
+		currentClients, ok := h.clients.Load().(map[string]*ClientConn)
 		if !ok {
 			return
 		}
 		// 2. 广播给所有客户端
-		for client := range currentClients {
-			select {
-			case client.Send <- data:
-			default:
-				// 队列满则丢弃
-			}
+		for _, client := range currentClients {
+			client.safeSend(data)
 		}
 	}
 }
@@ -133,7 +281,7 @@ func (h *MarketHandler) listenForPriceUpdates() {
 		}
 
 		// 无锁获取当前clients的快照
-		currentClients, ok := h.clients.Load().(map[*ClientConn]struct{})
+		currentClients, ok := h.clients.Load().(map[string]*ClientConn)
 		if !ok {
 			return
 		}
@@ -141,12 +289,8 @@ func (h *MarketHandler) listenForPriceUpdates() {
 		// 2. 广播给所有活跃的客户端
 		// ⚠️ 注意：价格更新通常需要全量广播，因为所有客户端都需要它。
 
-		for client := range currentClients {
-			select {
-			case client.Send <- data:
-			default:
-				// 队列满则丢弃，保证主循环不阻塞
-			}
+		for _, client := range currentClients {
+			client.safeSend(data)
 		}
 	}
 }
@@ -170,19 +314,16 @@ func (h *MarketHandler) listenForSortedIDs() {
 		}
 
 		// 无所获取当前clients的快照
-		currentClients, ok := h.clients.Load().(map[*ClientConn]struct{})
+		currentClients, ok := h.clients.Load().(map[string]*ClientConn)
 		if !ok {
 			return
 		}
 
 		// 2. 广播给所有活跃的客户端
 
-		for client := range currentClients {
-			select {
-			case client.Send <- data:
-			default:
-				// 队列满则丢弃
-			}
+		for _, client := range currentClients {
+			// 使用safeSend 替代select/default 避免写入已关闭的通道panic
+			client.safeSend(data)
 		}
 	}
 }
@@ -193,13 +334,14 @@ func (h *MarketHandler) listenForCandleUpdates() {
 
 	for kline := range candleCh {
 		// 无锁获取clients的快照
-		currentClients, ok := h.clients.Load().(map[*ClientConn]struct{})
+		currentClients, ok := h.clients.Load().(map[string]*ClientConn)
 		if !ok {
 			return
 		}
 		// kline: map[string]model2.Kline (Key: "BTC-USDT-15m")
 		// 迭代所有客户端，需要加读锁
-		for client := range currentClients {
+		for _, client := range currentClients {
+
 			// 迭代收到的k线数据
 			for subKey, klineData := range kline { // subKey 是 "BTC-USDT-15m"
 				// 过滤订阅了这条数据的客户端
@@ -210,12 +352,7 @@ func (h *MarketHandler) listenForCandleUpdates() {
 						"data":   klineData,
 					}
 					data, _ := json.Marshal(message)
-					// 定向推送
-					select {
-					case client.Send <- data:
-					default:
-						// 队列满则丢弃
-					}
+					client.safeSend(data)
 				}
 			}
 		}
@@ -256,89 +393,10 @@ func (h *MarketHandler) listenForSubscriptionErrors() {
 			if client.isSubscribedCandle(symbol, period) {
 				// 这里可以加入 client 过滤逻辑，例如：
 				// if client.isSubscribed(subErr.Symbol, subErr.Period) { ... }
-				select {
-				case client.Send <- jsonData:
-				default:
-					// 队列满则丢弃
-				}
+				client.safeSend(jsonData)
 			}
 		}
 	}
-}
-
-// ServeWS 仅处理连接建立和断开
-func (h *MarketHandler) ServeWS(c *gin.Context) {
-	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		log.Println("upgrade error:", err)
-		return
-	}
-
-	client := &ClientConn{
-		Conn:                conn,
-		Send:                make(chan []byte, 100),
-		Symbols:             make(map[string]struct{}), // 保持 ClientConn 结构不变，但 Symbols 不再用于订阅 OKX
-		CandleSubscriptions: make(map[string]struct{}),
-	}
-
-	// 加入管理 map
-	h.mu.Lock()
-	// 获取旧的clients map副本
-	oldClients := h.clients.Load().(map[*ClientConn]struct{})
-	// 创建一个新的clients map 副本
-	newClients := make(map[*ClientConn]struct{}, len(oldClients)+1)
-	// 拷贝旧数据
-	for k, v := range oldClients {
-		newClients[k] = v
-	}
-	// 添加新的client
-	newClients[client] = struct{}{}
-	// 原子性替换
-	h.clients.Store(newClients)
-	h.mu.Unlock()
-
-	// 连接成功后，立即发送当前的 SortedInstIDs 状态，客户端不需要获取就主动推送一次
-	go h.sendInitialSortData(client)
-
-	defer func() {
-		// 清理连接
-		h.mu.Lock()
-		oldClients := h.clients.Load().(map[*ClientConn]struct{})
-		newClients := make(map[*ClientConn]struct{}, len(oldClients)+1)
-		// 拷贝旧的数据，并移除client
-		for k, v := range oldClients {
-			if k != client {
-				newClients[k] = v
-			}
-		}
-		h.clients.Store(newClients)
-		h.mu.Unlock()
-		conn.Close()
-
-		client.mu.Lock()
-		// 处理客户端所有未取消的k线订阅
-		for subKey := range client.CandleSubscriptions {
-			// 找到对应的symbol和period
-			parts := strings.Split(subKey, "-")
-			if len(parts) >= 3 {
-				symbol := parts[0] + "-" + parts[1]
-				period := parts[2]
-				// 取消订阅
-				err := h.candleClient.UnsubscribeCandle(context.Background(), symbol, period)
-				if err != nil {
-					log.Printf("WARNING: Cleanup unsubscribe failed for %s: %v", subKey, err)
-				} else {
-
-				}
-			}
-		}
-		client.mu.Unlock()
-	}()
-
-	// 不断从 Send channel 取消息，然后写入 webscoekt
-	go client.writePump()
-	// 循环读取客户端发来的消息，要求阻塞线程
-	client.readPump(h)
 }
 
 // MarketHandler.sendInitialSortData 负责在连接建立时发送当前状态
@@ -359,11 +417,15 @@ func (h *MarketHandler) sendInitialSortData(client *ClientConn) {
 	}
 
 	// 3. 发送给新的客户端
-	select {
-	case client.Send <- data:
-		log.Println("Sent initial sorted IDs to new client.")
-	default:
-		log.Println("Client send channel full during initial send.")
+	client.safeSend(data)
+}
+
+func (h *MarketHandler) restoreCandleSubscriptions(conn *ClientConn, subscribes []string) {
+	for _, subKey := range subscribes {
+		symbol, period, ok := conn.GetInstIdByCandleKey(subKey)
+		if ok {
+			h.handleSubscribeCandle(conn, symbol, period)
+		}
 	}
 }
 
@@ -422,17 +484,12 @@ func (h *MarketHandler) handleSubscribeCandle(client *ClientConn, symbol string,
 		}
 
 		// 定向发送错误给发起请求的客户端
-		select {
-		case client.Send <- data:
-			log.Printf("Sent subscription failure notification to client.")
-		default:
-			log.Println("Client send channel full during error notification.")
-		}
-
+		client.safeSend(data)
 	}
 
 }
 
+// 客户端主动取消订阅时调用
 func (h *MarketHandler) handleUnsubscribeCandle(client *ClientConn, symbol string, period string) error {
 	subKey := fmt.Sprintf("%s-%s", symbol, period)
 	client.mu.Lock()
