@@ -499,11 +499,12 @@ func (s *OKXCandleService) handleCandles(dataArr []interface{}, period string, i
 		closee := item[4].(string)
 		vol := item[5].(string) //
 		volCcy := item[6].(string)
-		//confirm := item[8].(string) // 是否已收盘
+		confirm := item[8].(string) // 是否已收盘
 
 		kline := model2.WSKline{
 			InstId:     instId, // 实际需要正确解析
 			TimePeriod: period,
+			Confirm:    confirm == "1",
 			Data: model2.Kline{
 				Timestamp: time.UnixMilli(timestamp),
 				Open:      parseFloat(open),

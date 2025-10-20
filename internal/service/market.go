@@ -559,7 +559,7 @@ func (m *MarketDataService) GetDetailByID(ctx context.Context, req model.MarketD
 	if tradeType == "" {
 		tradeType = model.OrderTradeSpot
 	}
-	kLines, err := m.ex.GetKlineRecords(req.InstrumentID, model2.KlinePeriod(req.TimePeriod), req.Size, 0, req.EndTime, tradeType, true)
+	kLines, err := m.ex.GetKlineRecords(req.InstrumentID, model2.KlinePeriod(req.TimePeriod), req.Size, req.StartTime, req.EndTime, tradeType, true)
 	if err != nil {
 		return nil, err
 	}

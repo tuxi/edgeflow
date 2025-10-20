@@ -155,6 +155,8 @@ type WSKline struct {
 	Data       Kline  `json:"data"`
 	InstId     string `json:"inst_id"`
 	TimePeriod string `json:"time_period"`
+	Confirm    bool   `json:"confirm" // 是否已收盘
+`
 }
 
 // SubscriptionKey 用于唯一标识一个 K 线订阅 (币种+周期)

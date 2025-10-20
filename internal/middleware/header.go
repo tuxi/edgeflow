@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -101,6 +102,7 @@ func ApiBaseHeader() gin.HandlerFunc {
 var requestTimestamps = make(map[string]*list.Element)
 var lruList = list.New()
 var maxCacheSize = 500 // 限制缓存的最大大小
+var requestMutex sync.Mutex
 
 // 定义一个中间件函数，用于防止频繁请求和重复提交
 func AntiDuplicateMiddleware() gin.HandlerFunc {
@@ -108,7 +110,7 @@ func AntiDuplicateMiddleware() gin.HandlerFunc {
 		clientIP := c.ClientIP()
 		// 设置一个时间间隔，例如5秒，表示在5秒内相同IP的请求被视为重复请求
 		duplicateThreshold := 5 * time.Second
-
+		requestMutex.Lock()
 		// 检查缓存中是否存在相同IP的请求
 		if element, exists := requestTimestamps[clientIP]; exists {
 			// 如果请求时间在时间间隔内，视为重复请求
@@ -133,7 +135,7 @@ func AntiDuplicateMiddleware() gin.HandlerFunc {
 			element := lruList.PushFront(time.Now())
 			requestTimestamps[clientIP] = element
 		}
-
+		requestMutex.Unlock()
 		// 继续执行下一个处理程序
 		c.Next()
 	}

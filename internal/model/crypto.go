@@ -78,8 +78,9 @@ type MarketDetailReq struct {
 	InstrumentID string         `json:"instrument_id" form:"instrument_id" validate:"required"`
 	TimePeriod   string         `json:"time_period" form:"time_period" validate:"required"`
 	Size         int            `json:"size" form:"size" validate:"required"`
-	EndTime      int64          `json:"end_time" form:"end_time"` // 结束时间（秒级时间戳），默认不传就是最新时间
-	TradeType    OrderTradeType `json:"trade_type"`               // 交易类型
+	EndTime      int64          `json:"end_time" form:"end_time"`     // 结束时间（秒级时间戳），默认不传就是最新时间
+	StartTime    int64          `json:"start_time" form:"start_time"` // 开始时间（秒级时间戳），
+	TradeType    OrderTradeType `json:"trade_type"`                   // 交易类型
 }
 
 type MarketDetail struct {
