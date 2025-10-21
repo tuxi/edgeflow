@@ -1,0 +1,130 @@
+syntax = "proto3";
+package marketdata;
+
+option go_package = "./protobuf;pb";
+
+// --- 服务端推送的最小数据单元 ---
+
+// 1. Ticker 数据 (价格网关使用)
+message TickerUpdate {
+  string inst_id = 1;      // 币种符号，例如 BTC-USDT
+  string last_price = 2;   // 最新成交价格
+  string vol_24h = 3;      // 24小时成交量 (单位币)
+  string vol_ccy_24h = 4;  // 24小时成交额 (单位计价币)
+  string high_24h = 5;     // 24小时最高价
+  string low_24h = 6;      // 24小时最低价
+  string open_24h = 7;     // 24小时开盘价格
+  double change_24h = 8;   // 24小时涨跌幅（%）
+  string ask_px = 9;       // 卖一价
+  string ask_sz = 10;      // 卖一量
+  string bid_px = 11;      // 买一价
+  string bid_sz = 12;      // 买一量
+  int64 ts = 13;           // 时间戳 (毫秒级)
+}
+
+// 2. K 线数据 (订阅网关使用)
+message WsKlineUpdate {
+  string inst_id = 1;      // 币种符号
+  string time_period = 2;  // K 线周期，例如 "15m"
+  bool confirm = 3;        // 是否已收盘
+
+  // 内嵌 K 线详细数据
+  message KlineData {
+    int64 timestamp = 1; // K线起始时间 (毫秒级)
+    string open = 2;
+    string close = 3;
+    string high = 4;
+    string low = 5;
+    string vol = 6;     // 成交量 (币为单位)
+    string vol_ccy = 7; // 成交额 (计价币为单位)
+  }
+
+  KlineData data = 4; // K 线详细数据
+}
+
+// 3. 错误信息 (所有网关通用)
+message ErrorMessage {
+  string action = 1; // "error"
+  map<string, string> data = 2; // 通用数据/键值对错误信息
+}
+
+// 4. 交易对列表更新 (订阅网关或 Ticker 网关使用)
+message InstrumentListUpdate {
+  repeated string sorted_inst_ids = 1; // 排序后的 InstID 列表
+}
+
+// 5. 币种/交易对元数据更新
+message InstrumentUpdate {
+  repeated string new_instruments = 1;     // 新上架的 InstID 列表
+  repeated string delisted_instruments = 2; // 已下架的 InstID 列表
+}
+
+// 6. 币种/交易对完整元数据 (用于初始同步或配置)
+message CryptoExchange {
+  uint32 id = 1;
+  string code = 2;
+  string name = 3;
+  string status = 4;
+  string api_endpoint = 5;
+  string country = 6;
+}
+
+message SortUpdate {
+  string sort_by = 1;
+  // 使用 repeated 关键字表示一个字符串数组/列表
+  repeated string sorted_inst_ids = 2;
+}
+
+message CryptoTag {
+  uint32 id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+// 交易数据结构体
+message CryptoInstrumentTradingItem {
+    CryptoInstrumentMetadata instrument_metadata = 1;
+    TickerUpdate ticker_update = 2;
+}
+
+message CryptoInstrumentTradingArray {
+  repeated CryptoInstrumentTradingItem data = 3;
+}
+
+message CryptoInstrumentMetadata {
+  uint64 id = 1;
+  string instrument_id = 2;
+  uint32 exchange_id = 3;
+  string base_ccy = 4;
+  string quote_ccy = 5;
+  string name_cn = 6;
+  string name_en = 7;
+  string status = 8;
+  string price_precision = 9; // 价格精度
+  string qty_precision = 10;  // 数量精度
+  uint64 market_cap = 11;
+  bool is_contract = 12;
+
+  repeated CryptoTag tags = 13;
+}
+
+
+// --- 通用数据体（服务端 -> 客户端）---
+// 这是最终通过 WebSocket 发送给客户端的消息体，包含一个 Oneof 字段
+message WebSocketMessage {
+  // 消息的通用类型，用于客户端快速识别
+  string type = 1;
+
+  oneof payload {
+    TickerUpdate ticker_update = 2;
+    WsKlineUpdate kline_update = 3;
+    SortUpdate sort_update = 4;
+    ErrorMessage error_message = 5;
+    InstrumentListUpdate instrument_list = 6;
+    InstrumentUpdate instrument_status_update = 7;
+    CryptoInstrumentMetadata instrument_metadata = 8;
+    // 包含币种和最新价格的交易信息集合
+    CryptoInstrumentTradingArray instrument_trading_list = 9;
+    // ... 未来可添加的深度、交易等消息
+  }
+}

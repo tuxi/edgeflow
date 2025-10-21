@@ -22,7 +22,8 @@ func (m *middleware) Load(g *gin.Engine) {
 	// 注册中间件
 	g.Use(gin.Logger())
 	g.Use(gin.Recovery())
-	g.Use(AntiDuplicateMiddleware())
+	// 对websokcet不友好
+	//g.Use(AntiDuplicateMiddleware())
 	g.Use(NoCache())
 	g.Use(Options())
 	g.Use(Secure())

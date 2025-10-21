@@ -6,6 +6,8 @@ import (
 	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
 	"edgeflow/internal/service/signal/repository"
+	"edgeflow/pkg/kafka"
+	pb "edgeflow/pkg/protobuf"
 	"errors"
 	"fmt"
 	model2 "github.com/nntaoli-project/goex/v2/model"
@@ -30,6 +32,15 @@ type TradingItem struct {
 	Ticker TickerData              `json:"ticker"`
 }
 
+// 将定时排序币种中耗时的字符串转换移出排序循环，作为一个结构体
+type SortableItem struct {
+	ID           string
+	VolumeFloat  float64
+	PriceFloat   float64
+	ChangeFloat  float64 // 如果 Change24h 已经是 float，则跳过转换
+	OriginalItem TradingItem
+}
+
 // 币种更新结构体
 type BaseInstrumentUpdate struct {
 	NewInstruments      []string // 新上架的 InstID 列表
@@ -44,6 +55,7 @@ type InstrumentFetcher interface {
 }
 
 // 行情服务，负责整合数据、排序和缓存结构
+// 整合 Kafka 生产者
 type MarketDataService struct {
 	// 锁用于保护所有共享内存数据，确保并发安全
 	mu sync.RWMutex
@@ -58,39 +70,32 @@ type MarketDataService struct {
 	SortedInstIDs []string
 
 	// 依赖服务
-	tickerClient      *OKXTickerService // 实时数据源
-	instrumentFetcher InstrumentFetcher // 基础数据源
+	tickerClient      *OKXTickerService     // 实时数据源
+	instrumentFetcher InstrumentFetcher     // 基础数据源
+	producer          kafka.ProducerService // Kafka 生产者服务
 
 	// 控制定时排序的通道
-	stopSortCh      chan struct{}
-	sortedInstIDsCh chan []string
-	// 实时价格更新通道
-	priceUpdateCh chan TickerData
+	stopSortCh chan struct{}
 
 	// 当前生效的排序字段
 	currentSortField string
-
-	// 用于通知handler 基础数据结构变化的通道instrumentUpdateCh
-	instrumentUpdateCh chan BaseInstrumentUpdate
 
 	ex         exchange.Exchange
 	signalRepo repository.SignalRepository // DB 接口
 }
 
-func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher, ex exchange.Exchange, SignalRepo repository.SignalRepository) *MarketDataService {
+func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher, ex exchange.Exchange, SignalRepo repository.SignalRepository, producer kafka.ProducerService) *MarketDataService {
 	m := &MarketDataService{
-		baseCoins:          make(map[string]entity.CryptoInstrument),
-		tradingItems:       make(map[string]TradingItem),
-		SortedInstIDs:      make([]string, 0),
-		tickerClient:       ticker,
-		instrumentFetcher:  instrumentFetcher,
-		stopSortCh:         make(chan struct{}),
-		sortedInstIDsCh:    make(chan []string, 100),
-		priceUpdateCh:      make(chan TickerData, 500),
-		currentSortField:   SortByVolume,                        // 默认按成交量排序
-		instrumentUpdateCh: make(chan BaseInstrumentUpdate, 10), // 缓冲区小，因为频率低
-		ex:                 ex,
-		signalRepo:         SignalRepo,
+		baseCoins:         make(map[string]entity.CryptoInstrument),
+		tradingItems:      make(map[string]TradingItem),
+		SortedInstIDs:     make([]string, 0),
+		tickerClient:      ticker,
+		instrumentFetcher: instrumentFetcher,
+		stopSortCh:        make(chan struct{}),
+		currentSortField:  SortByVolume, // 默认按成交量排序
+		ex:                ex,
+		signalRepo:        SignalRepo,
+		producer:          producer,
 	}
 	// 启动 MarketService 的核心 Worker
 	go m.startDataWorkers()
@@ -107,10 +112,33 @@ func (m *MarketDataService) startDataWorkers() {
 	// 2. 监听 TickerService 的实时数据更新（假设 TickerService 有一个 TickerData 管道）
 	tickerUpdates := m.tickerClient.GetTickerChannel()
 
+	// 用于存储最新的Ticker 数据， 只处理一次
+	var latestTicker map[string]TickerData
+
 	for {
 		select {
 		case ticker := <-tickerUpdates:
-			m.updateRealTimeData(ticker) // 处理实时数据整合
+			// 在接收数据后，经可能清空Channel，只保留最新的
+			latestTicker = ticker // 暂时收到的新数据
+
+			// 使用飞阻塞 select 持续清空 Channel
+			for {
+				select {
+				case nextTicker := <-tickerUpdates:
+					latestTicker = nextTicker // 总是更新为最新的数据
+				default:
+					// Channel 变空，跳出内层循环
+					goto ProcessData
+				}
+			}
+
+		ProcessData:
+			// 确保有数据才处理
+			if latestTicker != nil {
+				// 现在处理的是 Channel 中能取到的最新数据
+				m.updateRealTimeData(latestTicker)
+				latestTicker = nil // 处理完毕，清空
+			}
 		case <-m.stopSortCh:
 			return
 		}
@@ -158,19 +186,44 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 	m.mu.Unlock() // 立即释放锁！
 	// --- 临界区结束 ---
 
-	// --- 2. 非临界区操作：通道转发 ---
-
-	// 循环发送所有收集到的 Ticker 数据给下游 Handler
+	// --- 2. 非临界区操作：kafka转发 ---
 	for _, ticker := range tickersToForward {
-		select {
-		case m.priceUpdateCh <- ticker:
-			// 成功转发
-		default:
-			// 通道满，丢弃本次 Ticker，不阻塞！
-			// log.Println("WARN: Price update channel full, dropping Ticker for", ticker.InstID)
+		// 映射到Protobuf 结构体
+		payload := &pb.WebSocketMessage_TickerUpdate{TickerUpdate: &pb.TickerUpdate{
+			InstId:     ticker.InstId,
+			LastPrice:  ticker.LastPrice,
+			Vol_24H:    ticker.Vol24h,
+			VolCcy_24H: ticker.VolCcy24h,
+			High_24H:   ticker.High24h,
+			Low_24H:    ticker.Low24h,
+			Open_24H:   ticker.Open24h,
+			Change_24H: ticker.Change24h,
+			AskPx:      ticker.AskPx,
+			AskSz:      ticker.AskSz,
+			BidPx:      ticker.BidPx,
+			BidSz:      ticker.BidSz,
+			Ts:         ticker.Ts,
+		}}
+		protoMsg := &pb.WebSocketMessage{
+			Type:    "TICKER_UPDATE",
+			Payload: payload,
 		}
-	}
 
+		// 将 I/O 阻塞操作（Kafka 写入） 放入独立的Goroutine
+		go func(ticker TickerData, protoMsg *pb.WebSocketMessage) {
+			// 将Kafka 写入超时时间设置为 2 秒，防止超时
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+			defer cancel() // 确保context 及时释放
+			// 序列化并写入kafka
+			key := []byte(ticker.InstId)
+			topic := "marketdata_ticker" // Ticker 高频主题
+			if err := m.producer.Produce(ctx, topic, key, protoMsg); err != nil {
+				// 记录错误，但不阻塞主循环
+				log.Printf("ERROR: topic=%s 生产者写入Ticker数据InstId(%s) 到kafka失败: %v", topic, ticker.InstId, err)
+			}
+		}(ticker, protoMsg) // 传递ticker, protoMsg 副本
+
+	}
 }
 
 // startSortingScheduler 定时执行排序和缓存
@@ -192,71 +245,97 @@ func (m *MarketDataService) startSortingScheduler() {
 // performSortAndCache 执行排序，并更新缓存（需要在后台线程调用）
 func (m *MarketDataService) performSortAndCache() {
 	m.mu.RLock()
-	// 将所有 TradingItem 转换为一个切片 (Slice)
-	items := make([]TradingItem, 0, len(m.tradingItems))
+	// 1. 转换为可排序切片并预处理浮点数
+	sortableItems := make([]SortableItem, 0, len(m.tradingItems))
 	for _, item := range m.tradingItems {
-		items = append(items, item)
+		// 🚀 核心优化：只转换一次
+		vol, _ := strconv.ParseFloat(item.Ticker.VolCcy24h, 64)
+		price, _ := strconv.ParseFloat(item.Ticker.LastPrice, 64)
+
+		sortableItems = append(sortableItems, SortableItem{
+			ID:          item.Coin.InstrumentID,
+			VolumeFloat: vol,
+			PriceFloat:  price,
+			// 假设 Change24h 已经是 float 或直接从 item.Ticker 中获取
+			OriginalItem: item,
+		})
 	}
 	m.mu.RUnlock()
 
-	// 1. 根据 currentField 选择排序算法
-	sort.Slice(items, func(i, j int) bool {
-		a := items[i].Ticker
-		b := items[j].Ticker
+	// 2. 排序 (Sort.Slice 现在使用预计算的 float64，速度极快)
+	sort.Slice(sortableItems, func(i, j int) bool {
+		a := sortableItems[i]
+		b := sortableItems[j]
 
 		switch m.currentSortField {
 		case SortByVolume:
 			// 默认：按成交量降序 (Largest Volume first)
-			v1, _ := strconv.ParseFloat(a.VolCcy24h, 64)
-			v2, _ := strconv.ParseFloat(b.VolCcy24h, 64)
-			return v1 > v2
-
+			return a.VolumeFloat > b.VolumeFloat
 		case SortByPriceChange:
 			// 按涨跌幅降序 (Highest Price Change first)
-			return a.Change24h > b.Change24h
+			return a.ChangeFloat > b.ChangeFloat
 
 		case SortByPrice:
 			// 按价格降序 (Highest Price first)
-			p1, _ := strconv.ParseFloat(a.LastPrice, 64)
-			p2, _ := strconv.ParseFloat(b.LastPrice, 64)
-			return p1 > p2
+			return a.PriceFloat > b.PriceFloat
 
 		default:
 			// 默认回退到 Volume 排序
-			v1, _ := strconv.ParseFloat(a.VolCcy24h, 64)
-			v2, _ := strconv.ParseFloat(b.VolCcy24h, 64)
-			return v1 > v2
+			return a.VolumeFloat > b.VolumeFloat
 		}
 	})
 
-	// 1. 核心排序操作（在后台线程完成）
-	sort.Slice(items, func(i, j int) bool {
-		// 按 Volume 降序排序
-		volCcy24h1, _ := strconv.ParseFloat(items[i].Ticker.VolCcy24h, 64)
-		volCcy24h2, _ := strconv.ParseFloat(items[j].Ticker.VolCcy24h, 64)
-		return volCcy24h1 > volCcy24h2
-	})
-
 	// 2. 生成新的 ID 列表
-	newSortedIDs := make([]string, len(items))
-	for i, item := range items {
-		newSortedIDs[i] = item.Coin.InstrumentID
+	newSortedIDs := make([]string, len(sortableItems))
+	for i, item := range sortableItems {
+		newSortedIDs[i] = item.OriginalItem.Coin.InstrumentID
 	}
+
+	var protoMsg *pb.WebSocketMessage // 声明在外部
+	var shouldPush = false            // 标记是否需要推送
+
+	// 缓存结果 需要用写锁
+	m.mu.Lock()
+	if !slicesEqual(m.SortedInstIDs, newSortedIDs) {
+		// 只有排序结果发生变化时才更新缓存
+		m.SortedInstIDs = newSortedIDs
+		// 标记需要推送
+		shouldPush = true
+	}
+
+	// 只需要在锁内生成需要发送的 Protobuf 消息，不需要执行发送 I/O
+	// 将新的价格排序构造成Protobuf消息
+	payload := &pb.SortUpdate{
+		SortBy:        m.currentSortField,
+		SortedInstIds: newSortedIDs,
+	}
+	protoMsg = &pb.WebSocketMessage{
+		Type:    "SORT_UPDATE",
+		Payload: &pb.WebSocketMessage_SortUpdate{SortUpdate: payload},
+	}
+	m.mu.Unlock()
 
 	// 3. 缓存结果（需要写锁）
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 差异推送的核心逻辑：只有排序结果发生变化时才更新缓存（避免不必要的推送）
-	if !slicesEqual(m.SortedInstIDs, newSortedIDs) {
-		m.SortedInstIDs = newSortedIDs
-		// ⚠️ 此处应触发 WebSocket 推送给客户端 (例如发送一个新的 [String] 列表)
-		select {
-		case m.sortedInstIDsCh <- newSortedIDs:
-			//log.Printf("交易对ids排序发生变化")
-		default:
-			// 通道满了，丢弃本次变化
-		}
+	// 在锁外异步发送Kafka消息
+	if shouldPush {
+		// 必须使用 Goroutine异步发送Kafka消息
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			// 写入kafka
+			// 排序更新是稍低频事件，可以和订阅数量共用一个topic，或者使用一个新的低频主题
+			//
+			key := []byte("GLOBAL_SORT") // 使用固定Key确保所有排序更新有序
+			// 使用marketdata_system主题
+			topic := "marketdata_system"
+			if err := m.producer.Produce(ctx, topic, key, protoMsg); err != nil {
+				log.Printf("ERROR: topic=%s 生产者写入kafka币种id排序数据失败: %v", topic, err)
+			}
+		}()
 	}
 }
 
@@ -410,16 +489,22 @@ func (m *MarketDataService) PerformPeriodicUpdate(ctx context.Context) error {
 	// ⚠️ 核心：通知 MarketHandler 客户端需要更新
 	if len(toSubscribe) > 0 || len(toUnsubscribe) > 0 {
 
-		update := BaseInstrumentUpdate{
+		// 构造Protobuf消息
+		payload := &pb.InstrumentUpdate{
 			NewInstruments:      toSubscribe,
 			DelistedInstruments: toUnsubscribe,
 		}
+		protoMsg := &pb.WebSocketMessage{
+			Type:    "INSTRUMENT_UPDATE",
+			Payload: &pb.WebSocketMessage_InstrumentStatusUpdate{InstrumentStatusUpdate: payload},
+		}
+		// 写入kafka
+		ctx := context.Background()
+		topic := "marketdata_system" // 使用低频系统主题
+		key := []byte("INSTRUMENT_CHANGE")
 
-		select {
-		case m.instrumentUpdateCh <- update:
-			log.Println("Instrument structure update sent to handler.")
-		default:
-			log.Println("WARN: Instrument update channel full, structure update skipped.")
+		if err := m.producer.Produce(ctx, topic, key, protoMsg); err != nil {
+			log.Printf("ERROR: topic=%s 生产者写入Kafka 币种更新数据失败: %v", topic, err)
 		}
 	}
 
@@ -433,12 +518,8 @@ func (m *MarketDataService) PerformPeriodicUpdate(ctx context.Context) error {
 
 }
 
-func (m *MarketDataService) GetSortedIDsChannel() <-chan []string {
-	return m.sortedInstIDsCh
-}
-
-func (m *MarketDataService) GetSortedIDsl() []string {
-	return m.SortedInstIDs
+func (m *MarketDataService) GetSortedIDsl() (data []string, sortBy string) {
+	return m.SortedInstIDs, m.currentSortField
 }
 
 // GetPagedData 从内存中获取排序后的分页数据
@@ -522,14 +603,6 @@ func (m *MarketDataService) ChangeSortField(newField string) error {
 	go m.performSortAndCache()
 
 	return nil
-}
-
-func (m *MarketDataService) GetPriceUpdateChannel() <-chan TickerData {
-	return m.priceUpdateCh
-}
-
-func (m *MarketDataService) GetInstrumentUpdateChannel() <-chan BaseInstrumentUpdate {
-	return m.instrumentUpdateCh
 }
 
 func (m *MarketDataService) GetPrices() map[string]float64 {

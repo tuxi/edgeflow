@@ -1,17 +1,16 @@
 package middleware
 
 import (
-	"container/list"
 	"crypto/hmac"
 	"crypto/sha256"
 	"edgeflow/internal/consts"
 	"edgeflow/pkg/response"
 	"edgeflow/utils/uuid"
 	"encoding/base64"
+	lru "github.com/hashicorp/golang-lru"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -98,45 +97,38 @@ func ApiBaseHeader() gin.HandlerFunc {
 	}
 }
 
-// 定义一个结构来存储请求的时间戳
-var requestTimestamps = make(map[string]*list.Element)
-var lruList = list.New()
-var maxCacheSize = 500 // 限制缓存的最大大小
-var requestMutex sync.Mutex
+// 使用分片锁 (Sharding/Bucket Locking)，降低锁的粒度
+// 不能使用sync.Mutex，会导致阻塞
+
+// 限制缓存的最大大小为 500，且是并发安全的 LRU 缓存
+var reqCache, _ = lru.New(500)
+var duplicateThreshold = 1 * time.Second
 
 // 定义一个中间件函数，用于防止频繁请求和重复提交
+// 防止单个客户端 IP 在 5 秒内重复发送请求，保护下游 API 或系统资源
+// 将 AntiDuplicateMiddleware 只应用于不需要高频重试的 常规 HTTP API 路由，例如获取配置、登录等，不应该用于websocket等实时性高的连接
 func AntiDuplicateMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
-		// 设置一个时间间隔，例如5秒，表示在5秒内相同IP的请求被视为重复请求
-		duplicateThreshold := 5 * time.Second
-		requestMutex.Lock()
-		// 检查缓存中是否存在相同IP的请求
-		if element, exists := requestTimestamps[clientIP]; exists {
-			// 如果请求时间在时间间隔内，视为重复请求
-			lastRequestTime := element.Value.(time.Time)
+
+		// 使用golang-lru 缓存库，解决锁竞争问题
+		// 检查记录是否存在
+		if value, ok := reqCache.Get(clientIP); ok {
+			lastRequestTime := value.(time.Time)
+
+			// 检查是否在阀值内
 			if time.Since(lastRequestTime) < duplicateThreshold {
+				// 如果是重复请求，直接返回
 				response.TooManyRequests(c)
 				c.Abort()
 				return
 			}
-			// 更新缓存中的时间戳
-			lruList.MoveToFront(element)
-		} else {
-			// 如果缓存中不存在该IP的请求，添加到缓存
-			if lruList.Len() >= maxCacheSize {
-				// 如果缓存已满，删除最旧的请求时间戳
-				oldest := lruList.Back()
-				delete(requestTimestamps, clientIP)
-				lruList.Remove(oldest)
-			}
-
-			// 添加新请求时间戳到缓存
-			element := lruList.PushFront(time.Now())
-			requestTimestamps[clientIP] = element
 		}
-		requestMutex.Unlock()
-		// 继续执行下一个处理程序
+
+		// 更新时间戳
+		// 更新时间戳 (Hit 或 Miss 都会更新)
+		// Set 方法会自动处理 LRU 淘汰和并发安全
+		reqCache.Add(clientIP, time.Now())
 		c.Next()
 	}
 }

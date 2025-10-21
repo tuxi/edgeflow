@@ -18,6 +18,7 @@ import (
 	"edgeflow/internal/service/signal/model"
 	"edgeflow/internal/service/signal/trend"
 	"edgeflow/pkg/cache"
+	"edgeflow/pkg/kafka"
 	"gorm.io/gorm"
 )
 
@@ -80,18 +81,22 @@ func InitRouter(db *gorm.DB) Router {
 
 	//wh := webhook.NewHandler(dispatcher, rc, sm, ps)
 
+	// 初始化kafka
+	kafProducer := kafka.NewKafkaProducer(appCfg.Kafka.Broker)
+	kafConsumer := kafka.NewKafkaConsumer(appCfg.Kafka.Broker)
+
 	hyperDao := query.NewHyperLiquidDao(db)
 	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "AAVE", "AVAX", "ADA", "LINK", "TRX"}
 	tickerService := service.NewOKXTickerService(defaultsCoins)
-	marketService := service.NewMarketDataService(tickerService, instrumentDao, okxEx, signalDao)
+	marketService := service.NewMarketDataService(tickerService, instrumentDao, okxEx, signalDao, kafProducer)
 	marketService.InitializeBaseInstruments(context.Background(), 1)
 
 	rds := cache.GetRedisClient()
 	hyperService := service.NewHyperLiquidService(hyperDao, rds, marketService)
 	hyperHandler := hyperliquid.NewHandler(hyperService)
 
-	okxCandleService := service.NewOKXCandleService()
-	marketHandler := market.NewMarketHandler(marketService, okxCandleService)
+	okxCandleService := service.NewOKXCandleService(kafProducer)
+	marketHandler := market.NewMarketHandler(marketService)
 	instrumentService := service.NewInstrumentService(instrumentDao, func() {
 		marketService.PerformPeriodicUpdate(context.Background())
 	})
@@ -107,7 +112,10 @@ func InitRouter(db *gorm.DB) Router {
 
 	signalHandler := signal3.NewSignalHandler(signalService, okxEx)
 
-	apiRouter := router.NewApiRouter(coinH, marketHandler, hyperHandler, userHandler, signalHandler)
+	tickerGw := market.NewTickerGateway(marketService, kafConsumer)
+	subscriptionGw := market.NewSubscriptionGateway(okxCandleService, kafConsumer)
+
+	apiRouter := router.NewApiRouter(coinH, marketHandler, hyperHandler, userHandler, signalHandler, tickerGw, subscriptionGw)
 
 	// 同步最新币种
 	instrumentService.StartInstrumentSyncWorker(context.Background())

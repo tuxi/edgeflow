@@ -72,6 +72,10 @@ type JwtConfig struct {
 	JwtBlacklistGracePeriod int64  `yaml:"blacklistperiod" ` // 黑名单宽限时间（秒）
 }
 
+type KafkaConfig struct {
+	Broker string `yaml:"broker"`
+}
+
 type ProxyURL struct {
 	Mode string `toml:"mode"` // 代理模式：sock5 或者http
 	Ip   string `toml:"ip"`   // 代理的ip地址
@@ -127,6 +131,7 @@ type Config struct {
 	Redis     RedisConfig    `yaml:"redis"`
 	Email     EmailCofig     `yaml:"email"`
 	Apple     AppleConfig    `yaml:"apple"`
+	Kafka     KafkaConfig    `yaml:"kafka"`
 }
 
 var AppConfig Config

@@ -11,15 +11,17 @@ import (
 )
 
 type ApiRouter struct {
-	coinHandler   *instrument.Handler
-	hyperHandler  *hyperliquid.Handler
-	mh            *market.MarketHandler
-	userHandler   *user.UserHandler
-	signalHandler *signal.SignalHandler
+	coinHandler    *instrument.Handler
+	hyperHandler   *hyperliquid.Handler
+	marketHandler  *market.MarketHandler
+	userHandler    *user.UserHandler
+	signalHandler  *signal.SignalHandler
+	tickerGw       *market.TickerGateway
+	subscriptionGw *market.SubscriptionGateway
 }
 
-func NewApiRouter(ch *instrument.Handler, mh *market.MarketHandler, hyperHandler *hyperliquid.Handler, userHandler *user.UserHandler, SignalHandler *signal.SignalHandler) *ApiRouter {
-	return &ApiRouter{coinHandler: ch, mh: mh, hyperHandler: hyperHandler, userHandler: userHandler, signalHandler: SignalHandler}
+func NewApiRouter(ch *instrument.Handler, marketHandler *market.MarketHandler, hyperHandler *hyperliquid.Handler, userHandler *user.UserHandler, SignalHandler *signal.SignalHandler, tickerGw *market.TickerGateway, subscriptionGw *market.SubscriptionGateway) *ApiRouter {
+	return &ApiRouter{coinHandler: ch, marketHandler: marketHandler, hyperHandler: hyperHandler, userHandler: userHandler, signalHandler: SignalHandler, tickerGw: tickerGw, subscriptionGw: subscriptionGw}
 }
 
 func (api *ApiRouter) Load(g *gin.Engine) {
@@ -27,7 +29,7 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 	// auth
 	base := g.Group("/api/v1")
 
-	c := base.Group("/instruments", middleware.RequestValidationMiddleware())
+	c := base.Group("/instruments", middleware.AntiDuplicateMiddleware(), middleware.RequestValidationMiddleware())
 	{
 		// 获取币种列表
 		c.GET("/list", api.coinHandler.CoinsGetList())
@@ -37,18 +39,20 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 	m := base.Group("/market", middleware.RequestValidationMiddleware())
 	{
 		// 获取排序好的ids
-		m.GET("/sorted-inst-ids", api.mh.SortedInstIDsGet())
+		m.GET("/sorted-inst-ids", middleware.AntiDuplicateMiddleware(), api.marketHandler.SortedInstIDsGet())
 		// 获取详情
-		m.POST("/detail", api.mh.GetDetail())
+		m.POST("/detail", middleware.AntiDuplicateMiddleware(), api.marketHandler.GetDetail())
+
+		m.GET("/ws", api.subscriptionGw.ServeWS) // 通过websocket连接获取k线数据等
 	}
 
 	p := base.Group("/ticker", middleware.RequestValidationMiddleware())
 	{
-		p.GET("/ws", api.mh.ServeWS) // 通过websocket连接获取价格
+		p.GET("/ws", api.tickerGw.ServeWS) // 通过websocket连接获取价格
 
 	}
 
-	h := base.Group("/hyperliquid", middleware.RequestValidationMiddleware())
+	h := base.Group("/hyperliquid", middleware.AntiDuplicateMiddleware(), middleware.RequestValidationMiddleware())
 	{
 		h.GET("/whales/address", api.hyperHandler.WhaleInfoGetByAddress())
 		h.POST("/whales/leaderboard", api.hyperHandler.WhaleLeaderboardGet())

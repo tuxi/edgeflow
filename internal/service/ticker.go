@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,7 @@ type TickerData struct {
 	AskSz     string  `json:"ask_sz"`      // 卖一量
 	BidPx     string  `json:"bid_px"`      // 买一价（最高的买单价）
 	BidSz     string  `json:"bid_sz"`      // 买一量
-	Ts        float64 `json:"ts"`          // 时间戳
+	Ts        int64   `json:"ts"`          // 时间戳
 }
 
 // TickerService 定义行情服务接口
@@ -512,6 +513,7 @@ func (s *OKXTickerService) handleTickers(dataArr []interface{}) {
 		if open24h != 0 {
 			change24h = (lastPrice - open24h) / open24h * 100
 		}
+		ts, _ := strconv.ParseInt(item["ts"].(string), 10, 64)
 		ticker := TickerData{
 			InstId:    instId,
 			LastPrice: item["last"].(string),      // 最新成交价格
@@ -525,7 +527,7 @@ func (s *OKXTickerService) handleTickers(dataArr []interface{}) {
 			AskSz:     item["askSz"].(string), // 卖一量
 			BidPx:     item["bidPx"].(string), // 买一价（最高的买单价）
 			BidSz:     item["bidSz"].(string), // 买一量
-			Ts:        parseFloat(item["ts"]),
+			Ts:        ts,
 		}
 		changedValues[instId] = ticker
 		// 全部返回string类型，防止精度丢失

@@ -1,51 +1,27 @@
 package market
 
 import (
-	"encoding/json"
-	"fmt"
+	"github.com/goccy/go-json"
 	"github.com/gorilla/websocket"
 	"log"
-	"strings"
+	"strconv"
 	"sync"
 )
 
-type ClientMessage struct {
-	Action  string            `json:"action"` // get_page | change_sort ｜ subscribe_candle ｜ unsubscribe_candle
-	Payload map[string]string `json:"payload"`
-
-	/*
-		payload中可能包含的字段跟需求有关，目前
-		分页参数 (用于 get_page)
-		Page  int `json:"page"`
-		Limit int `json:"limit"`
-		排序字段 (用于 change_sort)
-		SortBy string `json:"sort_by"` // 例如 "volume", "price_change"
-		查询k线数据
-		InstId string `json:"inst_id"`
-		time_period
-	*/
-}
-
-// 订阅键的格式为：<Channel>:<Symbol>:<Period/Detail>
-// 例如：
-// - K线： "CANDLE:BTC-USDT:15m"
-// - 深度： "DEPTH:BTC-USDT:L5" (Level 5)
-// - 交易： "TRADE:BTC-USDT:SPOT"
-type ClientConn struct {
-	ClientID  string // 用于识别客户端
+// 简化后的 TickerClientConn，不再需要 CandleSubscriptions
+type TickerClientConn struct {
+	ClientID  string
 	Conn      *websocket.Conn
 	Send      chan []byte // 异步发送通道
 	replaced  bool        // 标记该连接是否已被新的重连连接替换
 	mu        sync.Mutex
 	closeOnce sync.Once
-
-	// 升级为通用的订阅映射
-	Subscriptions map[string]struct{} // Key: 通用订阅键
+	// 移除 CandleSubscriptions
 }
 
 // Close 优雅地关闭连接和相关资源
 // 注意：Conn.Close() 会导致 writePump 退出，从而触发 ServeWS 的 defer 逻辑
-func (c *ClientConn) Close() {
+func (c *TickerClientConn) Close() {
 	c.closeOnce.Do(func() {
 		if c.Conn != nil {
 			c.Conn.Close()
@@ -65,11 +41,12 @@ func (c *ClientConn) Close() {
 	})
 }
 
-func (c *ClientConn) writePump() {
-
+func (c *TickerClientConn) writePump() {
+	/*
+		websocket.Conn.WriteMessage() 是 阻塞操作。如果某个客户端的网络非常慢（例如移动网络差），或者它的 WebSocket 发送缓冲区已满，WriteMessage 就会阻塞当前 PushLoop 协程，导致所有后续客户端的推送都被延迟。
+	*/
 	//defer c.Conn.Close()
 	for msg := range c.Send {
-		// 注意：现在给客户端发送的都是protobuf消息二进制数据，所以不能使用websocket.TextMessage
 		if err := c.Conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
 			log.Println("write error:", err)
 			break
@@ -78,7 +55,7 @@ func (c *ClientConn) writePump() {
 }
 
 // readPump 读取客户端消息
-func (c *ClientConn) readPump(h *SubscriptionGateway) {
+func (c *TickerClientConn) readPump(h *TickerGateway) {
 
 	// 设置读消息超时时间等 (此处省略)
 
@@ -92,7 +69,7 @@ func (c *ClientConn) readPump(h *SubscriptionGateway) {
 		_, msg, err := c.Conn.ReadMessage()
 		if err != nil {
 			// 客户端断开连接、网络错误等
-			log.Println("ClientConn 读取客户端消息:", err)
+			log.Println("TickerClientConn 读取客户端消息 error:", err)
 			break // 退出循环，触发 defer
 		}
 
@@ -105,22 +82,24 @@ func (c *ClientConn) readPump(h *SubscriptionGateway) {
 
 		// 2. 根据 Action 处理请求
 		switch clientMsg.Action {
-		case "get_page", "change_sort":
-			// 核心：Subscription Gateway 忽略这些请求，可以返回错误
-			log.Printf("WARN: SubGateway received Ticker/Sort request: %s. Use TickerGateway.", clientMsg.Action)
+		case "get_page":
+			// 客户端请求某一页的数据 (分页和排序结果)
+			// 这一步是同步的，直到数据返回
+			// 分页参数 (用于 get_page)
+			pageStr := clientMsg.Payload["page"]
+			limitStr := clientMsg.Payload["limit"]
+			page, _ := strconv.ParseInt(pageStr, 10, 64)
+			limit, _ := strconv.ParseInt(limitStr, 10, 64)
+			h.handleGetPage(c, int(page), int(limit))
 
-		case "subscribe_candle":
-			channel := "CANDLE" // 硬编码为 K线频道
-			period := clientMsg.Payload["time_period"]
-			symbol := clientMsg.Payload["inst_id"]
-			subKey := fmt.Sprintf("%s:%s:%s", channel, symbol, period)
-			h.handleSubscribe(c, channel, symbol, period, subKey)
-		case "unsubscribe_candle":
-			channel := "CANDLE"
-			period := clientMsg.Payload["time_period"]
-			symbol := clientMsg.Payload["inst_id"]
-			subKey := fmt.Sprintf("%s:%s:%s", channel, symbol, period)
-			h.handleUnsubscribe(c, subKey)
+		case "change_sort":
+			// 客户端请求改变排序字段 (例如从 Volume 变更为 Price Change)
+			if sortBy, ok := clientMsg.Payload["sort_by"]; ok {
+				h.handleChangeSort(c, sortBy)
+			}
+		case "subscribe_candle", "unsubscribe_candle":
+			// Ticker Gateway 忽略这些请求，可以返回错误
+			log.Printf("WARN: TickerGateway received subscription request: %s. Use SubscriptionGateway.", clientMsg.Action)
 		default:
 			log.Println("Unsupported action received:", clientMsg.Action)
 		}
@@ -131,30 +110,9 @@ func (c *ClientConn) readPump(h *SubscriptionGateway) {
 	}
 }
 
-// 当前连接是否订阅了k线
-func (c *ClientConn) isSubscribedCandle(instId string, period string) bool {
-	subKey := fmt.Sprintf("%s-%s", instId, period)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, ok := c.Subscriptions[subKey]; ok {
-		return true
-	}
-	return false
-}
-
-func (c *ClientConn) GetInstIdByCandleKey(key string) (instId, period string, ok bool) {
-	parts := strings.Split(key, "-")
-	if len(parts) >= 3 {
-		instId = parts[0] + "-" + parts[1]
-		period = parts[2]
-		ok = true
-	}
-	return
-}
-
 // safeSend 尝试向客户端通道发送数据，并在通道关闭时安全地捕获 panic。
 // 这是一个关键的 panic 防御机制。
-func (c *ClientConn) safeSend(data []byte) (sent bool) {
+func (c *TickerClientConn) safeSend(data []byte) (sent bool) {
 	defer func() {
 		// 如果写入已关闭的通道，这里会捕获 panic (runtime error: send on closed channel)
 		if r := recover(); r != nil {

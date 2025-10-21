@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	model2 "edgeflow/internal/model"
+	"edgeflow/pkg/kafka"
+	pb "edgeflow/pkg/protobuf"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,9 +27,6 @@ type CandleService interface {
 	// UnsubscribeCandle 取消订阅指定币种和周期的 K 线数据。
 	UnsubscribeCandle(ctx context.Context, symbol string, period string) error
 
-	// GetCandleChannel 供下游服务获取并监听 K 线数据流
-	GetCandleChannel() <-chan map[string]model2.Kline
-
 	// Close 关闭 K 线服务连接
 	Close() error
 
@@ -36,6 +35,7 @@ type CandleService interface {
 }
 
 // OKXCandleService 基于 OKX WebSocket 的 K 线实现
+// 只有在客户端首次订阅即才连接okx service
 type OKXCandleService struct {
 	sync.RWMutex
 	conn *websocket.Conn
@@ -51,40 +51,47 @@ type OKXCandleService struct {
 
 	// 连接成功建立后，会向此通道发送一个信号 (事件流)
 	connectionNotifier chan struct{}
-	// 收到 K 线变化的通道
-	candleCh chan map[string]model2.WSKline
+
+	// Kafka Producer 依赖
+	producer kafka.ProducerService
 
 	// 使用一个布尔状态标记和 RWMutex
 	isReady bool
 	// 用于同步等待“第一次连接成功”的通道 (同步信号）
-	readyCh chan struct{}
+	readyCond *sync.Cond // 条件变量
 
 	// 用于向 MarketHandler 异步通知订阅错误的通道
 	errorCh chan model2.ClientError
+
+	// 原子布尔值或互斥锁，用于控制 run 协程的生命周期
+	// 我们使用一个布尔值配合 RWMutex
+	isRunning bool
 }
 
 // NewOKXCandleService 创建实例并连接 OKX WebSocket
-func NewOKXCandleService() *OKXCandleService {
+func NewOKXCandleService(producer kafka.ProducerService) *OKXCandleService {
 	url := "wss://ws.okx.com:8443/ws/v5/business"
 
 	s := &OKXCandleService{
 		conn:               nil,
 		subscribed:         make(map[model2.SubscriptionKey]int),
-		candleCh:           make(chan map[string]model2.WSKline, 100), // 设置一个合理的缓冲区大小
+		producer:           producer,
 		url:                url,
 		closeCh:            make(chan struct{}),
 		connectionNotifier: make(chan struct{}),
-		readyCh:            make(chan struct{}),
 		errorCh:            make(chan model2.ClientError, 10),
 	}
 
-	go s.run() // 启动连接/重连主循环
+	s.readyCond = sync.NewCond(&s.RWMutex) // 条件变量绑定到 RWMutex
+
+	// 本服务将 OKXCandleService 从 “启动即连接” 模式改为 “首次订阅即连接” 模式
+	// 所以不需要启动时就连接，只有需要时才连接
+	//go s.run() // 启动连接/重连主循环
 
 	return s
 }
 
 // --- 连接和重连逻辑 (与 TickerService 类似，确保独立性) ---
-
 func (s *OKXCandleService) startPingLoop(conn *websocket.Conn) {
 	ticker := time.NewTicker(time.Second * 15)
 	defer ticker.Stop()
@@ -139,7 +146,31 @@ func (s *OKXCandleService) resubscribeAll() error {
 }
 
 func (s *OKXCandleService) run() {
+	log.Println("OKXCandleService connection manager started.")
+	isFirstRun := true // 标记首次启动
+	// 退出后设置 isRunning = false
+	defer func() {
+		s.Lock()
+		s.isRunning = false
+		s.Unlock()
+		log.Println("OKXCandleService connection manager stopped.")
+	}()
+
 	for {
+		if !isFirstRun { // 跳过首次启动时的退出检查
+			s.RLock()
+			hasSubscriptions := len(s.subscribed) > 0
+			s.RUnlock()
+
+			if !hasSubscriptions && s.conn == nil {
+				// 如果当前没有活动订阅，且没有连接，则优雅退出循环
+				return // 只有在非首次启动且无订阅时才退出
+			}
+		}
+
+		isFirstRun = false // 首次检查后设为 false
+
+		// 尝试连接
 		conn, _, err := websocket.DefaultDialer.Dial(s.url, nil)
 		if err != nil {
 			log.Println("OKXCandleService connection failed, retrying in 2s:", err)
@@ -147,11 +178,12 @@ func (s *OKXCandleService) run() {
 			continue
 		}
 
+		// 连接成功后
 		s.Lock()
 		s.conn = conn
 		if !s.isReady {
-			close(s.readyCh)
 			s.isReady = true
+			s.readyCond.Broadcast() // 唤醒所有等待者
 		}
 		select {
 		case s.connectionNotifier <- struct{}{}:
@@ -185,7 +217,6 @@ func (s *OKXCandleService) run() {
 		// 连接断开后，重置状态
 		s.Lock()
 		s.isReady = false
-		s.readyCh = make(chan struct{})
 		s.Unlock()
 
 		log.Println("OKXCandleService lost connection. Restarting reconnect loop...")
@@ -220,31 +251,33 @@ func (s *OKXCandleService) writeMessageInternal(message interface{}) error {
 
 // --- 外部接口实现 ---
 
-// GetCandleChannel 实现
-func (s *OKXCandleService) GetCandleChannel() <-chan map[string]model2.WSKline {
-	return s.candleCh
-}
-
 func (s *OKXCandleService) GetErrorChannel() <-chan model2.ClientError {
 	return s.errorCh
 }
 
 // WaitForConnectionReady 实现
 func (s *OKXCandleService) WaitForConnectionReady(ctx context.Context) error {
-	s.RLock()
-	if s.isReady {
-		s.RUnlock()
-		return nil
-	}
-	waitCh := s.readyCh
-	s.RUnlock()
+	// 使用 Cond 必须用 Lock，不能用 RLock
+	s.Lock()
+	defer s.Unlock()
 
-	select {
-	case <-waitCh:
+	if s.isReady {
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	}
+
+	// 🚀 使用 Cond：在一个新的 Goroutine 中等待 Context 超时
+	ctxDone := ctx.Done()
+
+	for !s.isReady {
+		select {
+		case <-ctxDone:
+			return ctx.Err()
+		default:
+			// 阻塞等待
+			s.readyCond.Wait() // 释放锁并阻塞，被 Broadcast 后重新获取锁
+		}
+	}
+	return nil
 }
 
 // SubscribeCandle 订阅k线
@@ -254,35 +287,52 @@ func (s *OKXCandleService) SubscribeCandle(ctx context.Context, symbol string, p
 	s.Lock()
 	defer s.Unlock()
 
+	// 检查并启动连接管理器
+	if !s.isRunning {
+		s.isRunning = true
+		go s.run()
+	}
+
 	// 1. 检查是否已经订阅
 	count, ok := s.subscribed[key]
 	if ok {
-		return nil // 已经订阅
+		s.subscribed[key] = count + 1 // 即使已经订阅，计数器也应该增加
+		return nil                    // 已经订阅
 	}
 
 	// 新订阅，向okx发送订阅请求
-	if count == 0 {
-		// 2. 构造订阅消息
-		channel := "candle" + period
-		args := []map[string]string{
-			{"channel": channel, "instId": symbol},
-		}
-		subMsg := map[string]interface{}{
-			"op":   "subscribe",
-			"args": args,
-		}
-
-		// 3. 发送请求
-		err := s.writeMessageInternal(subMsg)
-		if err != nil {
-			return fmt.Errorf("failed to subscribe to upstream data: %w", err)
-		}
-
-		// 4. 更新本地状态
-		s.subscribed[key] = count + 1
-		log.Printf("Subscribed candle: %s-%s", symbol, period)
+	// 2. 构造订阅消息
+	channel := "candle" + period
+	args := []map[string]string{
+		{"channel": channel, "instId": symbol},
+	}
+	subMsg := map[string]interface{}{
+		"op":   "subscribe",
+		"args": args,
 	}
 
+	// 因为本服务是按需连接的，所以此时未必已经连接，需要等待连接就绪，然后发送请求
+	// 释放锁，以便 run() 协程可以获取锁并建立连接
+	s.Unlock()
+	err := s.WaitForConnectionReady(ctx) // 阻塞等待连接成功
+	s.Lock()                             // 重新获取锁
+
+	if err != nil {
+		// 如果等待超时或 Context 取消，清理 isRunning 状态并返回错误
+		return fmt.Errorf("failed to wait for OKX connection ready: %w", err)
+	}
+
+	// 再次检查是否在等待期间被其他协程订阅 (防止竞态条件，但在这个逻辑中影响不大)
+
+	// 发送请求
+	err = s.writeMessageInternal(subMsg)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to upstream data: %w", err)
+	}
+
+	// 更新本地状态
+	s.subscribed[key] = 1
+	log.Printf("Subscribed candle: %s-%s", symbol, period)
 	return nil
 }
 
@@ -319,6 +369,16 @@ func (s *OKXCandleService) UnsubscribeCandle(ctx context.Context, symbol string,
 			err := s.writeMessageInternal(unsubMsg)
 			if err != nil {
 				return err
+			}
+
+			// 取消订阅时，检查是否需要关闭连接
+			if len(s.subscribed) == 1 { // 1 是当前 key，即将被删除
+				// 这是最后一个订阅，执行连接清理和关闭
+				// 关闭连接， run() 循环会因连接断开而退出，并在下一次循环中发现 len(s.subscribed) == 0 而停止。
+				log.Println("Last candle subscription removed. Closing OKX connection.")
+				if s.conn != nil {
+					s.conn.Close() // 主动关闭连接，触发 runListen 退出
+				}
 			}
 
 			// 更新本地状态
@@ -475,9 +535,6 @@ func parseFailedSubscription(errMsg string) (channel string, instId string, succ
 }
 
 func (s *OKXCandleService) handleCandles(dataArr []interface{}, period string, instId string) {
-
-	changedValues := make(map[string]model2.WSKline, len(dataArr))
-
 	for _, d := range dataArr {
 		// OKX K线数据的格式是一个数组 [ts, open, high, low, close, vol, volCcy, ...],
 		// 并且 instId 在 arg 中，而不是 data 数组中。这里需要根据实际 OKX 数据格式调整
@@ -501,34 +558,47 @@ func (s *OKXCandleService) handleCandles(dataArr []interface{}, period string, i
 		volCcy := item[6].(string)
 		confirm := item[8].(string) // 是否已收盘
 
-		kline := model2.WSKline{
-			InstId:     instId, // 实际需要正确解析
+		// 1. 转换为 Protobuf K线消息
+		klinePb := &pb.WsKlineUpdate_KlineData{
+			Timestamp: timestamp / 1000,
+			Open:      open,
+			Close:     closee,
+			High:      high,
+			Low:       low,
+			Vol:       vol,
+			VolCcy:    volCcy,
+		}
+
+		// 2. 构造 Protobuf CandleUpdate 消息
+		candleUpdate := &pb.WsKlineUpdate{
+			InstId:     instId,
 			TimePeriod: period,
 			Confirm:    confirm == "1",
-			Data: model2.Kline{
-				Timestamp: time.UnixMilli(timestamp),
-				Open:      parseFloat(open),
-				Close:     parseFloat(closee),
-				High:      parseFloat(high),
-				Low:       parseFloat(low),
-				Vol:       parseFloat(vol),
-				VolCcy:    parseFloat(volCcy),
+			Data:       klinePb,
+		}
+
+		// 3. 构造 Protobuf 通用 WebSocket 消息
+		wsMsg := &pb.WebSocketMessage{
+			Type: "CANDLE_UPDATE",
+			// 包装 Payload
+			Payload: &pb.WebSocketMessage_KlineUpdate{
+				KlineUpdate: candleUpdate,
 			},
 		}
 
-		// 以 "BTC-USDT-15m" 作为 Key 推送
-		key := fmt.Sprintf("%s-%s", instId, period)
-		changedValues[key] = kline
+		// 5. 写入 Kafka
+		go func(wsMsg *pb.WebSocketMessage) {
+			// 主题：marketdata_subscribe (用于按需订阅和过滤)
+			// Key：使用 SubKey 作为 Kafka Key，确保同一 K线的所有更新进入同一分区，保证顺序
+			subKey := fmt.Sprintf("CANDLE:%s:%s", instId, period)
+			topic := "marketdata_subscribe"
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+			defer cancel()
+			if err := s.producer.Produce(ctx, topic, []byte(subKey), wsMsg); err != nil {
+				log.Printf("ERROR: topic=%s 生产者写入 k线数据 到 kafka失败: %v", topic, err)
+			}
+		}(wsMsg)
+
 	}
 
-	if len(changedValues) > 0 {
-		// 只发送本次改变的数据
-		s.candleCh <- changedValues
-	}
-}
-
-// parseFloatToInt64 辅助解析时间戳
-func parseFloatToInt64(v interface{}) int64 {
-	// ... 实现 ...
-	return 0 // Placeholder
 }
