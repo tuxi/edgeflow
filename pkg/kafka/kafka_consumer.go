@@ -40,7 +40,6 @@ func (c *kafkaConsumer) Consume(ctx context.Context, topic string, groupID strin
 		MaxAttempts:    3,
 		// 注意：如果使用自动提交，就不能在循环中手动调用CommitMessages
 	})
-
 	// 2. 创建输出通道
 	outputCh := make(chan kafka.Message, 100) // 缓冲区用于平滑流量
 
@@ -63,10 +62,21 @@ func (c *kafkaConsumer) Consume(ctx context.Context, topic string, groupID strin
 			// 尝试将消息发送到输出通道
 			select {
 			case outputCh <- m:
-				// 成功发送
+				// 成功发送，依赖 CommitInterval 自动提交 Offset
+				// 不需要手动提交
 			case <-ctx.Done():
 				// 上下文结束，退出循环
-				break
+				return // 使用 return 退出整个协程
+			default:
+				// 🚀 队列满则丢弃：快速跳过消息 m
+				// 必须手动提交，告诉 Kafka Broker 这个消息我们已经处理（即丢弃）了。
+				if err := r.CommitMessages(ctx, m); err != nil {
+					// 如果提交失败，记录日志，但继续，因为我们不能阻塞
+					log.Printf("WARN: Consumer dropped message and failed to commit offset %d: %v", m.Offset, err)
+				} else {
+					log.Printf("INFO: Consumer dropped message (Offset: %d) due to full downstream buffer.", m.Offset)
+				}
+				// 不需要 break/continue，直接进入下一次循环 FetchMessage
 			}
 
 			// 注意：这里手动提交严重影响客户端接收数据的频率，导致延迟，我们设置CommitInterval自动提交数据

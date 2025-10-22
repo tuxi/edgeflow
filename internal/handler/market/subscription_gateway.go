@@ -48,15 +48,14 @@ func NewSubscriptionGateway(candleClient *service.OKXCandleService, consumer kaf
 	}
 	g.clients.Store(make(map[string]*ClientConn))
 
-	// 启动 Kafka 消费和定向推送 (替换 listenForCandleUpdates)
+	// 启动 Kafka 消费和定向推送
 	go g.listenAndFilterUpdates()
-	// 启动订阅错误监听 (保留)
+	// 启动订阅错误监听
 	go g.listenForSubscriptionErrors()
 
 	return g
 }
 
-// 替换原 MarketHandler.listenForCandleUpdates
 func (g *SubscriptionGateway) listenAndFilterUpdates() {
 	// 订阅主题：marketdata_subscribe
 	subCh, err := g.consumer.Consume(context.Background(), "marketdata_subscribe", "subscription_gateway_group")

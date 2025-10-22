@@ -104,41 +104,55 @@ func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher Instrument
 	return m
 }
 
-// StartDataWorkers 启动 K线获取和排序定时器，并监听 TickerService 的更新
 func (m *MarketDataService) startDataWorkers() {
 	// 1. 启动定时排序 Worker
 	go m.startSortingScheduler()
 
-	// 2. 监听 TickerService 的实时数据更新（假设 TickerService 有一个 TickerData 管道）
+	// 2. 监听 TickerService 的实时数据更新（OKX的原始数据流）
 	tickerUpdates := m.tickerClient.GetTickerChannel()
 
-	// 用于存储最新的Ticker 数据， 只处理一次
-	var latestTicker map[string]TickerData
+	// 3. 🚀 引入定时窗口：强制每 50 毫秒才处理一次 Ticker 批次
+	const processInterval = 50 * time.Millisecond
+	ticker := time.NewTicker(processInterval)
+	defer ticker.Stop() // 确保退出时停止定时器
+
+	// 4. 用于缓存 OKX 推送的最新 Ticker 数据。
+	// 使用 map 来保证每个 InstID 都是最新的。
+	// 注意：这个 map 需要在 Goroutine 之间安全共享，或者像这里一样只在主循环中访问。
+	latestTickerUpdates := make(map[string]TickerData)
+
+	// 使用锁来保护 latestTickerUpdates，尽管本例中只在主循环中访问，但在复杂的场景中是必需的。
+	// 假设在当前设计中，只有这个 Goroutine 写入 latestTickerUpdates，其他 Goroutine 仅读取
 
 	for {
 		select {
-		case ticker := <-tickerUpdates:
-			// 在接收数据后，经可能清空Channel，只保留最新的
-			latestTicker = ticker // 暂时收到的新数据
+		case newUpdate := <-tickerUpdates:
+			// 收到新数据：立即更新缓存中的最新值
+			// newUpdate 是一个 map[string]TickerData
+			for instID, ticker := range newUpdate {
+				latestTickerUpdates[instID] = ticker
+			}
 
-			// 使用飞阻塞 select 持续清空 Channel
-			for {
-				select {
-				case nextTicker := <-tickerUpdates:
-					latestTicker = nextTicker // 总是更新为最新的数据
-				default:
-					// Channel 变空，跳出内层循环
-					goto ProcessData
+		case <-ticker.C:
+			// 🚀 定时器触发：强制处理并发送缓存中的最新批次
+			if len(latestTickerUpdates) > 0 {
+				// 1. 复制要处理的数据
+				dataToSend := make(map[string]TickerData, len(latestTickerUpdates))
+				for k, v := range latestTickerUpdates {
+					dataToSend[k] = v
 				}
+
+				// 2. 清空缓存，准备接收下一个窗口的数据
+				// 保持 map 的底层内存分配，只清除内容，以提高效率
+				// for k := range latestTickerUpdates { delete(latestTickerUpdates, k) }
+				// 或者直接创建一个新 map (内存开销更大，但更安全)
+				latestTickerUpdates = make(map[string]TickerData)
+
+				// 3. 将最新的全量批次交给处理函数
+				// m.updateRealTimeData 内部会进行组合、锁操作和批量 Kafka 写入
+				m.updateRealTimeData(dataToSend)
 			}
 
-		ProcessData:
-			// 确保有数据才处理
-			if latestTicker != nil {
-				// 现在处理的是 Channel 中能取到的最新数据
-				m.updateRealTimeData(latestTicker)
-				latestTicker = nil // 处理完毕，清空
-			}
 		case <-m.stopSortCh:
 			return
 		}
@@ -161,7 +175,6 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 			// 直接更新 Ticker 数据
 			item.Ticker = ticker
 			m.tradingItems[instID] = item
-
 			// 将此 Ticker 加入转发列表
 			tickersToForward = append(tickersToForward, ticker)
 			continue
@@ -186,10 +199,14 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 	m.mu.Unlock() // 立即释放锁！
 	// --- 临界区结束 ---
 
+	if len(tickersToForward) == 0 {
+		return
+	}
+
+	var tickers []*pb.TickerUpdate
 	// --- 2. 非临界区操作：kafka转发 ---
 	for _, ticker := range tickersToForward {
-		// 映射到Protobuf 结构体
-		payload := &pb.WebSocketMessage_TickerUpdate{TickerUpdate: &pb.TickerUpdate{
+		tickers = append(tickers, &pb.TickerUpdate{
 			InstId:     ticker.InstId,
 			LastPrice:  ticker.LastPrice,
 			Vol_24H:    ticker.Vol24h,
@@ -203,27 +220,33 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 			BidPx:      ticker.BidPx,
 			BidSz:      ticker.BidSz,
 			Ts:         ticker.Ts,
-		}}
-		protoMsg := &pb.WebSocketMessage{
-			Type:    "TICKER_UPDATE",
-			Payload: payload,
-		}
-
-		// 将 I/O 阻塞操作（Kafka 写入） 放入独立的Goroutine
-		go func(ticker TickerData, protoMsg *pb.WebSocketMessage) {
-			// 将Kafka 写入超时时间设置为 3 秒，防止超时
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
-			defer cancel() // 确保context 及时释放
-			// 序列化并写入kafka
-			key := []byte(ticker.InstId)
-			topic := "marketdata_ticker" // Ticker 高频主题
-			if err := m.producer.Produce(ctx, topic, key, protoMsg); err != nil {
-				// 记录错误，但不阻塞主循环
-				log.Printf("ERROR: topic=%s 生产者写入Ticker数据InstId(%s) 到kafka失败: %v", topic, ticker.InstId, err)
-			}
-		}(ticker, protoMsg) // 传递ticker, protoMsg 副本
-
+		})
 	}
+
+	// 映射到Protobuf 结构体
+	payload := &pb.WebSocketMessage_TickerBatch{TickerBatch: &pb.TickerBatch{
+		Tickers: tickers,
+	}}
+	protoMsg := &pb.WebSocketMessage{
+		Type:    "TICKER_UPDATE",
+		Payload: payload,
+	}
+
+	// 仅启动一个 Goroutine 来处理整个批次的 I/O
+	// 将 I/O 阻塞操作（Kafka 写入） 放入独立的Goroutine
+	go func(protoMsg *pb.WebSocketMessage) {
+		// 将Kafka 写入超时时间设置为 2 秒，防止超时
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+		defer cancel() // 确保context 及时释放
+		// 序列化并写入kafka
+		key := []byte("TICKER_BATCH_KEY")
+		topic := "marketdata_ticker" // Ticker 高频主题
+		if err := m.producer.Produce(ctx, topic, key, protoMsg); err != nil {
+			// 记录错误，但不阻塞主循环
+			log.Printf("ERROR: topic=%s 生产者批量写入Ticker数据到kafka失败: %v", topic, err)
+		}
+	}(protoMsg) // 传递ticker, protoMsg 副本
+
 }
 
 // startSortingScheduler 定时执行排序和缓存
@@ -329,7 +352,7 @@ func (m *MarketDataService) performSortAndCache() {
 			// 写入kafka
 			// 排序更新是稍低频事件，可以和订阅数量共用一个topic，或者使用一个新的低频主题
 			//
-			key := []byte("GLOBAL_SORT") // 使用固定Key确保所有排序更新有序
+			key := []byte("GLOBAL_COIN_SORT") // 使用固定Key确保所有排序更新有序
 			// 使用marketdata_system主题
 			topic := "marketdata_system"
 			if err := m.producer.Produce(ctx, topic, key, protoMsg); err != nil {

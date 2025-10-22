@@ -102,7 +102,7 @@ func (s *OKXCandleService) startPingLoop(conn *websocket.Conn) {
 			s.RUnlock()
 
 			if err != nil {
-				log.Printf("Candle Ping failed: %v. Stopping ping loop.", err)
+				log.Printf("OKXCandleService ping 失败: %v. 停止 ping loop.", err)
 				return
 			}
 

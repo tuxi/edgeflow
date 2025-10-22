@@ -70,6 +70,9 @@ func (c *ClientConn) Close() {
 			}
 		}()
 
+		// 关闭发送 Channel
+		// 只有在这里关闭，才能保证 Channel 只关闭一次
+		// 并且会通知所有正在等待 c.Send 的 Goroutine 停止
 		// 关闭此通道，通知 writePump 退出
 		close(c.Send)
 	})

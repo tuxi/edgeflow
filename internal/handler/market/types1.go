@@ -6,6 +6,8 @@ import (
 	"log"
 	"strconv"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // 简化后的 TickerClientConn，不再需要 CandleSubscriptions
@@ -16,8 +18,16 @@ type TickerClientConn struct {
 	replaced  bool        // 标记该连接是否已被新的重连连接替换
 	mu        sync.Mutex
 	closeOnce sync.Once
-	// 移除 CandleSubscriptions
+
+	// 使用丢弃计数，强制关闭连接
+	DroppedCount         int32 // 连续丢弃计数 使用 atomic 操作
+	LastSuccessfulSendTs int64 // 上次成功发送的时间戳 (Unix Nano)
 }
+
+const (
+	MaxConsecutiveDrops = 200              // 提高阈值，给予更多缓冲
+	ResetInterval       = 10 * time.Second // 10秒内没有成功发送则认为连续
+)
 
 // Close 优雅地关闭连接和相关资源
 // 注意：Conn.Close() 会导致 writePump 退出，从而触发 ServeWS 的 defer 逻辑
@@ -48,7 +58,7 @@ func (c *TickerClientConn) writePump() {
 	//defer c.Conn.Close()
 	for msg := range c.Send {
 		if err := c.Conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
-			log.Println("write error:", err)
+			log.Println("TickerClientConn write error:", err)
 			break
 		}
 	}
@@ -123,9 +133,28 @@ func (c *TickerClientConn) safeSend(data []byte) (sent bool) {
 
 	select {
 	case c.Send <- data:
+		// 发送成功，丢弃计数清零
+		atomic.StoreInt32(&c.DroppedCount, 0)
 		return true
 	default:
-		// 队列满则丢弃
+		// 检查时间间隔，引入柔性
+		lastTs := atomic.LoadInt64(&c.LastSuccessfulSendTs)
+		currentTime := time.Now().UnixNano()
+
+		// 如果自上次成功发送以来超过 ResetInterval，则认为连接已恢复，重新开始计数
+		if currentTime-lastTs > ResetInterval.Nanoseconds() {
+			atomic.StoreInt32(&c.DroppedCount, 0)
+		}
+
+		// 增加丢弃计数
+		count := atomic.AddInt32(&c.DroppedCount, 1)
+
+		// 检查阈值
+		if count > MaxConsecutiveDrops {
+			log.Printf("TickerClientConn WARN: ClientID %s 连续丢弃消息 (%d) 超过高阈值。执行强制关闭。", c.ClientID, count)
+			c.Close()
+		}
+
 		return false
 	}
 }

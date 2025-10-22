@@ -95,9 +95,10 @@ func (h *TickerGateway) ServeWS(c *gin.Context) {
 	}
 
 	newClient := &TickerClientConn{
-		ClientID: clientID,
-		Conn:     conn,
-		Send:     make(chan []byte, 100),
+		ClientID:             clientID,
+		Conn:                 conn,
+		Send:                 make(chan []byte, 1000),
+		LastSuccessfulSendTs: time.Now().UnixNano(), // 将上次成功发送时间初始化为当前时间
 	}
 
 	// 收集需要恢复的订阅列表

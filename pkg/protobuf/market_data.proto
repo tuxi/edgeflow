@@ -5,7 +5,7 @@ option go_package = "./protobuf;pb";
 
 // --- 服务端推送的最小数据单元 ---
 
-// 1. Ticker 数据 (价格网关使用)
+// Ticker 数据 (价格网关使用)
 message TickerUpdate {
   string inst_id = 1;      // 币种符号，例如 BTC-USDT
   string last_price = 2;   // 最新成交价格
@@ -22,7 +22,12 @@ message TickerUpdate {
   int64 ts = 13;           // 时间戳 (毫秒级)
 }
 
-// 2. K 线数据 (订阅网关使用)
+// 批量多个币种的ticker
+message TickerBatch {
+  repeated TickerUpdate tickers = 1;
+}
+
+// K 线数据 (订阅网关使用)
 message WsKlineUpdate {
   string inst_id = 1;      // 币种符号
   string time_period = 2;  // K 线周期，例如 "15m"
@@ -42,24 +47,24 @@ message WsKlineUpdate {
   KlineData data = 4; // K 线详细数据
 }
 
-// 3. 错误信息 (所有网关通用)
+// 错误信息 (所有网关通用)
 message ErrorMessage {
   string action = 1; // "error"
   map<string, string> data = 2; // 通用数据/键值对错误信息
 }
 
-// 4. 交易对列表更新 (订阅网关或 Ticker 网关使用)
+// 交易对列表更新 (订阅网关或 Ticker 网关使用)
 message InstrumentListUpdate {
   repeated string sorted_inst_ids = 1; // 排序后的 InstID 列表
 }
 
-// 5. 币种/交易对元数据更新
+// 币种/交易对元数据更新
 message InstrumentUpdate {
   repeated string new_instruments = 1;     // 新上架的 InstID 列表
   repeated string delisted_instruments = 2; // 已下架的 InstID 列表
 }
 
-// 6. 币种/交易对完整元数据 (用于初始同步或配置)
+// 币种交易所数据
 message CryptoExchange {
   uint32 id = 1;
   string code = 2;
@@ -69,12 +74,15 @@ message CryptoExchange {
   string country = 6;
 }
 
+// 排序列好一组货币id
 message SortUpdate {
+  // 排序类型
   string sort_by = 1;
   // 使用 repeated 关键字表示一个字符串数组/列表
   repeated string sorted_inst_ids = 2;
 }
 
+// 加密货币的标签
 message CryptoTag {
   uint32 id = 1;
   string name = 2;
@@ -87,6 +95,7 @@ message CryptoInstrumentTradingItem {
     TickerUpdate ticker_update = 2;
 }
 
+// 一组带有最新价格的币种信息
 message CryptoInstrumentTradingArray {
   repeated CryptoInstrumentTradingItem data = 3;
 }
@@ -116,15 +125,21 @@ message WebSocketMessage {
   string type = 1;
 
   oneof payload {
-    TickerUpdate ticker_update = 2;
+    // 批量更新多个币种的ticker 价格数据
+    TickerBatch ticker_batch = 2;
+    // 更新k线数据
     WsKlineUpdate kline_update = 3;
+    // 更新已排序的币种列表
     SortUpdate sort_update = 4;
+    // 错误消息
     ErrorMessage error_message = 5;
+    // 交易对列表更新，数据是排序过的
     InstrumentListUpdate instrument_list = 6;
+    // 交易对更新，包括上新和下架
     InstrumentUpdate instrument_status_update = 7;
+    // 币种愿数据
     CryptoInstrumentMetadata instrument_metadata = 8;
     // 包含币种和最新价格的交易信息集合
     CryptoInstrumentTradingArray instrument_trading_list = 9;
-    // ... 未来可添加的深度、交易等消息
   }
 }
