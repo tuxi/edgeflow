@@ -57,27 +57,22 @@ func NewSubscriptionGateway(candleClient *service.OKXCandleService, consumer kaf
 }
 
 func (g *SubscriptionGateway) listenAndFilterUpdates() {
-	// 订阅主题：marketdata_subscribe
+	// 启动消费者 订阅主题：marketdata_subscribe
 	subCh, err := g.consumer.Consume(context.Background(), "marketdata_subscribe", "subscription_gateway_group")
 	if err != nil {
 		log.Fatalf("Failed to start Subscription Kafka consumer: %v", err)
 	}
 
 	for msg := range subCh {
-		// 1. Protobuf 反序列化，确定订阅键
-		var wsMsg pb.WebSocketMessage // 假设 Kafka 写入的是通用 Protobuf 消息
-		if err := proto.Unmarshal(msg.Value, &wsMsg); err != nil {
-			log.Printf("WARN: Failed to unmarshal Protobuf subscribe message: %v", err)
-			continue
-		}
 
-		// 2. 构造通用订阅键 (SubKey)
-		subKey := getSubKeyFromProtoMessage(&wsMsg)
+		// 直接从kafka key 获取 SubKey，避免序列化
+		subKey := string((msg.Key))
 		if subKey == "" {
+			log.Println("SubscriptionGateway WARN: Kafka 消息 key为空, 无法确认订阅类型.")
 			continue // 无法识别的消息类型
 		}
 
-		// 3. 执行过滤和定向推送
+		// 执行过滤和定向推送
 		if clientsMap, found := g.subscriptionMap.Load(subKey); found {
 			clientsMap.(*sync.Map).Range(func(key, value interface{}) bool {
 				client := value.(*ClientConn)

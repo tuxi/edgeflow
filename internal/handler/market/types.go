@@ -84,7 +84,7 @@ func (c *ClientConn) writePump() {
 	for msg := range c.Send {
 		// 注意：现在给客户端发送的都是protobuf消息二进制数据，所以不能使用websocket.TextMessage
 		if err := c.Conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
-			log.Println("write error:", err)
+			log.Println("ClientConn write error:", err)
 			break
 		}
 	}
