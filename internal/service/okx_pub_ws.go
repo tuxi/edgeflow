@@ -55,8 +55,6 @@ type OKXCandleService struct {
 	// Kafka Producer 依赖
 	producer kafka.ProducerService
 
-	// 使用一个布尔状态标记和 RWMutex
-	isReady bool
 	// 用于同步等待“第一次连接成功”的通道 (同步信号）
 	readyCond *sync.Cond // 条件变量
 
@@ -115,7 +113,7 @@ func (s *OKXCandleService) startPingLoop(conn *websocket.Conn) {
 }
 
 // 恢复订阅所有之前已订阅的 K 线
-func (s *OKXCandleService) resubscribeAll() error {
+func (s *OKXCandleService) resubscribeAll() (int, error) {
 	s.RLock()
 	keys := make([]model2.SubscriptionKey, 0, len(s.subscribed))
 	for key := range s.subscribed {
@@ -124,7 +122,7 @@ func (s *OKXCandleService) resubscribeAll() error {
 	s.RUnlock()
 
 	if len(keys) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// 重建订阅请求
@@ -142,38 +140,40 @@ func (s *OKXCandleService) resubscribeAll() error {
 	}
 
 	// 发送批量订阅
-	return s.writeMessageInternal(subMsg)
+	return len(keys), s.writeMessageInternal(subMsg)
 }
 
+// 启动连接，只有在需要时才建立连接，没有订阅时会不会产生连接
 func (s *OKXCandleService) run() {
-	log.Println("OKXCandleService connection manager started.")
-	isFirstRun := true // 标记首次启动
+	log.Println("OKXCandleService 连接运行循环run loop开始.")
 	// 退出后设置 isRunning = false
 	defer func() {
 		s.Lock()
 		s.isRunning = false
 		s.Unlock()
-		log.Println("OKXCandleService connection manager stopped.")
+		log.Println("OKXCandleService 连接运行循环run loop结束")
 	}()
 
 	for {
-		if !isFirstRun { // 跳过首次启动时的退出检查
-			s.RLock()
-			hasSubscriptions := len(s.subscribed) > 0
+
+		// 懒加载连接：按需连接
+		// 由于 run() 是由订阅触发启动的，所以它不应再无限重连。
+		// 当前版本若连接断开会自动重连，但如果这时没有订阅，应直接退出。
+		s.RLock()
+		if len(s.subscribed) == 0 {
 			s.RUnlock()
-
-			if !hasSubscriptions && s.conn == nil {
-				// 如果当前没有活动订阅，且没有连接，则优雅退出循环
-				return // 只有在非首次启动且无订阅时才退出
-			}
+			log.Println("OKXCandleService: 没有活跃的订阅，退出run 循环.")
+			s.Lock()
+			s.isRunning = false
+			s.Unlock()
+			return // 没有订阅直接退出运行循环，而不是continue
 		}
-
-		isFirstRun = false // 首次检查后设为 false
+		s.RUnlock()
 
 		// 尝试连接
 		conn, _, err := websocket.DefaultDialer.Dial(s.url, nil)
 		if err != nil {
-			log.Println("OKXCandleService connection failed, retrying in 2s:", err)
+			log.Println("OKXCandleService 连接失败 2s后重试:", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -181,13 +181,12 @@ func (s *OKXCandleService) run() {
 		// 连接成功后
 		s.Lock()
 		s.conn = conn
-		if !s.isReady {
-			s.isReady = true
-			s.readyCond.Broadcast() // 唤醒所有等待者
-		}
+		// 唤醒所有等待者
+		s.readyCond.Broadcast()
+
 		select {
 		case s.connectionNotifier <- struct{}{}:
-			log.Println("OKXCandleService connection established and ready.")
+			log.Println("OKXCandleService 连接已经建立，发出通知.")
 		default:
 		}
 
@@ -201,25 +200,28 @@ func (s *OKXCandleService) run() {
 		// 注意：这里没有清空 s.subscribed，因为 resubscribeAll 会依赖它来恢复订阅
 		s.Unlock()
 
-		// 启动 Ping 循环
-		go s.startPingLoop(conn)
-
-		// 恢复所有旧的 K 线订阅
-		err = s.resubscribeAll()
+		// 恢复所有旧的 订阅
+		resubCount, err := s.resubscribeAll()
 		if err != nil {
-			log.Printf("Failed to resubscribe candles after connect: %v. Retrying.", err)
+			log.Printf("OKXCandleService 重新连接后，恢复已有订阅失败: %v. 即将重试..\n", err)
 			_ = s.conn.Close()
 			continue
+		} else {
+			if resubCount > 0 {
+				log.Printf("OKXCandleService 重新连接后，成功恢复了%v 条订阅\n", resubCount)
+			}
 		}
 
+		// 启动 Ping 循环
+		go s.startPingLoop(conn)
 		s.runListen(conn) // 阻塞直到连接断开
 
 		// 连接断开后，重置状态
 		s.Lock()
-		s.isReady = false
+		s.conn = nil
 		s.Unlock()
 
-		log.Println("OKXCandleService lost connection. Restarting reconnect loop...")
+		log.Println("OKXCandleService 连接断开，即将在2秒后运行连run 循环")
 		time.Sleep(2 * time.Second)
 	}
 }
@@ -255,26 +257,24 @@ func (s *OKXCandleService) GetErrorChannel() <-chan model2.ClientError {
 	return s.errorCh
 }
 
-// WaitForConnectionReady 实现
+// 等待连接完成的方法
 func (s *OKXCandleService) WaitForConnectionReady(ctx context.Context) error {
 	// 使用 Cond 必须用 Lock，不能用 RLock
 	s.Lock()
 	defer s.Unlock()
 
-	if s.isReady {
-		return nil
-	}
-
-	// 🚀 使用 Cond：在一个新的 Goroutine 中等待 Context 超时
-	ctxDone := ctx.Done()
-
-	for !s.isReady {
-		select {
-		case <-ctxDone:
-			return ctx.Err()
-		default:
+	for s.conn == nil {
+		done := make(chan struct{})
+		go func() {
 			// 阻塞等待
 			s.readyCond.Wait() // 释放锁并阻塞，被 Broadcast 后重新获取锁
+			close(done)
+		}()
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-done:
 		}
 	}
 	return nil
@@ -282,22 +282,43 @@ func (s *OKXCandleService) WaitForConnectionReady(ctx context.Context) error {
 
 // SubscribeCandle 订阅k线
 func (s *OKXCandleService) SubscribeCandle(ctx context.Context, symbol string, period string) error {
+
+	defer func() {
+		s.RLock()
+		for k, v := range s.subscribed {
+			log.Printf("OKXCandleService SubscribeCandle 执行订阅后状态 key:%s 次数:%v", k, v)
+		}
+		s.RUnlock()
+	}()
+
 	key := model2.SubscriptionKey{Symbol: symbol, Period: period}
-
 	s.Lock()
-	defer s.Unlock()
-
-	// 检查并启动连接管理器
-	if !s.isRunning {
-		s.isRunning = true
-		go s.run()
-	}
 
 	// 1. 检查是否已经订阅
 	count, ok := s.subscribed[key]
 	if ok {
+		// 已经存在订阅，直接return
 		s.subscribed[key] = count + 1 // 即使已经订阅，计数器也应该增加
-		return nil                    // 已经订阅
+		s.Unlock()
+		return nil // 已经订阅
+	}
+
+	// 占位，表示正在订阅
+	s.subscribed[key] = 0
+
+	// 开始订阅
+
+	// 如果当前服务未运行，则启动 run()
+	needStart := !s.isRunning
+	if needStart {
+		s.isRunning = true
+	}
+
+	s.Unlock() // 提前释放锁，以便 run() 协程可以获取锁并建立连接
+
+	// 启动连接管理器
+	if needStart {
+		go s.run()
 	}
 
 	// 新订阅，向okx发送订阅请求
@@ -312,10 +333,7 @@ func (s *OKXCandleService) SubscribeCandle(ctx context.Context, symbol string, p
 	}
 
 	// 因为本服务是按需连接的，所以此时未必已经连接，需要等待连接就绪，然后发送请求
-	// 释放锁，以便 run() 协程可以获取锁并建立连接
-	s.Unlock()
 	err := s.WaitForConnectionReady(ctx) // 阻塞等待连接成功
-	s.Lock()                             // 重新获取锁
 
 	if err != nil {
 		// 如果等待超时或 Context 取消，清理 isRunning 状态并返回错误
@@ -330,15 +348,25 @@ func (s *OKXCandleService) SubscribeCandle(ctx context.Context, symbol string, p
 		return fmt.Errorf("failed to subscribe to upstream data: %w", err)
 	}
 
-	// 更新本地状态
+	// 最后更新状态
+	s.Lock()
 	s.subscribed[key] = 1
-	log.Printf("Subscribed candle: %s-%s", symbol, period)
+	s.Unlock()
+	log.Printf("✅ Subscribed candle: %s-%s", symbol, period)
 	return nil
 }
 
 // UnsubscribeCandle 实现
 func (s *OKXCandleService) UnsubscribeCandle(ctx context.Context, symbol string, period string) error {
 	key := model2.SubscriptionKey{Symbol: symbol, Period: period}
+
+	defer func() {
+		s.RLock()
+		for k, v := range s.subscribed {
+			log.Printf("OKXCandleService UnsubscribeCandle 取消订阅后状态 key:%s 次数:%v", k, v)
+		}
+		s.RUnlock()
+	}()
 
 	s.Lock()
 	defer s.Unlock()
@@ -372,18 +400,23 @@ func (s *OKXCandleService) UnsubscribeCandle(ctx context.Context, symbol string,
 			}
 
 			// 取消订阅时，检查是否需要关闭连接
-			if len(s.subscribed) == 1 { // 1 是当前 key，即将被删除
-				// 这是最后一个订阅，执行连接清理和关闭
-				// 关闭连接， run() 循环会因连接断开而退出，并在下一次循环中发现 len(s.subscribed) == 0 而停止。
-				log.Println("Last candle subscription removed. Closing OKX connection.")
-				if s.conn != nil {
-					s.conn.Close() // 主动关闭连接，触发 runListen 退出
-				}
+			// 最后一个订阅退订后 延迟关闭连接
+			if len(s.subscribed) == 1 {
+				go func() {
+					time.Sleep(10 * time.Second)
+					s.Lock()
+					defer s.Unlock()
+					if len(s.subscribed) == 0 && s.conn != nil {
+						log.Println("OKXCandleService 取消订阅10s后,检查没活跃的订阅，关闭与okx的ws连接.")
+						_ = s.conn.Close()
+						s.conn = nil
+					}
+				}()
 			}
 
 			// 更新本地状态
 			delete(s.subscribed, key)
-			log.Printf("Unsubscribed candle: %s-%s", symbol, period)
+			log.Printf("OKXCandleService 取消订阅k线: %s-%s", symbol, period)
 		}
 	}
 
@@ -411,7 +444,7 @@ func (s *OKXCandleService) handleMessage(msg []byte) {
 	}
 	var raw map[string]interface{}
 	if err := json.Unmarshal(msg, &raw); err != nil {
-		log.Println("CandleService json unmarshal error:", err)
+		log.Println("OKXCandleService：json反序列化 error:", err)
 		return
 	}
 
@@ -459,7 +492,7 @@ func (s *OKXCandleService) handleErrorEvent(raw map[string]interface{}) {
 	code, _ := raw["code"].(string)
 	errMsg, _ := raw["msg"].(string)
 
-	log.Printf("[ERROR] OKX Candle Error. Code: %s, Message: %s", code, errMsg)
+	log.Printf("OKXCandleService [ERROR] OKX Candle Error. Code: %s, Message: %s", code, errMsg)
 
 	// 只有当错误是订阅失败（例如：交易对或频道不存在）时，才需要清理本地状态
 	// 常见的订阅失败代码：60011 (Subscription failed)
@@ -477,7 +510,7 @@ func (s *OKXCandleService) handleErrorEvent(raw map[string]interface{}) {
 			if _, exists := s.subscribed[key]; exists {
 				// 找到对应的失败订阅，进行清理
 				delete(s.subscribed, key)
-				log.Printf("Cleaned failed subscription from state: Symbol=%s, Period=%s", instId, period)
+				log.Printf("OKXCandleService Cleaned failed subscription from state: Symbol=%s, Period=%s", instId, period)
 			}
 
 			// 🚀 通知客户端：可选
@@ -595,7 +628,7 @@ func (s *OKXCandleService) handleCandles(dataArr []interface{}, period string, i
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 			defer cancel()
 			if err := s.producer.Produce(ctx, topic, []byte(subKey), wsMsg); err != nil {
-				log.Printf("ERROR: topic=%s 生产者写入 k线数据 到 kafka失败: %v", topic, err)
+				log.Printf("OKXCandleService ERROR: topic=%s 生产者写入 k线数据 到 kafka失败: %v", topic, err)
 			}
 		}(wsMsg)
 

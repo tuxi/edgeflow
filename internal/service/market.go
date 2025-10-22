@@ -211,8 +211,8 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 
 		// 将 I/O 阻塞操作（Kafka 写入） 放入独立的Goroutine
 		go func(ticker TickerData, protoMsg *pb.WebSocketMessage) {
-			// 将Kafka 写入超时时间设置为 2 秒，防止超时
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+			// 将Kafka 写入超时时间设置为 3 秒，防止超时
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
 			defer cancel() // 确保context 及时释放
 			// 序列化并写入kafka
 			key := []byte(ticker.InstId)

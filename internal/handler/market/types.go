@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 type ClientMessage struct {
@@ -39,6 +40,8 @@ type ClientConn struct {
 	mu        sync.Mutex
 	closeOnce sync.Once
 
+	closed int32 // 0 未关闭，1 已关闭
+
 	// 升级为通用的订阅映射
 	Subscriptions map[string]struct{} // Key: 通用订阅键
 }
@@ -47,6 +50,11 @@ type ClientConn struct {
 // 注意：Conn.Close() 会导致 writePump 退出，从而触发 ServeWS 的 defer 逻辑
 func (c *ClientConn) Close() {
 	c.closeOnce.Do(func() {
+
+		// 标记已关闭 原子存储
+		atomic.StoreInt32(&c.closed, 1)
+
+		// 先尝试关闭底层 websocket
 		if c.Conn != nil {
 			c.Conn.Close()
 		}
@@ -61,6 +69,8 @@ func (c *ClientConn) Close() {
 				log.Printf("WARNING: ClientConn.close() -- Panic when trying to close client Send channel: %v", r)
 			}
 		}()
+
+		// 关闭此通道，通知 writePump 退出
 		close(c.Send)
 	})
 }
@@ -114,13 +124,13 @@ func (c *ClientConn) readPump(h *SubscriptionGateway) {
 			period := clientMsg.Payload["time_period"]
 			symbol := clientMsg.Payload["inst_id"]
 			subKey := fmt.Sprintf("%s:%s:%s", channel, symbol, period)
-			h.handleSubscribe(c, channel, symbol, period, subKey)
+			h.handleSubscribe(c, subKey)
 		case "unsubscribe_candle":
 			channel := "CANDLE"
 			period := clientMsg.Payload["time_period"]
 			symbol := clientMsg.Payload["inst_id"]
 			subKey := fmt.Sprintf("%s:%s:%s", channel, symbol, period)
-			h.handleUnsubscribe(c, subKey)
+			h.removeSubscriptionFromMapByClientID(subKey, c.ClientID)
 		default:
 			log.Println("Unsupported action received:", clientMsg.Action)
 		}
@@ -129,6 +139,10 @@ func (c *ClientConn) readPump(h *SubscriptionGateway) {
 		// 因为它们要么是同步查询 MarketDataService，要么是更新全局配置，不涉及多个goroutine竞争ClientConn map。
 		// 因此，此处不再需要 h.mu.Lock() 整个 switch 块。
 	}
+}
+
+func (c *ClientConn) isClosed() bool {
+	return atomic.LoadInt32(&c.closed) == 1
 }
 
 // 当前连接是否订阅了k线
@@ -163,6 +177,12 @@ func (c *ClientConn) safeSend(data []byte) (sent bool) {
 		}
 	}()
 
+	if c.isClosed() {
+		// 已经关闭通道 丢弃
+		return false
+	}
+
+	// 非阻塞发送，避免阻塞广播 goroutine
 	select {
 	case c.Send <- data:
 		return true

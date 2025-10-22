@@ -164,14 +164,15 @@ func (h *SubscriptionGateway) ServeWS(c *gin.Context) {
 	if clientID == "" {
 		// 强制要求客户端提供唯一的ID，否则拒绝连接
 		// 或者生成一个临时的UUID作为Client ID
-		log.Println("客户单缺少client_id 拒绝连接.")
+		log.Println("SubscriptionGateway 客户单缺少client_id 拒绝连接.")
 		c.Writer.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 
+	// 升级 websocket
 	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Println("upgrade error:", err)
+		log.Println("SubscriptionGateway 升级 websocket 失败:\n", err)
 		return
 	}
 
@@ -187,12 +188,14 @@ func (h *SubscriptionGateway) ServeWS(c *gin.Context) {
 	var oldClient *ClientConn
 	var isFromCleanupMap bool
 
-	// 查找旧连接：先查找活跃的map，后查找cleanup map
-	// 从活跃连接中查找
+	// 1) 先从活跃 clients map 查找旧连接（读锁粒度以内）
 	h.mu.Lock()
-	oldClients := h.clients.Load().(map[string]*ClientConn)
-	if existingClient, found := oldClients[clientID]; found {
-		oldClient = existingClient
+	{
+		currentClients := h.clients.Load().(map[string]*ClientConn)
+		if existing, ok := currentClients[clientID]; ok {
+			oldClient = existing
+			log.Printf("SubscriptionGateway ClientID %s 在clients活跃的已有连接中找到旧连接，准备执行迁移状态.\n", clientID)
+		}
 	}
 	h.mu.Unlock()
 
@@ -201,44 +204,46 @@ func (h *SubscriptionGateway) ServeWS(c *gin.Context) {
 		if conn, loaded := h.cleanupMap.Load(clientID); loaded {
 			oldClient = conn.(*ClientConn)
 			isFromCleanupMap = true
-			log.Printf("ClientID %s found in cleanup map. Restoring state from grace period.", clientID)
+			log.Printf("SubscriptionGateway ClientID %s 在cleanupMap清理map中找到已有连接，准备迁移连接。\n", clientID)
 			// 立即从 cleanupMap 中移除，阻止计时器清理
 			h.cleanupMap.Delete(clientID)
 		}
 	}
 
-	// 执行状态迁移 （前提是找到了旧的连接）
+	// 3) 如果找到了旧连接，准备迁移订阅状态（但不要清空旧的 Subscriptions）
+	// 执行状态迁移
 	if oldClient != nil {
-		log.Printf("ClientID %s reconnected. Starting state migration.", clientID)
+		log.Printf("SubscriptionGateway ClientID %s 重新连接，开始迁移。\n", clientID)
 
 		// 🚨 锁住旧连接的本地状态，执行迁移
 		oldClient.mu.Lock()
 		// 复制通用的 Subscriptions
 		for subKey := range oldClient.Subscriptions {
+			// 复制订阅到新连接的本地缓存，准备恢复订阅
 			newClient.Subscriptions[subKey] = struct{}{}
 			subscriptionsToRestore = append(subscriptionsToRestore, subKey)
 		}
 
-		// 标记旧连接已被替换，阻止其 defer/cleanup 逻辑执行 Unsubscribe
+		// 标记旧连接已被替换，阻止其后续宽限期清理做重复的上游 Unsubscribe
 		oldClient.replaced = true
+		// 注意：不要这里就清空 oldClient.Subscriptions —— 我们保留直到 restore 完成或明确清理
 		// 清空旧的通用订阅
-		oldClient.Subscriptions = make(map[string]struct{}, 1) // 不要设置为nil
+		//oldClient.Subscriptions = make(map[string]struct{}, 1) // 不要设置为nil
 		oldClient.mu.Unlock()
 
-		log.Printf("ClientID %s: Migrated %d subscriptions to new connection.", clientID, len(subscriptionsToRestore))
+		log.Printf("SubscriptionGateway ClientID %s: 合并完成 %d 并且将原有订阅迁移到新的连接.", clientID, len(subscriptionsToRestore))
 	}
 
-	// 执行CoW替换新连接 （原子操作）
+	// 4) 原子 CoW 更新 h.clients（替换/新增）
 	h.mu.Lock()
 	{
-		// 重新加载最新的活跃连接 map
-		oldClients = h.clients.Load().(map[string]*ClientConn)
+
+		oldClients := h.clients.Load().(map[string]*ClientConn)
 		newClients := make(map[string]*ClientConn, len(oldClients))
 
 		// 复制旧的 map
-		for k, v := range oldClients {
-			newClients[k] = v
-			subscriptionsToRestore = append(subscriptionsToRestore, k) // 收集 key
+		for clientId, client := range oldClients {
+			newClients[clientId] = client
 		}
 
 		// 替换或添加新连接
@@ -247,179 +252,122 @@ func (h *SubscriptionGateway) ServeWS(c *gin.Context) {
 	}
 	h.mu.Unlock()
 
-	// 异步清理旧连接
-	// 立即关闭旧连接，使其 readPump/writePump 退出，defer 逻辑触发
+	// 5) 立即优雅关闭旧连接（如果存在且不是从 cleanupMap 恢复）
 	if oldClient != nil && !isFromCleanupMap {
-		// 先关闭底层连接，关闭后会触发旧 client 的 defer 逻辑
-		go oldClient.Close() // 推荐异步关闭，避免阻塞 ServeWS
-		log.Printf("Closed old connection for ClientID %s.", clientID)
+		// 异步关闭：Close 会触发旧 connection 的 defer 清理逻辑（但 replaced=true 会避免重复 unsubscribe）
+		go func(c *ClientConn) {
+			c.Close() // 异步关闭，避免阻塞 ServeWS
+		}(oldClient)
+		log.Printf("SubscriptionGateway 关闭旧的连接 ClientID %s.\n", clientID)
 	}
 
-	// 异步恢复外部订阅 (新连接特有的步骤)
-	// 必须异步执行，以避免阻塞 ServeWS 主线程
+	// 6) 新连接异步恢复订阅（避免阻塞 ServeWS）
 	if len(subscriptionsToRestore) > 0 {
-		go h.restoreSubscriptions(newClient, subscriptionsToRestore)
+		go func(cli *ClientConn, subs []string) {
+			// restoreSubscriptions 内部应以 subscriptionMap 为单一真相并做原子化的 upstream subscribe
+			h.restoreSubscriptions(cli, subs)
+		}(newClient, subscriptionsToRestore)
 	}
 
+	// 7) defer 清理：在 readPump 返回（即连接断开）时执行
 	defer func() {
 
+		// a) 从 active clients map 中移除（仅当 newClient 仍然是当前映射时）
 		// 清理当前新连接（在连接断开时）
 		h.mu.Lock()
 		{
-			oldClients := h.clients.Load().(map[string]*ClientConn)
+			currentClients := h.clients.Load().(map[string]*ClientConn)
 			// 只有当要移除的 client 仍然是当前 ClientID 对应的 *ClientConn 时才移除
-			if currentClient, exists := oldClients[clientID]; exists && currentClient == newClient {
-				newClients := make(map[string]*ClientConn, len(oldClients))
-				for k, v := range oldClients {
-					if k != clientID { // 按 ClientID 移除
-						newClients[k] = v
+			if cur, exists := currentClients[clientID]; exists && cur == newClient {
+				// 构造新的 map （CoW）
+				newClients := make(map[string]*ClientConn, len(currentClients))
+				for k, v := range currentClients {
+					if k == clientID {
+						continue
 					}
+					newClients[k] = v
 				}
 				h.clients.Store(newClients)
-				log.Printf("ClientID %s connection removed from handler.", clientID)
+				log.Printf("SubscriptionGateway ClientID %s 已经从活跃的连接中移除连接.\n", clientID)
 			} else {
 				// 如果不相等，说明这个连接已经被一个更新的连接覆盖了，无需从 clients map 中移除
-				log.Printf("ClientID %s defer: Connection already replaced, skip map removal.", clientID)
+				log.Printf("SubscriptionGateway ClientID %s defer: 连接已被新连接替换；跳过删除.\n", clientID)
 			}
 		}
 		h.mu.Unlock()
 
-		// 延迟清理逻辑
-		// **判断是否已被新连接替换**
+		// b) 如果该连接已被替换（replaced==true），则直接关闭资源并返回（无需宽限期清理）
 		newClient.mu.Lock()
 		isReplaced := newClient.replaced // 检查是否是由于重连而断开的
 		newClient.mu.Unlock()
 
 		if isReplaced {
-			log.Printf("ClientID %s defer: Connection was replaced by a new connection, no cleanup needed.", clientID)
+			log.Printf("SubscriptionGateway ClientID %s defer: 连接已经被替换过，关闭连接并返回,无需宽限期清理\n", clientID)
 			return
 		}
 
+		// c) 否则进入宽限期清理：先加入 cleanupMap，然后在宽限期后执行最终清理
 		// 此时，连接是由于超时或客户端主动断开的，但未被替换，需要启动宽限期清理。
-		log.Printf("ClientID %s defer: Connection lost. Starting %s cleanup grace period.", clientID, cleanupGrace)
+		log.Printf("SubscriptionGateway ClientID %s defer: 连接丢失；进入清理宽限期 (%s)秒 \n", clientID, cleanupGrace)
 
 		// 启动宽限期清理
 		// 立即从活跃连接 map 中移除后，将其移交给 cleanupMap
 		h.cleanupMap.Store(clientID, newClient)
-
-		// 启动一个协程，在宽限期后执行清理
-		go func() {
+		go func(id string, clientToCleanup *ClientConn) {
+			// 等待宽限期
 			time.Sleep(cleanupGrace)
 
-			// 1. 检查 cleanupMap 中是否仍存在这个 ClientID
-			if conn, loaded := h.cleanupMap.Load(clientID); loaded {
-				// 2. 再次检查 conn.replaced 标记 (防止竞态条件)
-				clientToCleanup := conn.(*ClientConn)
-				clientToCleanup.mu.Lock()
-				defer clientToCleanup.mu.Unlock()
-				if !clientToCleanup.replaced {
-					// 核心修改：循环处理所有通用订阅
-					for subKey := range clientToCleanup.Subscriptions {
-						// 需要解析 subKey 来确定调用哪个 Unsubscribe
-						channel, symbol, period, ok := parseSubKey(subKey)
-						if ok && channel == "CANDLE" { // 仅对 K 线执行 Unsubscribe
-							h.candleClient.UnsubscribeCandle(context.Background(), symbol, period)
-						}
-						// TODO: 以后有其他的加入 在这里执行相关业务的取消订阅
-					}
+			// 检查 cleanupMap 中记录是否还存在（可能已被新连接恢复）
+			if v, loaded := h.cleanupMap.Load(id); loaded {
+				candidate := v.(*ClientConn)
+
+				candidate.mu.Lock()
+				replacedFlag := candidate.replaced
+				candidate.mu.Unlock()
+
+				if !replacedFlag {
+					log.Printf("SubscriptionGateway ClientID %s 宽限期已过：正在执行最终清理。\n", id)
+					// 关键：调用统一移除函数，从 subscriptionMap 中删除该 client 的所有条目，
+					// 并在嵌套 map 变为空时一次性触发上游 Unsubscribe。
+					h.removeClientFromAllSubscriptions(id)
+				} else {
+					log.Printf("SubscriptionGateway ClientID %s 宽限期已过：正在执行最终清理。\n", id)
 				}
 
-				// 3. 无论是清理还是被替换，最终都从 cleanupMap 中移除
-				h.cleanupMap.Delete(clientID)
+				// 无论如何都从 cleanupMap 删除该记录
+				h.cleanupMap.Delete(id)
 			}
-		}()
+			// 最后确保关闭 socket/chan（如果尚未关闭）
+			clientToCleanup.Close()
 
-		// 确保资源关闭
-		newClient.Close()
+		}(clientID, newClient)
 	}()
 
-	// 启动协程
+	// 8) 启动 writePump 和 readPump（writePump 先启动）
 	go newClient.writePump() // 不断从 Send channel 取消息，然后写入 webscoekt
-	// 循环读取客户端发来的消息，要求阻塞线程
-	// ⚠️这里会阻塞serverWs方法，直到客户端断开连接，断开后会进入defer 清理
+	// readPump 会阻塞直到连接关闭（readPump 内部应触发返回，进而执行上面的 defer）
 	newClient.readPump(h)
 }
 
 // 重新订阅
 func (g *SubscriptionGateway) restoreSubscriptions(conn *ClientConn, subscribes []string) {
 	for _, subKey := range subscribes {
-		channel, symbol, period, ok := parseSubKey(subKey)
-		if ok {
-			g.handleSubscribe(conn, channel, symbol, period, subKey)
-		}
+		g.handleSubscribe(conn, subKey)
 	}
 }
 
-// 核心：处理客户端的 SUB/UNSUB 请求
-func (g *SubscriptionGateway) handleSubscribe(client *ClientConn, channel string, symbol string, period string, subKey string) {
-	// 1. 管理客户端本地订阅状态
+// 处理客户端的订阅和取消订阅请求
+func (g *SubscriptionGateway) handleSubscribe(client *ClientConn, subKey string) {
+	// 1. 先把订阅加入主索引（并在必要时向上游 subscribe）
+	if err := g.addSubscriptionToMapAndMaybeUpstream(subKey, client); err != nil {
+		log.Printf("SubscriptionGateway Failed to subscribe %s: %v", subKey, err)
+		return
+	}
+
+	// 2. 本地缓存
 	client.mu.Lock()
 	client.Subscriptions[subKey] = struct{}{}
 	client.mu.Unlock()
-
-	// 2. 更新 Gateway 全局过滤映射
-	g.addSubscriptionToMap(subKey, client)
-
-	// 3. 调用外部数据源 (根据 channel)
-	var err error
-	switch channel {
-	case "CANDLE":
-		// 外部数据源调用
-		err = g.candleClient.SubscribeCandle(context.Background(), symbol, period)
-	// case "DEPTH":
-	//    err = g.depthClient.SubscribeDepth(symbol, period)
-	default:
-		err = fmt.Errorf("unsupported channel: %s", channel)
-	}
-
-	if err != nil {
-		log.Printf("Failed to subscribe %s: %v", subKey, err)
-		// 回滚客户端状态
-		client.mu.Lock()
-		delete(client.Subscriptions, subKey)
-		client.mu.Unlock()
-		g.removeSubscriptionFromMap(subKey, client)
-		// TODO: 定向发送错误消息给客户端
-	}
-}
-
-// SubscriptionGateway.handleUnsubscribe (替换 handleUnsubscribeCandle)
-func (g *SubscriptionGateway) handleUnsubscribe(client *ClientConn, subKey string) error {
-	client.mu.Lock()
-	defer client.mu.Unlock()
-	if _, exists := client.Subscriptions[subKey]; !exists {
-		return nil
-	}
-
-	// 1. 从客户端本地状态中移除
-	delete(client.Subscriptions, subKey)
-
-	// 2. 从 Gateway 全局过滤映射中移除
-	client.mu.Unlock()
-	g.removeSubscriptionFromMap(subKey, client)
-	client.mu.Lock() // 重新加锁以保证 defer 释放
-
-	// 3. 调用外部数据源退订 (需要检查是否还有其他订阅者)
-	channel, symbol, period, ok := parseSubKey(subKey)
-	if !ok {
-		return fmt.Errorf("invalid subKey format")
-	}
-
-	// 检查是否需要向上游退订
-	if g.checkNoActiveSubscribers(subKey) {
-		var err error
-		switch channel {
-		case "CANDLE":
-			err = g.candleClient.UnsubscribeCandle(context.Background(), symbol, period)
-		// TODO: case "DEPTH":
-		default:
-			return fmt.Errorf("unsupported channel for unsubscribe: %s", channel)
-		}
-		if err != nil {
-			log.Printf("WARNING: External Unsubscribe failed for %s: %v", subKey, err)
-		}
-	}
-	return nil
 }
 
 // 辅助函数：解析通用订阅键 (e.g., "CANDLE:BTC-USDT:15m")
@@ -468,34 +416,126 @@ func (g *SubscriptionGateway) addSubscriptionToMap(subKey string, client *Client
 	clientsMap.Store(client.ClientID, client)
 }
 
-// removeSubscriptionFromMap 从指定的订阅键的订阅者列表中移除 ClientConn。
-func (g *SubscriptionGateway) removeSubscriptionFromMap(subKey string, client *ClientConn) {
-	// 1. 查找该 SubKey 对应的客户端 Map
-	clientsMapInterface, loaded := g.subscriptionMap.Load(subKey)
-	if !loaded {
-		// 如果 SubKey 都不存在，无需操作
-		return
-	}
-
+func (g *SubscriptionGateway) addSubscription(subKey string, client *ClientConn) (bool, error) {
+	clientsMapInterface, _ := g.subscriptionMap.LoadOrStore(subKey, &sync.Map{})
 	clientsMap := clientsMapInterface.(*sync.Map)
 
-	// 2. 从嵌套的 Map 中移除客户端
-	clientsMap.Delete(client.ClientID)
-
-	// 3. 优化/清理：检查该 SubKey 的订阅者列表是否为空。
-	// 如果为空，则从主 subscriptionMap 中移除该 SubKey，以节省内存。
-	// 这一步比较微妙，因为遍历 sync.Map 并计数不是原子的，但为了资源清理，我们仍然执行。
-
-	isEmpty := true
-	clientsMap.Range(func(key, value interface{}) bool {
-		isEmpty = false
-		return false // 发现一个元素，停止遍历
+	hadSubscribers := false
+	clientsMap.Range(func(_, _ interface{}) bool {
+		hadSubscribers = true
+		return false
 	})
 
-	if isEmpty {
-		// 尝试从主 subscriptionMap 中删除这个空的嵌套 Map。
-		// 使用 Delete 代替 LoadAndDelete 可以避免在删除时发生写冲突。
-		g.subscriptionMap.Delete(subKey)
-		log.Printf("Subscription Map: Cleaned up empty SubKey: %s", subKey)
+	clientsMap.Store(client.ClientID, client)
+	return !hadSubscribers, nil
+}
+
+// 添加到指定的订阅键的订阅者列表中
+func (g *SubscriptionGateway) addSubscriptionToMapAndMaybeUpstream(subKey string, client *ClientConn) error {
+	// Load or create nested map
+	clientsMapInterface, _ := g.subscriptionMap.LoadOrStore(subKey, &sync.Map{})
+	clientsMap := clientsMapInterface.(*sync.Map)
+
+	// 检查是否已有订阅者（先探测）
+	hadSubscribers := false
+	clientsMap.Range(func(k, v interface{}) bool {
+		hadSubscribers = true
+		return false
+	})
+
+	// 将 client 加入嵌套 map
+	clientsMap.Store(client.ClientID, client)
+
+	// 如果之前没有订阅者，则需要向上游订阅一次
+	if !hadSubscribers {
+		channel, symbol, period, ok := parseSubKey(subKey)
+		if !ok {
+			// 回滚：从嵌套 map 中删除
+			clientsMap.Delete(client.ClientID)
+			return fmt.Errorf("invalid subKey %s", subKey)
+		}
+		switch channel {
+		case "CANDLE":
+			if err := g.candleClient.SubscribeCandle(context.Background(), symbol, period); err != nil {
+				// 回滚
+				clientsMap.Delete(client.ClientID)
+				return err
+			}
+		default:
+			clientsMap.Delete(client.ClientID)
+			return fmt.Errorf("unsupported channel %s", channel)
+		}
 	}
+
+	return nil
+}
+
+// 安全退订（当客户端主动 UN/SUB，或移除 client 时使用）
+func (g *SubscriptionGateway) removeSubscriptionFromMapByClientID(subKey string, clientID string) {
+	clientsMapInterface, loaded := g.subscriptionMap.Load(subKey)
+	if !loaded {
+		return
+	}
+	clientsMap := clientsMapInterface.(*sync.Map)
+	clientsMap.Delete(clientID)
+
+	isEmpty := true
+	clientsMap.Range(func(_, _ interface{}) bool {
+		isEmpty = false
+		return false
+	})
+	if isEmpty {
+		g.subscriptionMap.Delete(subKey)
+		// 触发上游退订
+		channel, symbol, period, ok := parseSubKey(subKey)
+		if ok {
+			switch channel {
+			case "CANDLE":
+				if err := g.candleClient.UnsubscribeCandle(context.Background(), symbol, period); err != nil {
+					log.Printf("WARNING: SubscriptionGateway External Unsubscribe failed for %s: %v", subKey, err)
+				} else {
+					log.Printf("SubscriptionGateway Unsubscribed upstream for %s", subKey)
+				}
+			}
+		}
+	}
+}
+
+// 从 subscriptionMap 中移除 clientID，发现嵌套 map 为空时触发上游 Unsubscribe
+func (g *SubscriptionGateway) removeClientFromAllSubscriptions(clientId string) {
+	// 遍历所有subKey
+	g.subscriptionMap.Range(func(key, val any) bool {
+		subKey := key.(string)
+		clientsMap := val.(*sync.Map)
+
+		// 从clientsMap 中删除clientId
+		clientsMap.Delete(clientId)
+
+		// 检查是否为空
+		isEmpty := true
+		clientsMap.Range(func(_, _ any) bool {
+			isEmpty = false
+			return false // 发现一个元素，停止遍历
+		})
+
+		if isEmpty {
+			// 尝试删除主 map 的条目
+			g.subscriptionMap.Delete(subKey)
+			// 解析 subKey 并触发上游取消订阅（只触发一次）
+			channel, symbol, period, ok := parseSubKey(subKey)
+			if ok {
+				switch channel {
+				case "CANDLE":
+					if err := g.candleClient.UnsubscribeCandle(context.Background(), symbol, period); err != nil {
+						log.Printf("SubscriptionGateway WARNING: UnsubscribeCandle failed for %s: %v", subKey, err)
+					} else {
+						log.Printf("SubscriptionGateway Unsubscribed upstream for %s", subKey)
+					}
+					// TODO: 其他频道
+				}
+			}
+		}
+
+		return true
+	})
 }
