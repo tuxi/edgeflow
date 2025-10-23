@@ -1,0 +1,45 @@
+version: '3.8' # 推荐使用较新的版本
+
+services:
+  # 您的项目服务
+  edgeflow:
+    image: edgeflow
+    container_name: edgeflow
+    # 端口映射
+    ports:
+      - "12180:12180"
+    # 卷（Volume）映射
+    volumes:
+      - /var/www/edgeflow/conf:/app/edgeflow/conf
+    # 重启策略
+    restart: always
+    # 网络设置（与您原命令中的 --net strategy-net 对应）
+    # 注意：如果宿主机需要访问，可能需要配置一个 bridge 或 host 网络
+    # 假设 strategy-net 是一个 bridge 网络
+    networks:
+      - strategy-net
+    # 环境变量
+    environment:
+      # KAFKA (使用宿主机稳定 IP)
+      KAFKA_HOST: 10.35.76.97
+      KAFKA_PORT: 9092
+      # REDIS/MYSQL (使用宿主机 IP 或其他可访问地址)
+      REDIS_HOST: 172.17.0.1
+      REDIS_PORT: 6379
+      DB_HOST: 172.17.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: "strategy_db"
+      TEST: ""
+
+# 定义网络（如果 strategy-net 是一个自定义网络）
+networks:
+  strategy-net:
+  # 外部网络模式，表示使用外部已存在的网络
+  # 如果 strategy-net 是您手动创建的，可以使用 external: true
+  # 如果是 Compose 自动创建，则不需要这行
+  # name: strategy-net # 如果要指定网络名称
+
+  # 默认是 bridge 模式，适用于容器间通信
+  # driver: bridge

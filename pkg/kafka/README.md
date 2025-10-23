@@ -131,3 +131,5 @@ protoc --go_out=. --go_opt=paths=source_relative market_data.proto
   * 解析客户端的 SUBSCRIBE 指令，记录订阅信息。
 
   * 将 Kafka 接收到的实时更新 序列化为 JSON（推荐）或 Protobuf 二进制格式，通过 WebSocket 推送给对应已订阅的客户端。
+
+docker run --restart=always -d --net strategy-net --name edgeflow -e KAFKA_HOST=10.35.76.97 -e KAFKA_PORT=9092 -e REDIS_HOST=172.17.0.1 -e REDIS_PORT=6379 -e DB_HOST=172.17.0.1 -e DB_PORT=3306 -e DB_USER=root -e DB_PASSWORD=root -e DB_NAME=strategy_db -test -p 12180:12180 -v /var/www/edgeflow/conf:/app/edgeflow/conf  edgeflow -test
