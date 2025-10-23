@@ -342,14 +342,14 @@ func (s *OKXCandleService) SubscribeCandle(ctx context.Context, symbol string, p
 
 	// 再次检查是否在等待期间被其他协程订阅 (防止竞态条件，但在这个逻辑中影响不大)
 
+	// 最后更新状态
+	s.Lock()
 	// 发送请求
 	err = s.writeMessageInternal(subMsg)
 	if err != nil {
+		s.Unlock()
 		return fmt.Errorf("failed to subscribe to upstream data: %w", err)
 	}
-
-	// 最后更新状态
-	s.Lock()
 	s.subscribed[key] = 1
 	s.Unlock()
 	log.Printf("✅ Subscribed candle: %s-%s", symbol, period)
