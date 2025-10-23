@@ -24,9 +24,10 @@ services:
       KAFKA_HOST: 10.35.76.97
       KAFKA_PORT: 9092
       # REDIS/MYSQL (使用宿主机 IP 或其他可访问地址)
-      REDIS_HOST: 172.17.0.1
+      REDIS_HOST: 10.35.76.97
       REDIS_PORT: 6379
-      DB_HOST: 172.17.0.1
+      # docker compose 中使用宿主机ip
+      DB_HOST: 10.35.76.97
       DB_PORT: 3306
       DB_USER: root
       DB_PASSWORD: root
