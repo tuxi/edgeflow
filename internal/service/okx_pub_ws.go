@@ -568,70 +568,74 @@ func parseFailedSubscription(errMsg string) (channel string, instId string, succ
 }
 
 func (s *OKXCandleService) handleCandles(dataArr []interface{}, period string, instId string) {
+	var messages []kafka.Message
+	for _, d := range dataArr {
+		// OKX K线数据的格式是一个数组 [ts, open, high, low, close, vol, volCcy, ...],
+		// 并且 instId 在 arg 中，而不是 data 数组中。这里需要根据实际 OKX 数据格式调整
+		item := d.([]interface{})
+
+		// 重新检查 OKX 的数据结构，通常是：
+		// data: [ ["1677700000000","20000.0","20001.0","19999.0","20000.5","100.0","2000000.0"], ... ]
+		// 如果是这种数组格式，我们需要知道 instId 是哪个
+
+		// 由于无法获取到完整的原始 JSON 结构，我们使用一个简化且可能有偏差的解析（你需要根据实际OKX数据调整）
+		if len(item) < 7 {
+			continue
+		}
+
+		timestamp := parseInt64(item[0].(string)) // 时间戳
+		open := item[1].(string)
+		high := item[2].(string)
+		low := item[3].(string)
+		closee := item[4].(string)
+		vol := item[5].(string) //
+		volCcy := item[6].(string)
+		confirm := item[8].(string) // 是否已收盘
+
+		// 1. 转换为 Protobuf K线消息
+		klinePb := &pb.WsKlineUpdate_KlineData{
+			Timestamp: timestamp / 1000,
+			Open:      open,
+			Close:     closee,
+			High:      high,
+			Low:       low,
+			Vol:       vol,
+			VolCcy:    volCcy,
+		}
+
+		// 2. 构造 Protobuf CandleUpdate 消息
+		candleUpdate := &pb.WsKlineUpdate{
+			InstId:     instId,
+			TimePeriod: period,
+			Confirm:    confirm == "1",
+			Data:       klinePb,
+		}
+
+		// 3. 构造 Protobuf 通用 WebSocket 消息
+		wsMsg := &pb.WebSocketMessage{
+			Type: "CANDLE_UPDATE",
+			// 包装 Payload
+			Payload: &pb.WebSocketMessage_KlineUpdate{
+				KlineUpdate: candleUpdate,
+			},
+		}
+
+		// Key：使用 SubKey 作为 Kafka Key，确保同一 K线的所有更新进入同一分区，保证顺序
+		subKey := fmt.Sprintf("CANDLE:%s:%s", instId, period)
+		messages = append(messages, kafka.Message{
+			Key:  subKey,
+			Data: wsMsg,
+		})
+	}
+
+	// 5. 写入 Kafka
 	go func() {
-		for _, d := range dataArr {
-			// OKX K线数据的格式是一个数组 [ts, open, high, low, close, vol, volCcy, ...],
-			// 并且 instId 在 arg 中，而不是 data 数组中。这里需要根据实际 OKX 数据格式调整
-			item := d.([]interface{})
-
-			// 重新检查 OKX 的数据结构，通常是：
-			// data: [ ["1677700000000","20000.0","20001.0","19999.0","20000.5","100.0","2000000.0"], ... ]
-			// 如果是这种数组格式，我们需要知道 instId 是哪个
-
-			// 由于无法获取到完整的原始 JSON 结构，我们使用一个简化且可能有偏差的解析（你需要根据实际OKX数据调整）
-			if len(item) < 7 {
-				continue
-			}
-
-			timestamp := parseInt64(item[0].(string)) // 时间戳
-			open := item[1].(string)
-			high := item[2].(string)
-			low := item[3].(string)
-			closee := item[4].(string)
-			vol := item[5].(string) //
-			volCcy := item[6].(string)
-			confirm := item[8].(string) // 是否已收盘
-
-			// 1. 转换为 Protobuf K线消息
-			klinePb := &pb.WsKlineUpdate_KlineData{
-				Timestamp: timestamp / 1000,
-				Open:      open,
-				Close:     closee,
-				High:      high,
-				Low:       low,
-				Vol:       vol,
-				VolCcy:    volCcy,
-			}
-
-			// 2. 构造 Protobuf CandleUpdate 消息
-			candleUpdate := &pb.WsKlineUpdate{
-				InstId:     instId,
-				TimePeriod: period,
-				Confirm:    confirm == "1",
-				Data:       klinePb,
-			}
-
-			// 3. 构造 Protobuf 通用 WebSocket 消息
-			wsMsg := &pb.WebSocketMessage{
-				Type: "CANDLE_UPDATE",
-				// 包装 Payload
-				Payload: &pb.WebSocketMessage_KlineUpdate{
-					KlineUpdate: candleUpdate,
-				},
-			}
-
-			// 5. 写入 Kafka
-
-			// 主题：marketdata_subscribe (用于按需订阅和过滤)
-			// Key：使用 SubKey 作为 Kafka Key，确保同一 K线的所有更新进入同一分区，保证顺序
-			subKey := fmt.Sprintf("CANDLE:%s:%s", instId, period)
-			topic := "marketdata_subscribe"
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-			defer cancel()
-			if err := s.producer.Produce(ctx, topic, []byte(subKey), wsMsg); err != nil {
-				log.Printf("OKXCandleService ERROR: topic=%s 生产者写入 k线数据 到 kafka失败: %v", topic, err)
-			}
-
+		// 主题：marketdata_subscribe (用于按需订阅和过滤)
+		topic := "marketdata_subscribe"
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+		defer cancel()
+		if err := s.producer.Produce(ctx, topic, messages...); err != nil {
+			log.Printf("OKXCandleService ERROR: topic=%s 生产者批量写入 k线数据 到 kafka失败: %v", topic, err)
 		}
 	}()
 }

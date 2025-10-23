@@ -127,19 +127,21 @@ message WebSocketMessage {
   oneof payload {
     // 批量更新多个币种的ticker 价格数据
     TickerBatch ticker_batch = 2;
+    // 更新1个币种的ticker 价格数据
+    TickerUpdate ticker = 3;
     // 更新k线数据
-    WsKlineUpdate kline_update = 3;
+    WsKlineUpdate kline_update = 4;
     // 更新已排序的币种列表
-    SortUpdate sort_update = 4;
+    SortUpdate sort_update = 5;
     // 错误消息
-    ErrorMessage error_message = 5;
+    ErrorMessage error_message = 6;
     // 交易对列表更新，数据是排序过的
-    InstrumentListUpdate instrument_list = 6;
+    InstrumentListUpdate instrument_list = 7;
     // 交易对更新，包括上新和下架
-    InstrumentUpdate instrument_status_update = 7;
+    InstrumentUpdate instrument_status_update = 8;
     // 币种愿数据
-    CryptoInstrumentMetadata instrument_metadata = 8;
+    CryptoInstrumentMetadata instrument_metadata = 9;
     // 包含币种和最新价格的交易信息集合
-    CryptoInstrumentTradingArray instrument_trading_list = 9;
+    CryptoInstrumentTradingArray instrument_trading_list = 10;
   }
 }

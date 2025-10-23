@@ -41,7 +41,7 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		// 获取排序好的ids
 		m.GET("/sorted-inst-ids", middleware.AntiDuplicateMiddleware(), api.marketHandler.SortedInstIDsGet())
 		// 获取详情
-		m.POST("/detail", middleware.AntiDuplicateMiddleware(), api.marketHandler.GetDetail())
+		m.POST("/detail", api.marketHandler.GetDetail())
 	}
 
 	ws := base.Group("/ws", middleware.RequestValidationMiddleware())

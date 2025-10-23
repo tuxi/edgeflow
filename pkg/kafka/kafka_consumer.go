@@ -41,7 +41,7 @@ func (c *kafkaConsumer) Consume(ctx context.Context, topic string, groupID strin
 		// 注意：如果使用自动提交，就不能在循环中手动调用CommitMessages
 	})
 	// 2. 创建输出通道
-	outputCh := make(chan kafka.Message, 100) // 缓冲区用于平滑流量
+	outputCh := make(chan kafka.Message, 1000) // 缓冲区用于平滑流量
 
 	// 3. 启动消费协程
 	go func() {
@@ -72,9 +72,9 @@ func (c *kafkaConsumer) Consume(ctx context.Context, topic string, groupID strin
 				// 必须手动提交，告诉 Kafka Broker 这个消息我们已经处理（即丢弃）了。
 				if err := r.CommitMessages(ctx, m); err != nil {
 					// 如果提交失败，记录日志，但继续，因为我们不能阻塞
-					log.Printf("WARN: Consumer dropped message and failed to commit offset %d: %v", m.Offset, err)
+					log.Printf("WARN: 消费者丢弃消息，无法提交抵消 %d: %v", m.Offset, err)
 				} else {
-					log.Printf("INFO: Consumer dropped message (Offset: %d) due to full downstream buffer.", m.Offset)
+					log.Printf("INFO: 由于下游缓冲区已满，消费者丢弃了消息（偏移量：%d)", m.Offset)
 				}
 				// 不需要 break/continue，直接进入下一次循环 FetchMessage
 			}

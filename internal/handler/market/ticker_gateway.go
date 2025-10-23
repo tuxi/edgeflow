@@ -67,9 +67,9 @@ func NewTickerGateway(ms *service.MarketDataService, consumer kafka.ConsumerServ
 	}
 	g.clients.Store(make(map[string]*TickerClientConn))
 
-	// 核心启动：消费 Kafka Ticker 数据 (替换 listenForPriceUpdates)
+	// 核心启动：消费 Kafka Ticker 数据
 	go g.listenForTickerUpdates()
-	// 核心启动：消费 Kafka System 数据 (替换 listenForSortedIDs, listenForInstrumentUpdates)
+	// 核心启动：消费 Kafka System 数据
 	go g.listenForSystemUpdates()
 
 	return g
@@ -245,13 +245,92 @@ func (g *TickerGateway) listenForTickerUpdates() {
 	if err != nil {
 		log.Fatalf("未能启动Ticker的kafka消费者： %v", err)
 	}
+	// 让kafka消费和定时器分开在不同的gotine，防止kafka阻塞定时器发送消息
 
 	for msg := range tickerCh {
-		// 消息已经是Protobuf 格式 （由MarketDataService 写入）
-		// 广播：直接将Protobuf 二进制数据广播给所有客户端
+		// msg.key 是币种的 symbol
+		// 打包成一个消息或者多条广播
 		g.broadcast(msg.Value)
 	}
+
 }
+
+//// 监听ticker价格变化，合并数据批量发送
+//func (g *TickerGateway) listenForTickerUpdates() {
+//	// Ticker 高频主题
+//	tickerCh, err := g.consumer.Consume(context.Background(), "marketdata_ticker", "ticker_gateway_group")
+//	if err != nil {
+//		log.Fatalf("未能启动Ticker的kafka消费者： %v", err)
+//	}
+//
+//	// 聚合数据
+//	ageInterval := 100 * time.Millisecond
+//	ticker := time.NewTicker(ageInterval)
+//	defer ticker.Stop()
+//
+//	// map保护每个币中最新的 Protobuf 数据
+//	batch := make(map[string][]byte)
+//	mu := sync.Mutex{} // 并发安全
+//
+//	// 让kafka消费和定时器分开在不同的gotine，防止kafka阻塞定时器发送消息
+//
+//	// 消费 kafka 消息
+//	go func() {
+//		for msg := range tickerCh {
+//			// msg.key 是币种的 symbol
+//			symbol := string(msg.Key)
+//			mu.Lock()
+//			if bytes.Equal(batch[symbol], msg.Value) {
+//				continue // 忽略相同内容的重复推送
+//			}
+//			// 把消费的消息保存到要打包的map中
+//			batch[symbol] = msg.Value
+//			mu.Unlock()
+//		}
+//	}()
+//
+//	// 定时器复制聚合数据
+//	for range ticker.C {
+//		mu.Lock()
+//		if len(batch) > 0 {
+//			// 将当前批量消息一次性广播给客户端
+//			var tickerUpdates []*pb.TickerUpdate
+//			for _, v := range batch {
+//				var pbMsg pb.WebSocketMessage
+//				err := proto.Unmarshal(v, &pbMsg)
+//				if err != nil {
+//					continue
+//				}
+//				tickerUpdates = append(tickerUpdates, pbMsg.GetTicker())
+//			}
+//
+//			if len(tickerUpdates) == 0 {
+//				continue
+//			}
+//
+//			// 打包发送
+//			batchMessage := pb.WebSocketMessage{
+//				Type: "TICKER_BATCH",
+//				Payload: &pb.WebSocketMessage_TickerBatch{
+//					TickerBatch: &pb.TickerBatch{Tickers: tickerUpdates},
+//				},
+//			}
+//
+//			protoBytes, err := proto.Marshal(&batchMessage)
+//			if err != nil {
+//				log.Println("TickerGateway 序列化打包的Ticker消息错误:", err)
+//				continue
+//			}
+//
+//			// 打包成一个消息或者多条广播
+//			g.broadcast(protoBytes)
+//
+//			// 清空batch 开始下一轮
+//			batch = make(map[string][]byte)
+//		}
+//		mu.Unlock()
+//	}
+//}
 
 // 监听其他数据变化，优先级低与Ticker
 func (g *TickerGateway) listenForSystemUpdates() {

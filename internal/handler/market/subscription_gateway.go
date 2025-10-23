@@ -410,6 +410,7 @@ func (g *SubscriptionGateway) addSubscriptionToMap(subKey string, client *Client
 	clientsMap.Store(client.ClientID, client)
 }
 
+// 添加到指定的订阅键的订阅者列表中
 func (g *SubscriptionGateway) addSubscription(subKey string, client *ClientConn) (bool, error) {
 	clientsMapInterface, _ := g.subscriptionMap.LoadOrStore(subKey, &sync.Map{})
 	clientsMap := clientsMapInterface.(*sync.Map)
@@ -424,7 +425,7 @@ func (g *SubscriptionGateway) addSubscription(subKey string, client *ClientConn)
 	return !hadSubscribers, nil
 }
 
-// 添加到指定的订阅键的订阅者列表中
+// 添加到指定的订阅键的订阅者列表中，如果是第一次添加则会向上游
 func (g *SubscriptionGateway) addSubscriptionToMapAndMaybeUpstream(subKey string, client *ClientConn) error {
 	// Load or create nested map
 	clientsMapInterface, _ := g.subscriptionMap.LoadOrStore(subKey, &sync.Map{})

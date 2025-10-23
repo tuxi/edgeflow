@@ -101,6 +101,11 @@ func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher Instrument
 	go m.startDataWorkers()
 	// 每次 收到连接成功信号时，执行一次订阅恢复
 	go m.runTickerResubscriptionLoop()
+
+	go func() {
+		time.Sleep(5)
+		ticker.Run()
+	}()
 	return m
 }
 
@@ -203,10 +208,14 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 		return
 	}
 
+	if len(tickersToForward) == 0 {
+		return
+	}
+
 	var tickers []*pb.TickerUpdate
 	// --- 2. 非临界区操作：kafka转发 ---
 	for _, ticker := range tickersToForward {
-		tickers = append(tickers, &pb.TickerUpdate{
+		ticperUpdate := &pb.TickerUpdate{
 			InstId:     ticker.InstId,
 			LastPrice:  ticker.LastPrice,
 			Vol_24H:    ticker.Vol24h,
@@ -220,33 +229,35 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 			BidPx:      ticker.BidPx,
 			BidSz:      ticker.BidSz,
 			Ts:         ticker.Ts,
-		})
+		}
+		tickers = append(tickers, ticperUpdate)
 	}
 
-	// 映射到Protobuf 结构体
-	payload := &pb.WebSocketMessage_TickerBatch{TickerBatch: &pb.TickerBatch{
-		Tickers: tickers,
-	}}
-	protoMsg := &pb.WebSocketMessage{
-		Type:    "TICKER_UPDATE",
-		Payload: payload,
+	protoMsg := &kafka.Message{
+		Key: "TICKER_BATCH",
+		Data: &pb.WebSocketMessage{
+			Type: "TICKER_UPDATE",
+			Payload: &pb.WebSocketMessage_TickerBatch{&pb.TickerBatch{
+				Tickers: tickers,
+			}},
+		},
 	}
 
-	// 仅启动一个 Goroutine 来处理整个批次的 I/O
-	// 将 I/O 阻塞操作（Kafka 写入） 放入独立的Goroutine
-	go func(protoMsg *pb.WebSocketMessage) {
+	go func(message *kafka.Message) {
+		if message == nil {
+			return
+		}
+		// 在这个单 Goroutine 中执行阻塞的 m.producer.Produce(ctx, topic, messages...)
 		// 将Kafka 写入超时时间设置为 2 秒，防止超时
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 		defer cancel() // 确保context 及时释放
 		// 序列化并写入kafka
-		key := []byte("TICKER_BATCH_KEY")
 		topic := "marketdata_ticker" // Ticker 高频主题
-		if err := m.producer.Produce(ctx, topic, key, protoMsg); err != nil {
+		if err := m.producer.Produce(ctx, topic, *message); err != nil {
 			// 记录错误，但不阻塞主循环
-			log.Printf("ERROR: topic=%s 生产者批量写入Ticker数据到kafka失败: %v", topic, err)
+			log.Printf("ERROR: MarketDataService topic=%s 生产者批量写入Ticker数据到kafka失败: %v", topic, err)
 		}
-	}(protoMsg) // 传递ticker, protoMsg 副本
-
+	}(protoMsg)
 }
 
 // startSortingScheduler 定时执行排序和缓存
@@ -351,11 +362,14 @@ func (m *MarketDataService) performSortAndCache() {
 
 			// 写入kafka
 			// 排序更新是稍低频事件，可以和订阅数量共用一个topic，或者使用一个新的低频主题
-			//
-			key := []byte("GLOBAL_COIN_SORT") // 使用固定Key确保所有排序更新有序
+
 			// 使用marketdata_system主题
 			topic := "marketdata_system"
-			if err := m.producer.Produce(ctx, topic, key, protoMsg); err != nil {
+			message := kafka.Message{
+				Key:  "GLOBAL_COIN_SORT", // 使用固定Key确保所有排序更新有序
+				Data: protoMsg,
+			}
+			if err := m.producer.Produce(ctx, topic, message); err != nil {
 				log.Printf("ERROR: topic=%s 生产者写入kafka币种id排序数据失败: %v", topic, err)
 			}
 		}()
@@ -523,10 +537,13 @@ func (m *MarketDataService) PerformPeriodicUpdate(ctx context.Context) error {
 		}
 		// 写入kafka
 		ctx := context.Background()
-		topic := "marketdata_system" // 使用低频系统主题
-		key := []byte("INSTRUMENT_CHANGE")
 
-		if err := m.producer.Produce(ctx, topic, key, protoMsg); err != nil {
+		topic := "marketdata_system" // 使用低频系统主题
+		message := kafka.Message{
+			Key:  "INSTRUMENT_CHANGE",
+			Data: protoMsg,
+		}
+		if err := m.producer.Produce(ctx, topic, message); err != nil {
 			log.Printf("ERROR: topic=%s 生产者写入Kafka 币种更新数据失败: %v", topic, err)
 		}
 	}

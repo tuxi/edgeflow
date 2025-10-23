@@ -105,7 +105,7 @@ var reqCache, _ = lru.New(500)
 var duplicateThreshold = 1 * time.Second
 
 // 定义一个中间件函数，用于防止频繁请求和重复提交
-// 防止单个客户端 IP 在 5 秒内重复发送请求，保护下游 API 或系统资源
+// 防止单个客户端 IP 在 1 秒内重复发送请求，保护下游 API 或系统资源
 // 将 AntiDuplicateMiddleware 只应用于不需要高频重试的 常规 HTTP API 路由，例如获取配置、登录等，不应该用于websocket等实时性高的连接
 func AntiDuplicateMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {

@@ -70,7 +70,7 @@ func (c *TickerClientConn) readPump(h *TickerGateway) {
 	// 设置读消息超时时间等 (此处省略)
 
 	defer func() {
-		log.Println("ClientConn client disconnected")
+		log.Println("TickerClientConn client disconnected")
 		// ⚠️ 确保在断开时从 h.clients 移除连接 (参见上一个回答的 ServeWS defer 逻辑)
 	}()
 

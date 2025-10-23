@@ -93,15 +93,13 @@ func NewOKXTickerService(defaultSymbols []string) *OKXTickerService {
 		conn:               nil,
 		subscribed:         make(map[string]struct{}),
 		prices:             make(map[string]TickerData),
-		tickersCh:          make(chan map[string]TickerData, 100), // 设置一个合理的缓冲区大小（例如 100），防止数据堆积阻塞上游
+		tickersCh:          make(chan map[string]TickerData, 1000), // 设置一个合理的缓冲区大小（例如 100），防止数据堆积阻塞上游
 		url:                url,
 		closeCh:            make(chan struct{}),
 		defaultSymbols:     defaultSymbols,
 		connectionNotifier: make(chan struct{}), //非缓冲冲到
 		readyCh:            make(chan struct{}),
 	}
-
-	go s.run()
 
 	return s
 }
@@ -173,7 +171,7 @@ func (s *OKXTickerService) writeMessageInternal(message interface{}) error {
 	return s.conn.WriteJSON(message)
 }
 
-func (s *OKXTickerService) run() {
+func (s *OKXTickerService) Run() {
 	// 持续运行的主循环，负责连接和重连，永远不要退出
 	for {
 		// 1. 尝试建立连接
