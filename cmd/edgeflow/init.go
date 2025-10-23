@@ -19,7 +19,9 @@ import (
 	"edgeflow/internal/service/signal/trend"
 	"edgeflow/pkg/cache"
 	"edgeflow/pkg/kafka"
+	"fmt"
 	"gorm.io/gorm"
+	"os"
 )
 
 func InitRouter(db *gorm.DB) Router {
@@ -81,9 +83,16 @@ func InitRouter(db *gorm.DB) Router {
 
 	//wh := webhook.NewHandler(dispatcher, rc, sm, ps)
 
+	kafHost := os.Getenv("KAFKA_HOST")
+	kafPort := os.Getenv("KAFKA_PORT")
+	kafBroker := fmt.Sprintf("%s:%s", kafHost, kafPort)
+	if kafHost == "" || kafPort == "" {
+		kafBroker = conf.AppConfig.Kafka.Broker
+	}
+
 	// 初始化kafka
-	kafProducer := kafka.NewKafkaProducer(appCfg.Kafka.Broker)
-	kafConsumer := kafka.NewKafkaConsumer(appCfg.Kafka.Broker)
+	kafProducer := kafka.NewKafkaProducer(kafBroker)
+	kafConsumer := kafka.NewKafkaConsumer(kafBroker)
 
 	hyperDao := query.NewHyperLiquidDao(db)
 	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "AAVE", "AVAX", "ADA", "LINK", "TRX"}

@@ -42,14 +42,12 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		m.GET("/sorted-inst-ids", middleware.AntiDuplicateMiddleware(), api.marketHandler.SortedInstIDsGet())
 		// 获取详情
 		m.POST("/detail", middleware.AntiDuplicateMiddleware(), api.marketHandler.GetDetail())
-
-		m.GET("/ws", api.subscriptionGw.ServeWS) // 通过websocket连接获取k线数据等
 	}
 
-	p := base.Group("/ticker", middleware.RequestValidationMiddleware())
+	ws := base.Group("/ws", middleware.RequestValidationMiddleware())
 	{
-		p.GET("/ws", api.tickerGw.ServeWS) // 通过websocket连接获取价格
-
+		ws.GET("/ticker", api.tickerGw.ServeWS)       // 通过websocket连接获取价格
+		ws.GET("/market", api.subscriptionGw.ServeWS) // 通过websocket连接获取k线数据等
 	}
 
 	h := base.Group("/hyperliquid", middleware.AntiDuplicateMiddleware(), middleware.RequestValidationMiddleware())
