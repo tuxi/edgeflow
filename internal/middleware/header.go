@@ -109,11 +109,11 @@ var duplicateThreshold = 1 * time.Second
 // 将 AntiDuplicateMiddleware 只应用于不需要高频重试的 常规 HTTP API 路由，例如获取配置、登录等，不应该用于websocket等实时性高的连接
 func AntiDuplicateMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clientIP := c.ClientIP()
-
+		key := c.ClientIP() + c.Request.URL.Path
+		// 使用IP + 接口路径 作为key 防抖动
 		// 使用golang-lru 缓存库，解决锁竞争问题
 		// 检查记录是否存在
-		if value, ok := reqCache.Get(clientIP); ok {
+		if value, ok := reqCache.Get(key); ok { // 注意：使用 key
 			lastRequestTime := value.(time.Time)
 
 			// 检查是否在阀值内
@@ -125,10 +125,9 @@ func AntiDuplicateMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		// 更新时间戳
 		// 更新时间戳 (Hit 或 Miss 都会更新)
 		// Set 方法会自动处理 LRU 淘汰和并发安全
-		reqCache.Add(clientIP, time.Now())
+		reqCache.Add(key, time.Now())
 		c.Next()
 	}
 }
