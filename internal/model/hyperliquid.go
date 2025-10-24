@@ -3,6 +3,7 @@ package model
 import (
 	"edgeflow/internal/model/entity"
 	"edgeflow/pkg/hype/types"
+	"time"
 )
 
 type WhaleEntryListRes struct {
@@ -114,4 +115,34 @@ type WhalePositionFilterReq struct {
 type WhalePositionFilterRes struct {
 	Total     int64                        `json:"total"`
 	Positions []*entity.HyperWhalePosition `json:"positions"`
+}
+
+type WhalePositionFilterRedisRes struct {
+	Total     int64                 `json:"total"`
+	Positions []*HyperWhalePosition `json:"positions"`
+}
+
+// 鲸鱼仓位快照，数字类型都使用string，方便在redis中存取
+//
+//	确保一个仓位唯一的关键要素：(address, coin, leverage_type, leverage_value)
+type HyperWhalePosition struct {
+	Address string `json:"address"`
+	Coin    string `json:"coin"`
+	Type    string `json:"type"`
+
+	EntryPx        string `json:"entry_px"`
+	PositionValue  string `json:"position_value"`
+	Szi            string `json:"szi"`
+	LiquidationPx  string `json:"liquidation_px"`
+	UnrealizedPnl  string `json:"unrealized_pnl"`
+	ReturnOnEquity string `json:"return_on_equity"`
+
+	LeverageType  string `json:"leverage_type"`
+	LeverageValue string `json:"leverage_value"`
+
+	Side       string    `json:"side"`
+	MarginUsed string    `json:"margin_used"`
+	FundingFee string    `json:"funding_fee"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	CreatedAt  time.Time `json:"created_at"`
 }

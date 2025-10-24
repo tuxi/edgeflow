@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
 	"log"
 	"math"
 	"sort"
@@ -36,13 +37,14 @@ func NewHyperLiquidService(dao dao.HyperLiquidDao, rc *redis.Client, marketServi
 }
 
 // 定时任务：每隔N分钟更新一次鲸鱼持仓
-func (s *HyperLiquidService) StartScheduler(ctx context.Context, interval time.Duration) {
+func (s *HyperLiquidService) StartUpdatePositionScheduler(ctx context.Context, interval time.Duration) {
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		timer := time.NewTimer(16)
+		defer timer.Stop()
 		for {
 			select {
-			case <-ticker.C:
+			case <-timer.C:
+				timer.Reset(interval)
 				// 更新仓位信息是耗时操作，需要请求100个仓位接口的数据，也就是100次request
 				s.updatePositionsLock.Lock()
 				if s.isUpdatePositionsLoading {
@@ -77,7 +79,7 @@ func (s *HyperLiquidService) StartScheduler(ctx context.Context, interval time.D
 	}()
 }
 
-// 开启定时任务抓取hyper排行榜数据
+// 开启定时任务抓取hyper排行榜数据，所有的数据都是基于排行榜上的数据查询的
 func (h *HyperLiquidService) StartLeaderboardUpdater(ctx context.Context, interval time.Duration) {
 	go func() {
 		// 创建一个定时器为5秒间隔，这样C通道会立即触发，实现立即执行首次任务
@@ -230,8 +232,8 @@ func (h *HyperLiquidService) fetchData() error {
 		log.Printf("HyperLiquidService fetchLeaderboard error: %v", err)
 		return err
 	}
-	// 日活跃至少10完， 账户价值至少 100万，取前 100 名
-	return h.updateWhaleLeaderboard(rawData, 100000.0, 1000000.0, 100)
+	// 日活跃至少10万， 账户价值至少 100万，取前 100 名
+	return h.updateWhaleLeaderboard(rawData, 100000.0, 1000000.0, 130)
 }
 
 func (h *HyperLiquidService) fetchLeaderboard() ([]types.TraderPerformance, error) {
@@ -462,91 +464,113 @@ func (h *HyperLiquidService) updateWhaleLeaderboard(rawLeaderboard []types.Trade
 // 获取前100个鲸鱼地址的仓位
 func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 
-	// 1. 获取前100鲸鱼
-	topWhales, err := h.dao.GetTopWhales(ctx, "vlm_day", 100)
+	// 1. 获取前100鲸鱼，真正的大鲸鱼日交易量很低的，这里使用账户资产查询，不使用交易量
+	topWhales, err := h.dao.GetTopWhales(ctx, "account_value", 120)
 
 	if err != nil {
 		return err
 	}
 
-	var snapshots []*entity.HyperWhalePosition
+	var snapshots []*model.HyperWhalePosition
+	var wg sync.WaitGroup
+	// 用户保护snapshots 的并发写入
+	var mu sync.Mutex
+	var errs []error
+	// 使用一个有容量的 channel 来限制并发数，例如10
+	limitChan := make(chan struct{}, 10)
 
 	// 2. 遍历查询持仓 (clearinghouseState)
-	for _, whale := range topWhales {
-		state, err := h.WhaleAccountSummaryGet(ctx, whale)
+	for _, item := range topWhales {
+		wg.Add(1)
+		limitChan <- struct{}{} // 占用一个并发槽
 
-		if err != nil {
-			continue
-		}
+		go func(address string) {
+			defer wg.Done()
+			defer func() { <-limitChan }() // 释放并发槽
 
-		now := time.Now()
-		for _, pos := range state.AssetPositions {
+			state, err := h.WhaleAccountSummaryGet(ctx, address)
 
-			side := "long"
-			szi, _ := strconv.ParseFloat(pos.Position.Szi, 64)
-			if szi < 0 {
-				side = "short"
-			}
-			// 检查强平价格是否为空，如果为空设置为0，不然报错 Incorrect decimal value: '' for column 'liquidation_px' at row 8
-			_, err := strconv.ParseFloat(pos.Position.LiquidationPx, 64)
 			if err != nil {
-				pos.Position.LiquidationPx = "0.0"
+				// 错误处理
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+				return
 			}
 
-			ps := &entity.HyperWhalePosition{
-				Address:        whale,
-				Coin:           pos.Position.Coin,
-				Type:           pos.Type,
-				EntryPx:        pos.Position.EntryPx,
-				PositionValue:  pos.Position.PositionValue,
-				Szi:            pos.Position.Szi,
-				UnrealizedPnl:  pos.Position.UnrealizedPnl,
-				ReturnOnEquity: pos.Position.ReturnOnEquity,
-				LeverageType:   pos.Position.Leverage.Type,
-				LeverageValue:  pos.Position.Leverage.Value,
-				MarginUsed:     pos.Position.MarginUsed,
-				FundingFee:     pos.Position.CumFunding.AllTime,
-				LiquidationPx:  pos.Position.LiquidationPx,
-				Side:           side,
-				UpdatedAt:      now,
-				CreatedAt:      now,
-			}
+			now := time.Now()
+			for _, pos := range state.AssetPositions {
 
-			snapshots = append(snapshots, ps)
-		}
+				side := "long"
+				szi, _ := strconv.ParseFloat(pos.Position.Szi, 64)
+				if szi < 0 {
+					side = "short"
+				}
+				// 检查强平价格是否为空，如果为空设置为0，不然报错 Incorrect decimal value: '' for column 'liquidation_px' at row 8
+				_, err := strconv.ParseFloat(pos.Position.LiquidationPx, 64)
+				if err != nil {
+					pos.Position.LiquidationPx = "0.0"
+				}
+
+				ps := &model.HyperWhalePosition{
+					Address:        address,
+					Coin:           pos.Position.Coin,
+					Type:           pos.Type,
+					EntryPx:        pos.Position.EntryPx,
+					PositionValue:  pos.Position.PositionValue,
+					Szi:            pos.Position.Szi,
+					UnrealizedPnl:  pos.Position.UnrealizedPnl,
+					ReturnOnEquity: pos.Position.ReturnOnEquity,
+					LeverageType:   pos.Position.Leverage.Type,
+					LeverageValue:  fmt.Sprintf("%d", pos.Position.Leverage.Value),
+					MarginUsed:     pos.Position.MarginUsed,
+					FundingFee:     pos.Position.CumFunding.AllTime,
+					LiquidationPx:  pos.Position.LiquidationPx,
+					Side:           side,
+					UpdatedAt:      now,
+					CreatedAt:      now,
+				}
+
+				mu.Lock()
+				snapshots = append(snapshots, ps)
+				mu.Unlock()
+			}
+		}(item)
 	}
+
+	// 等待并发任务完成
+	wg.Wait()
 
 	// 3. 存数据库
-	if len(snapshots) > 0 {
-		if err := h.dao.CreatePositionInBatches(ctx, snapshots); err != nil {
-			return err
-		}
-	}
+	//if len(snapshots) > 0 {
+	//	if err := h.dao.CreatePositionInBatches(ctx, snapshots); err != nil {
+	//		return err
+	//	}
+	//}
 
-	// 4.对仓位进行分析
-	priceDict := h.marketService.GetPrices()
-	analyzePos := h.analyzePositions(snapshots, priceDict)
-
-	// 把分析的结果缓存到redis
-	rdsKey := consts.WhalePositionsAnalyze
-
-	bytes, err := json.Marshal(&analyzePos)
-	if err != nil {
-		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+	if len(snapshots) == 0 {
+		logger.Errorf("HyperLiquidService 没有获取到任何鲸鱼仓位")
 		return nil
 	}
 
-	// 存储redis中，1分钟过期
-	err = h.rc.Set(ctx, rdsKey, bytes, time.Minute*10).Err()
+	// 存入redis
+	err = h.updatePositionsToRedis(ctx, snapshots)
 	if err != nil {
-		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+		logger.Errorf("HyperLiquidService 仓位列表存储redis失败：%v", err.Error())
+		return nil
 	}
+
+	// 对仓位进行分析
+	h.analyzePositions(ctx, snapshots, h.marketService.GetPrices())
+
 	return nil
 }
 
-func (h *HyperLiquidService) GetTopWhalePositions(ctx context.Context, req model.WhalePositionFilterReq) (*model.WhalePositionFilterRes, error) {
+func (h *HyperLiquidService) GetTopWhalePositions(ctx context.Context, req model.WhalePositionFilterReq) (*model.WhalePositionFilterRedisRes, error) {
 
-	res, err := h.dao.GetTopWhalePositions(ctx, req)
+	//res, err := h.dao.GetTopWhalePositions(ctx, req)
+
+	res, err := h.GetTopWhalePositionsFromRedis(ctx, req)
 	if err != nil {
 		log.Printf("HyperLiquidService GetTopWhalePositions error: %v", err)
 		return nil, err
@@ -572,6 +596,34 @@ func (h *HyperLiquidService) AnalyzeTopPositions(ctx context.Context) (*model.Wh
 		}
 	}
 
+	posList, err := h.GetTopWhalePositionsFromRedis(ctx, model.WhalePositionFilterReq{
+		Coin:             "",
+		Side:             "",
+		PnlStatus:        "",
+		FundingFeeStatus: "",
+		Limit:            1000,
+		Offset:           0,
+	})
+	if err != nil {
+		log.Printf("HyperLiquidService AnalyzeTopPositions error: %v", err)
+		return nil, err
+	}
+	if len(posList.Positions) == 0 {
+		log.Printf("HyperLiquidService 拒绝分析仓位，没有获取到任何仓位")
+		return nil, nil
+	}
+
+	res, err = h.analyzePositions(ctx, posList.Positions, h.marketService.GetPrices())
+
+	if err != nil {
+		log.Printf("HyperLiquidService AnalyzeTopPositions error: %v", err)
+		return nil, err
+	}
+	return &res, nil
+}
+
+// 从数据库中获取仓位排行
+func (h *HyperLiquidService) GetTopWhalePositionsFromDB(ctx context.Context) (*model.WhalePositionFilterRedisRes, error) {
 	posList, err := h.GetTopWhalePositions(ctx, model.WhalePositionFilterReq{
 		Coin:             "",
 		Side:             "",
@@ -583,31 +635,11 @@ func (h *HyperLiquidService) AnalyzeTopPositions(ctx context.Context) (*model.Wh
 	if err != nil {
 		return nil, err
 	}
-	priceDict := h.marketService.GetPrices()
-	res = h.analyzePositions(posList.Positions, priceDict)
-
-	if err != nil {
-		log.Printf("HyperLiquidService AnalyzeTopPositions error: %v", err)
-		return nil, err
-	}
-	bytes, err = json.Marshal(&res)
-	if err != nil {
-		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
-		return &res, nil
-	}
-
-	// 存储redis中，30秒过期
-	err = h.rc.Set(ctx, rdsKey, bytes, time.Minute*1).Err()
-	if err != nil {
-		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
-
-	}
-
-	return &res, nil
+	return posList, nil
 }
 
 // 对仓位进行分析
-func (h *HyperLiquidService) analyzePositions(positions []*entity.HyperWhalePosition, currentPriceMap map[string]float64) model.WhalePositionAnalysis {
+func (h *HyperLiquidService) analyzePositions(ctx context.Context, positions []*model.HyperWhalePosition, currentPriceMap map[string]float64) (model.WhalePositionAnalysis, error) {
 	var analysis model.WhalePositionAnalysis
 	// 设定高风险的杠杆阈值，适用于 LiquidationPx 存在时的风险提示。
 
@@ -615,23 +647,23 @@ func (h *HyperLiquidService) analyzePositions(positions []*entity.HyperWhalePosi
 		// 基础汇总
 		posValue, err := strconv.ParseFloat(pos.PositionValue, 64)
 		if err != nil {
-			logger.Errorf("Failed to parse PositionValue for position %s: %v", pos.ID, err)
+			logger.Errorf("Failed to parse PositionValue for position %s: %v", pos.PositionValue, err)
 			continue
 		}
 		marginUsed, err := strconv.ParseFloat(pos.MarginUsed, 64)
 		if err != nil {
-			logger.Errorf("Failed to parse MarginUsed for position %s: %v", pos.ID, err)
+			logger.Errorf("Failed to parse MarginUsed for position %s: %v", pos.PositionValue, err)
 			continue
 		}
 
 		upnl, err := strconv.ParseFloat(pos.UnrealizedPnl, 64)
 		if err != nil {
-			logger.Errorf("Failed to parse UnrealizedPnl for position %s: %v", pos.ID, err)
+			logger.Errorf("Failed to parse UnrealizedPnl for position %s: %v", pos.PositionValue, err)
 			continue
 		}
 		fundingFee, err := strconv.ParseFloat(pos.FundingFee, 64)
 		if err != nil {
-			logger.Errorf("Failed to parse FundingFee for position %s: %v", pos.ID, err)
+			logger.Errorf("Failed to parse FundingFee for position %s: %v", pos.PositionValue, err)
 			continue
 		}
 		analysis.TotalValue += posValue
@@ -739,7 +771,21 @@ func (h *HyperLiquidService) analyzePositions(positions []*entity.HyperWhalePosi
 
 	h.generateTradingSignal(&analysis)
 
-	return analysis
+	bytes, err := json.Marshal(&analysis)
+	if err != nil {
+		logger.Errorf("HyperLiquidService 存储redis失败：%v", err.Error())
+		return analysis, nil
+	}
+	// 把分析的结果缓存到redis
+	rdsKey := consts.WhalePositionsAnalyze
+	// 存储redis中，30秒过期
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Minute*1).Err()
+	if err != nil {
+		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
+
+	}
+
+	return analysis, nil
 }
 
 // 生成合约开单方向建议
@@ -804,4 +850,241 @@ func (h *HyperLiquidService) generateTradingSignal(analysis *model.WhalePosition
 	} else {
 		analysis.SignalSuggestion = "中性 / 观望"
 	}
+}
+
+// 更新redis 中的仓位信息
+// 原本是写入数据库的，但是需求要求每次分析必须是最新的仓位信息，所以没必要存储数据库了，也解决了每次几百条存储数据库耗时的问题
+func (h *HyperLiquidService) updatePositionsToRedis(ctx context.Context, snapshots []*model.HyperWhalePosition) error {
+	pipe := h.rc.Pipeline()
+
+	// 1. 准备数据结构
+	allValueZSet := "whale:pos:all:value"
+	var allValueMembers []*redis.Z
+
+	// 用于收集所有独立索引 ZSET 成员的 Map： key -> []*redis.Z
+	// Key 格式例如: "idx:coin:ETH", "idx:side:long", "idx:pnl:profit", ...
+	indexZSets := make(map[string][]*redis.Z)
+
+	// 存储所有要删除的 Key (包括 Hash 详情和所有 ZSET)
+	var keysToDelete []string
+
+	// 为了简化，我们只删除和重新创建主 ZSET 和所有用到的索引 ZSET。
+	// 实际中删除旧的 Hash 详情会更复杂（需要先读取旧 ZSET 的 ID）。
+	// 但鉴于我们是全量快照，这里只管理 ZSET 的创建和删除。
+
+	// 2. 遍历快照，收集数据到内存
+	for _, pos := range snapshots {
+		// 1) 仓位唯一 ID
+		// 确保仓位id唯一
+		posID := fmt.Sprintf("%s|%s|%s|%s", pos.Address, pos.Coin, pos.LeverageType, pos.LeverageValue)
+		// 2) 准备 ZSET 成员
+		val, _ := strconv.ParseFloat(pos.PositionValue, 64)
+		z := &redis.Z{Score: val, Member: posID}
+
+		// 3) 写入主排名 ZSET
+		allValueMembers = append(allValueMembers, z)
+
+		// 4) 写入详细数据 Hash
+		detailKey := fmt.Sprintf("whale:pos:detail:%s", posID)
+		posMap, _ := structToMap(pos) // 假设存在 structToMap 函数
+
+		// 添加写入 Hash 的命令到 Pipeline
+		// 注意：这里没有删除旧 Hash，下次写入会直接覆盖。
+		pipe.HSet(ctx, detailKey, posMap)
+
+		// 5) 写入 4 组独立索引 ZSET (重点)
+		filters := map[string]string{
+			"coin": pos.Coin,
+			"side": pos.Side,
+			"pnl":  pos.UnrealizedPnl,
+			"fee":  pos.FundingFee,
+		}
+
+		for field, value := range filters {
+			if value != "" {
+				indexKey := fmt.Sprintf("idx:%s:%s", field, value)
+				indexZSets[indexKey] = append(indexZSets[indexKey], z)
+			}
+		}
+	}
+
+	// 3. 批量写入 Pipeline
+
+	// a. **主排名 ZSET 的处理**
+	keysToDelete = append(keysToDelete, allValueZSet)
+	pipe.Del(ctx, allValueZSet)
+	pipe.ZAdd(ctx, allValueZSet, allValueMembers...)
+
+	// b. **独立索引 ZSET 的处理**
+	for key, members := range indexZSets {
+		// 在删除列表中添加 Key
+		keysToDelete = append(keysToDelete, key)
+
+		// 删除旧的索引 ZSET
+		pipe.Del(ctx, key)
+
+		// 写入新的索引 ZSET
+		pipe.ZAdd(ctx, key, members...)
+	}
+
+	// c. 执行 Pipeline
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		// 如果写入失败，需要考虑如何处理，可能需要异步清理这次创建的临时 Hash 和 ZSET。
+		// 但对于定时任务，简单返回错误即可。
+		return fmt.Errorf("redis pipeline exec failed: %w", err)
+	}
+
+	return nil
+}
+
+// 从redis中获取仓位排行
+func (s *HyperLiquidService) GetTopWhalePositionsFromRedis(ctx context.Context, req model.WhalePositionFilterReq) (*model.WhalePositionFilterRedisRes, error) {
+
+	// 1. **构建交集 Key 列表**
+	// 默认以排序 ZSET 作为第一个 Key，后续 Key 将与之求交集。
+	intersectKeys := []string{"whale:pos:all:value"}
+
+	// 针对每个请求的筛选条件，添加对应的 ZSET Key
+	if req.Coin != "" {
+		intersectKeys = append(intersectKeys, fmt.Sprintf("idx:coin:%s", req.Coin))
+	}
+	if req.Side != "" {
+		intersectKeys = append(intersectKeys, fmt.Sprintf("idx:side:%s", req.Side))
+	}
+	if req.PnlStatus != "" {
+		intersectKeys = append(intersectKeys, fmt.Sprintf("idx:pnl:%s", req.PnlStatus))
+	}
+	if req.FundingFeeStatus != "" {
+		intersectKeys = append(intersectKeys, fmt.Sprintf("idx:fee:%s", req.FundingFeeStatus))
+	}
+
+	// 2. **执行 ZINTERSTORE 操作**
+	// 获取唯一的临时 Key
+	// 注意：INCR/DECR 操作会导致不是原子性的，使用单个操作，并在 defer 中清理更安全。
+	// 实际生产中更推荐使用 UUID 或请求参数的哈希作为临时 Key。
+	tempKey := fmt.Sprintf("temp:intersect:%s", uuid.New().String()) // 假设使用 UUID 生成唯一 key
+
+	// **设置清理函数，确保临时 Key 总是被删除**
+	// 在函数退出时（无论成功失败）执行
+	defer s.rc.Del(ctx, tempKey)
+
+	// 使用 ZINTERSTORE 计算交集
+	zinterstoreCmd := s.rc.ZInterStore(ctx, tempKey, &redis.ZStore{
+		Keys:      intersectKeys,
+		Weights:   nil,
+		Aggregate: "MAX",
+	})
+
+	// 3. **检查交集结果和总数**
+	totalCount, err := zinterstoreCmd.Result()
+	if err != nil {
+		// ZINTERSTORE 执行失败，直接返回错误
+		return nil, fmt.Errorf("redis ZInterStore failed: %w", err)
+	}
+
+	// 如果交集结果为空，提前返回
+	if totalCount == 0 {
+		return &model.WhalePositionFilterRedisRes{Total: 0, Positions: []*model.HyperWhalePosition{}}, nil
+	}
+
+	// 4. **获取排名和分页 (ZREVRANGE)**
+	start := req.Offset
+	end := req.Offset + req.Limit - 1
+	positionIDs, err := s.rc.ZRevRange(ctx, tempKey, int64(start), int64(end)).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis ZRevRange failed: %w", err)
+	}
+
+	if len(positionIDs) == 0 {
+		// 这里的 Total 仍然是 totalCount，但分页结果为空
+		return &model.WhalePositionFilterRedisRes{Total: totalCount, Positions: []*model.HyperWhalePosition{}}, nil
+	}
+
+	// 5. **批量获取详细数据 (使用一个 Pipeline)**
+	pipe := s.rc.Pipeline()
+
+	// 构造所有 Hash Key
+	detailKeys := make([]string, len(positionIDs))
+	for i, id := range positionIDs {
+		detailKeys[i] = fmt.Sprintf("whale:pos:detail:%s", id)
+	}
+
+	// 批量将 HGetAll 命令加入 Pipeline
+	cmds := make([]*redis.StringStringMapCmd, len(detailKeys))
+	for i, key := range detailKeys {
+		cmds[i] = pipe.HGetAll(ctx, key)
+	}
+
+	// **执行 Pipeline**
+	_, err = pipe.Exec(ctx)
+	if err != nil {
+		// Pipeline 执行失败
+		return nil, fmt.Errorf("redis Pipeline exec failed: %w", err)
+	}
+
+	// 6. **结果反序列化**
+	var positions []*model.HyperWhalePosition
+	for _, cmd := range cmds {
+		posMap := cmd.Val()
+		// 假设 mapToPosition 存在且可以处理空值
+		var pos model.HyperWhalePosition
+		err := mapToStruct(posMap, &pos)
+		if err == nil {
+			positions = append(positions, &pos)
+		}
+	}
+
+	return &model.WhalePositionFilterRedisRes{
+		Total:     totalCount,
+		Positions: positions,
+	}, nil
+}
+
+// structToMap 将结构体转换为 map[string]interface{}
+// 它使用 JSON marshal/unmarshal 实现，能正确处理嵌套结构和 JSON tags
+func structToMap(obj interface{}) (map[string]interface{}, error) {
+	if obj == nil {
+		return nil, fmt.Errorf("input object is nil")
+	}
+
+	// 1. 结构体 -> JSON 字节
+	data, err := json.Marshal(obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal struct to json: %w", err)
+	}
+
+	// 2. JSON 字节 -> map[string]interface{}
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal json to map: %w", err)
+	}
+	stringMap := make(map[string]interface{})
+	for k, v := range result {
+		if v != nil {
+			// 使用 fmt.Sprint 将 interface{} 转换为字符串
+			stringMap[k] = fmt.Sprint(v)
+		}
+	}
+
+	return stringMap, nil
+}
+
+// mapToPosition 将 map[string]string 转换回 结构体
+func mapToStruct(data map[string]string, m interface{}) error {
+	if data == nil || len(data) == 0 {
+		return fmt.Errorf("input map is empty")
+	}
+
+	dataBytes, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal map to json: %w", err)
+	}
+
+	// 2. JSON 字节 -> *entity.HyperWhalePosition
+	if err := json.Unmarshal(dataBytes, &m); err != nil {
+		return fmt.Errorf("failed to unmarshal json to struct: %w", err)
+	}
+
+	return nil
 }

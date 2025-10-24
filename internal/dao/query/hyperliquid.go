@@ -70,6 +70,16 @@ func (dao *hyperLiquidDao) GetTopWhalesLeaderBoard(ctx context.Context, period s
 		limit = 100
 	}
 
+	// 确保默认或核心查询是按资产价值排序
+	if period == "" {
+		// 如果用户未指定排序，默认按总资产价值排序
+		period = "account_value"
+	}
+
+	if period == "all" {
+		period = "all_time"
+	}
+
 	// 防止sql注入
 	allowSortFileds := map[string]bool{
 		"pnl_day":      true,
@@ -82,10 +92,11 @@ func (dao *hyperLiquidDao) GetTopWhalesLeaderBoard(ctx context.Context, period s
 		"roi_month":    true,
 		"roi_all_time": true,
 
-		"vlm_day":      true,
-		"vlm_week":     true,
-		"vlm_month":    true,
-		"vlm_all_time": true,
+		"vlm_day":       true,
+		"vlm_week":      true,
+		"vlm_month":     true,
+		"vlm_all_time":  true,
+		"account_value": true, // 资产
 	}
 
 	if !allowSortFileds[period] {
@@ -126,6 +137,12 @@ func (h *hyperLiquidDao) GetTopWhales(ctx context.Context, period string, limit 
 		limit = 100
 	}
 
+	// 确保默认或核心查询是按资产价值排序
+	if period == "" {
+		// 如果用户未指定排序，默认按总资产价值排序
+		period = "account_value"
+	}
+
 	if period == "all" {
 		period = "all_time"
 	}
@@ -141,10 +158,11 @@ func (h *hyperLiquidDao) GetTopWhales(ctx context.Context, period string, limit 
 		"roi_month":    true,
 		"roi_all_time": true,
 
-		"vlm_day":      true,
-		"vlm_week":     true,
-		"vlm_month":    true,
-		"vlm_all_time": true,
+		"vlm_day":       true,
+		"vlm_week":      true,
+		"vlm_month":     true,
+		"vlm_all_time":  true,
+		"account_value": true, // 资产
 	}
 
 	// 防止sql注入
