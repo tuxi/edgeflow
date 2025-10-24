@@ -252,7 +252,7 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 		defer cancel() // 确保context 及时释放
 		// 序列化并写入kafka
-		topic := "marketdata_ticker" // Ticker 高频主题
+		topic := kafka.TopicTicker // Ticker 高频主题
 		if err := m.producer.Produce(ctx, topic, *message); err != nil {
 			// 记录错误，但不阻塞主循环
 			log.Printf("ERROR: MarketDataService topic=%s 生产者批量写入Ticker数据到kafka失败: %v", topic, err)
@@ -364,7 +364,7 @@ func (m *MarketDataService) performSortAndCache() {
 			// 排序更新是稍低频事件，可以和订阅数量共用一个topic，或者使用一个新的低频主题
 
 			// 使用marketdata_system主题
-			topic := "marketdata_system"
+			topic := kafka.TopicSystem
 			message := kafka.Message{
 				Key:  "GLOBAL_COIN_SORT", // 使用固定Key确保所有排序更新有序
 				Data: protoMsg,
@@ -538,7 +538,7 @@ func (m *MarketDataService) PerformPeriodicUpdate(ctx context.Context) error {
 		// 写入kafka
 		ctx := context.Background()
 
-		topic := "marketdata_system" // 使用低频系统主题
+		topic := kafka.TopicSystem // 使用低频系统主题
 		message := kafka.Message{
 			Key:  "INSTRUMENT_CHANGE",
 			Data: protoMsg,

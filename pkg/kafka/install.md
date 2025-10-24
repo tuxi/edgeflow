@@ -75,7 +75,9 @@ tail -f logs/server.log
 bin/kafka-server-stop.sh
 
 # 创建topic
-bin/kafka-topics.sh --bootstrap-server 172.17.0.1:9092   --create --topic marketdata_subscribe   --partitions 1   --replication-factor 1
+/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092   --create --topic marketdata_ticker   --partitions 1   --replication-factor 1
+/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092   --create --topic marketdata_subscribe   --partitions 1   --replication-factor 1
+/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092   --create --topic marketdata_system   --partitions 1   --replication-factor 1
 
 # 如果提示 No kafka server to stop，说明 Kafka 当前没有运行，可直接启动
 ## 5. 使用 systemd 管理 Kafka（推荐）

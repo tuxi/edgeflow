@@ -58,7 +58,7 @@ func NewSubscriptionGateway(candleClient *service.OKXCandleService, consumer kaf
 
 func (g *SubscriptionGateway) listenAndFilterUpdates() {
 	// 启动消费者 订阅主题：marketdata_subscribe
-	subCh, err := g.consumer.Consume(context.Background(), "marketdata_subscribe", "subscription_gateway_group")
+	subCh, err := g.consumer.Consume(context.Background(), kafka.TopicSubscribe, "subscription_gateway_group")
 	if err != nil {
 		log.Fatalf("Failed to start Subscription Kafka consumer: %v", err)
 	}

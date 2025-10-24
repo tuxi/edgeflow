@@ -241,7 +241,7 @@ func (h *TickerGateway) ServeWS(c *gin.Context) {
 // 监听ticker价格变化，优先级高
 func (g *TickerGateway) listenForTickerUpdates() {
 	// Ticker 高频主题
-	tickerCh, err := g.consumer.Consume(context.Background(), "marketdata_ticker", "ticker_gateway_group")
+	tickerCh, err := g.consumer.Consume(context.Background(), kafka.TopicTicker, "ticker_gateway_group")
 	if err != nil {
 		log.Fatalf("未能启动Ticker的kafka消费者： %v", err)
 	}

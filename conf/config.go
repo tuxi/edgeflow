@@ -17,6 +17,7 @@ type Okx struct {
 	ApiKey    string `yaml:"apiKey"`
 	SecretKey string `yaml:"secretKey"`
 	Password  string `yaml:"password"`
+	Simulated bool   `yaml:"simulated"`
 }
 
 type Db struct {
@@ -121,17 +122,16 @@ type Config struct {
 	MaxPingCount int    `yaml:"max-ping-count"`
 	ExternalURL  string `yaml:"external_url"`
 
-	Webhook   WebhookConfig `yaml:"webhook"`
-	Okx       `yaml:"okx"`
-	Db        `yaml:"database"`
-	Simulated bool           `yaml:"simulated"`
-	Strategy  StrategyConfig `yaml:"strategy"`
-	Log       LogConfig      `yaml:"log"`
-	Jwt       JwtConfig      `yaml:"jwt"`
-	Redis     RedisConfig    `yaml:"redis"`
-	Email     EmailCofig     `yaml:"email"`
-	Apple     AppleConfig    `yaml:"apple"`
-	Kafka     KafkaConfig    `yaml:"kafka"`
+	Webhook  WebhookConfig `yaml:"webhook"`
+	Okx      `yaml:"okx"`
+	Db       `yaml:"database"`
+	Strategy StrategyConfig `yaml:"strategy"`
+	Log      LogConfig      `yaml:"log"`
+	Jwt      JwtConfig      `yaml:"jwt"`
+	Redis    RedisConfig    `yaml:"redis"`
+	Email    EmailCofig     `yaml:"email"`
+	Apple    AppleConfig    `yaml:"apple"`
+	Kafka    KafkaConfig    `yaml:"kafka"`
 }
 
 var AppConfig Config

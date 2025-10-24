@@ -631,7 +631,7 @@ func (s *OKXCandleService) handleCandles(dataArr []interface{}, period string, i
 	// 5. 写入 Kafka
 	go func() {
 		// 主题：marketdata_subscribe (用于按需订阅和过滤)
-		topic := "marketdata_subscribe"
+		topic := kafka.TopicSubscribe
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 		defer cancel()
 		if err := s.producer.Produce(ctx, topic, messages...); err != nil {
