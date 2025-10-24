@@ -2,9 +2,17 @@
 
 本文档总结了在 Ubuntu 上安装 Kafka、配置 KRaft 模式、处理下载中断、以及 Docker 容器访问 Kafka 的完整流程。
 
+# 按照java
+```shell
+ apt update
+ apt install -y openjdk-17-jdk
+```
+
 # 1. Kafka 下载
    由于新加坡节点访问 Apache 官方源可能很慢，可使用断点续传工具 aria2c。
    bash
+   apt  install aria2
+   cd /opt
    aria2c -x 16 -s 8 https://archive.apache.org/dist/kafka/3.7.0/kafka_2.13-3.7.0.tgz
 # -x 16：最多 16 个连接
 # -s 8：分 8 个线程下载
@@ -23,12 +31,13 @@ cd /opt
 tar -xzf kafka_2.13-3.7.0.tgz
 mv kafka_2.13-3.7.0 kafka
 
+
 # 创建数据目录
 mkdir -p /opt/kafka/data
 ## 3. Kafka 配置（单节点 KRaft 模式，Docker 可访问宿主机）
 
 # 编辑 /opt/kafka/config/kraft/server.properties
-nano /opt/kafka/config/kraft/server.properties
+vim /opt/kafka/config/kraft/server.properties
 text
 # ------------------
 # Broker & Controller 配置
@@ -50,6 +59,9 @@ inter.broker.listener.name=PLAINTEXT
 # 注释必须独占一行，不要跟在配置行后面
 ## 4. 启动 Kafka
 
+# 初始化kafka
+bin/kafka-storage.sh format   --config config/kraft/server.properties   --cluster-id $(bin/kafka-storage.sh random-uuid)
+
 # 手动启动
 cd /opt/kafka
 bin/kafka-server-start.sh -daemon config/kraft/server.properties
@@ -62,11 +74,14 @@ tail -f logs/server.log
 # 停止 Kafka
 bin/kafka-server-stop.sh
 
+# 创建topic
+bin/kafka-topics.sh --bootstrap-server 172.17.0.1:9092   --create --topic marketdata_subscribe   --partitions 1   --replication-factor 1
+
 # 如果提示 No kafka server to stop，说明 Kafka 当前没有运行，可直接启动
 ## 5. 使用 systemd 管理 Kafka（推荐）
 
 # 创建 systemd 服务文件 /etc/systemd/system/kafka.service
-nano /etc/systemd/system/kafka.service
+vim /etc/systemd/system/kafka.service
 ini
 [Unit]
 Description=Apache Kafka Server
@@ -74,8 +89,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
-Group=ubuntu
+User=root
+Group=root
 ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties
 ExecStop=/opt/kafka/bin/kafka-server-stop.sh
 Restart=on-failure
