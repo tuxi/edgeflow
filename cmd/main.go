@@ -86,9 +86,13 @@ func main() {
 
 	redisHost := os.Getenv("REDIS_HOST")
 	redisPort := os.Getenv("REDIS_PORT")
+	redisPassword := os.Getenv("REDIS_PASSWORD")
 	redisAddr := fmt.Sprintf("%s:%s", redisHost, redisPort)
 	if redisHost == "" || redisPort == "" {
 		redisAddr = conf.AppConfig.Redis.Addr
+	}
+	if redisPassword != "" {
+		appCfg.Redis.Password = redisPassword
 	}
 	appCfg.Redis.Addr = redisAddr
 
