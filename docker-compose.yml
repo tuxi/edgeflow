@@ -1,5 +1,3 @@
-version: '3.8' # 推荐使用较新的版本
-
 services:
   # 您的项目服务
   edgeflow:
