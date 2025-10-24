@@ -30,7 +30,7 @@ func (dao *hyperLiquidDao) WhaleUpsertBatch(ctx context.Context, whales []*entit
 			Columns:   []clause.Column{{Name: "address"}},
 			UpdateAll: true,
 		}).
-		CreateInBatches(whales, 100).Error
+		CreateInBatches(whales, 60).Error
 }
 
 // ---------------------------
@@ -57,7 +57,7 @@ func (dao *hyperLiquidDao) WhaleStatUpsertBatch(ctx context.Context, wsList []*e
 			Columns:   []clause.Column{{Name: "address"}},
 			UpdateAll: true,
 		}).
-		CreateInBatches(wsList, 100).Error
+		CreateInBatches(wsList, 60).Error
 }
 
 // ---------------------------
