@@ -233,7 +233,10 @@ func (h *HyperLiquidService) fetchData() error {
 		return err
 	}
 	// 日活跃至少10万， 账户价值至少 100万，取前 100 名
-	return h.updateWhaleLeaderboard(rawData, 100000.0, 1000000.0, 130)
+	go func() {
+		_ = h.updateWhaleLeaderboard(rawData, 100000.0, 1000000.0, 130)
+	}()
+	return nil
 }
 
 func (h *HyperLiquidService) fetchLeaderboard() ([]types.TraderPerformance, error) {
@@ -390,7 +393,6 @@ func (h *HyperLiquidService) updateWhaleLeaderboard(rawLeaderboard []types.Trade
 		return nil
 	}
 
-	ctx := context.Background()
 	//dayVlmThreshold := 100000.0 // 日交易量阈值，可调整
 	// 1️⃣ 筛选活跃鲸鱼
 	var activeList []types.TraderPerformance
@@ -451,6 +453,9 @@ func (h *HyperLiquidService) updateWhaleLeaderboard(rawLeaderboard []types.Trade
 		// WhaleStat 排行榜数据
 		whaleStats = append(whaleStats, &item)
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	// 5️⃣ 批量 Upsert Whale 基础信息
 	if err := h.dao.WhaleUpsertBatch(ctx, whales); err != nil {
