@@ -177,3 +177,7 @@ type CustomLeaderboardEntry struct {
 type CustomLeaderboardReq struct {
 	Limit int64 `json:"limit" form:"address"`
 }
+type CustomLeaderboardEntryRes struct {
+	Data                 []CustomLeaderboardEntry `json:"data"`
+	LastUpdatedTimestamp int64                    `json:"last-updated-timestamp"`
+}

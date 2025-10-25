@@ -62,6 +62,8 @@ const (
 	WhaleWinRateStatsKey = "whale:winrate:stats"
 	// 用于存储最终胜率排序集（ZSET）的Redis密钥
 	WhaleWinRateZSetKey = "whale:winrate:ranking"
+	// 用于存储 Unix 时间戳 记录自研排行榜上次更新日期
+	WhaleWinRateLastUpdatedKey = "whale:winrate:last_updated_ts"
 )
 
 // 账单类型

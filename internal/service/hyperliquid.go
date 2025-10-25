@@ -730,19 +730,18 @@ func (h *HyperLiquidService) updateWhaleWinRates(ctx context.Context) error {
 	}
 
 	// --- 批量更新 Redis ZSET 排行榜 ---
-	// Redis ZSET 应该被视为排行榜的临时/缓存存储
-
-	// 将最终的胜率结果存入 Redis ZSET，实现高性能、低延迟的排行榜（Ranking）
-	// 清除旧的排行榜数据
-	if err := h.rc.Del(ctx, consts.WhaleWinRateZSetKey).Err(); err != nil {
-		log.Printf("HyperLiquidService Warning: 清空旧的redis胜率失败: %v", err)
-	}
-
-	// 批量写入新的排行榜数据 (如果 winRateMembers 为空，ZAdd 不会报错)
+	// ⚠️ 修正：必须移除 DEL 命令！ZAdd 本身会覆盖已有的 Member，不会影响未更新的 Member。
 	if len(winRateMembers) > 0 {
 		if err := h.rc.ZAdd(ctx, consts.WhaleWinRateZSetKey, winRateMembers...).Err(); err != nil {
+			// 这里的错误处理应该更细致
 			return fmt.Errorf("failed to update Redis ZSET: %w", err)
 		}
+	}
+	// 记录排行榜最后更新日期
+	now := time.Now().UnixMilli()
+	if err := h.rc.Set(ctx, consts.WhaleWinRateLastUpdatedKey, now, 0).Err(); err != nil {
+		// 记录警告，如果失败不应中断整个任务，因为排行榜数据已经更新成功。
+		log.Printf("HyperLiquidService Warning: 写入胜率更新时间到 Redis 失败: %v", err)
 	}
 
 	log.Printf("HyperLiquidService：已成功更新%v条DB和Redis ZSET中的%d鲸鱼获胜率。", len(winRateMembers), len(finalResults))
@@ -751,7 +750,7 @@ func (h *HyperLiquidService) updateWhaleWinRates(ctx context.Context) error {
 }
 
 // 从 Redis ZSET 中查询 Top N 我们自己计算的鲸鱼胜率排行榜。
-func (h *HyperLiquidService) GetWinRateLeaderboard(ctx context.Context, limit int64) ([]model.CustomLeaderboardEntry, error) {
+func (h *HyperLiquidService) GetWinRateLeaderboard(ctx context.Context, limit int64) (*model.CustomLeaderboardEntryRes, error) {
 
 	// 1. 使用 ZREVRANGE 命令从 ZSET 中按分数（胜率）降序获取成员和分数。
 	// ZREVRANGE key start stop WITHSCORES
@@ -762,7 +761,7 @@ func (h *HyperLiquidService) GetWinRateLeaderboard(ctx context.Context, limit in
 	result, err := zRangeArgs.Result()
 	if err != nil {
 		if err == redis.Nil {
-			return []model.CustomLeaderboardEntry{}, nil // 列表为空
+			return nil, nil // 列表为空
 		}
 		return nil, fmt.Errorf("redis ZREVRANGE failed: %w", err)
 	}
@@ -778,11 +777,22 @@ func (h *HyperLiquidService) GetWinRateLeaderboard(ctx context.Context, limit in
 		}
 	}
 
-	// 4. (可选但推荐) 批量查询 MySQL 获取其他详情
-	// 如果需要 TotalTrades, CalculationStartTime 等字段，则根据 leaderboard 中的 Address 批量查询 MySQL。
-	// 这只需要一次高效的 MySQL IN 查询，性能影响最小。
-
-	return leaderboard, nil
+	// 查询上次更新日期
+	lastUpdate, err := h.rc.Get(ctx, consts.WhaleWinRateLastUpdatedKey).Int64()
+	if err == nil {
+		return &model.CustomLeaderboardEntryRes{
+			Data:                 leaderboard,
+			LastUpdatedTimestamp: time.Now().Unix(),
+		}, nil
+	} else {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
+		return &model.CustomLeaderboardEntryRes{
+			Data:                 leaderboard,
+			LastUpdatedTimestamp: lastUpdate,
+		}, nil
+	}
 }
 
 // 计算单个地址的增量胜率
