@@ -22,14 +22,14 @@ services:
       KAFKA_HOST: 43.156.94.29
       KAFKA_PORT: 9092
       # REDIS/MYSQL (使用宿主机 IP 或其他可访问地址)
-      REDIS_HOST: 172.17.0.1
+      REDIS_HOST: 43.156.94.29
       REDIS_PORT: 6379
       REDIS_PASSWORD: Yang308719@#
       # docker compose 使用腾讯云的公网ip
-      DB_HOST: 172.17.0.1
+      DB_HOST: 43.156.94.29
       DB_PORT: 3306
-      DB_USER: root
-      DB_PASSWORD: root
+      DB_USER: edgeflow_user
+      DB_PASSWORD: Yang308719@#
       DB_NAME: strategy_db
       TEST: ""
 

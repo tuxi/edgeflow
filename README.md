@@ -129,3 +129,11 @@ docker system prune -f
 ## 3. 部署和验证
 
 - 最终测试连接，重启应用程序，完成新架构的部署。
+
+### docker
+```dockerfile
+cd /var/www/edgeflow
+docker build -t edgeflow .
+docker run --restart=always -d --net strategy-net --name edgeflow -e KAFKA_HOST=10.35.76.97 -e KAFKA_PORT=9092 -e REDIS_HOST=172.17.0.1 -e REDIS_PORT=6379 -e DB_HOST=172.17.0.1 -e DB_PORT=3306 -e DB_USER=root -e DB_PASSWORD=root -e DB_NAME=strategy_db -test -p 12180:12180 -v /var/www/edgeflow/conf:/app/edgeflow/conf  edgeflow -test
+
+```
