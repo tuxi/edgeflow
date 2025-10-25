@@ -57,17 +57,42 @@ CREATE TABLE `hyper_whale_leaderboard` (
                                    vlm_month DECIMAL(32,10),
                                    vlm_all_time DECIMAL(32,10),
 
-                                   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
                                    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
                                     UNIQUE KEY `uniq_address` (`address`)
 #                                    FOREIGN KEY (address) REFERENCES whale(address) -- 不需要外键
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='hyper鲸鱼排行';
 
+# 增加一些自主计算胜率的字段
+ALTER TABLE `hyper_whale_leaderboard`
+    ADD COLUMN `win_rate_updated_at` datetime NULL COMMENT '胜率数据最后更新时间' AFTER `address`,
+    ADD COLUMN `win_rate_calc_start_time` bigint(20) NULL COMMENT '开始统计胜率的时间' AFTER `win_rate_updated_at`,
+    ADD COLUMN `last_successful_time` bigint(20) NULL COMMENT '最后成功保存胜率快照的时间' AFTER `win_rate_calc_start_time`,
+    ADD COLUMN `total_accumulated_trades` bigint(20) NULL COMMENT '总平仓笔数' AFTER `last_successful_time`,
+    ADD COLUMN `total_accumulated_profits` bigint(20) NULL COMMENT '总的盈利单数' AFTER `total_accumulated_trades`,
+    ADD COLUMN `total_accumulated_pnl` double NULL COMMENT '已实现的总盈利' AFTER `total_accumulated_profits`;
+
+
+CREATE TABLE `whale_winrate_snapshots` (
+                                           `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                                           `address` VARCHAR(64) NOT NULL COMMENT '鲸鱼地址',
+                                           `start_time` DATETIME NOT NULL COMMENT '本次计算的开始时间 (用于聚合查询)',
+                                           `end_time` DATETIME NOT NULL COMMENT '本次计算的结束时间 (用于增量基线)',
+                                           `total_closed_trades` BIGINT NOT NULL COMMENT '该时间块的总平仓笔数',
+                                           `winning_trades` BIGINT NOT NULL COMMENT '该时间块的盈利笔数',
+                                           `total_pnl` DOUBLE NOT NULL COMMENT '该时间块的总PnL',
+                                           `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+                                           PRIMARY KEY (`id`),
+
+                                           INDEX `idx_address` (`address`),
+                                           INDEX `idx_start_time` (`start_time`),
+                                           INDEX `idx_end_time` (`end_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='鲸鱼胜率时间块快照表';
 
 CREATE TABLE `hyper_whale_position` (
                                    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-                                   `address` VARCHAR(100) NOT NULL COMMENT '用户地址',
+                                   `address` VARCHAR(64) NOT NULL COMMENT '用户地址',
                                    `coin` VARCHAR(50) NOT NULL COMMENT '币种',
                                    `type` VARCHAR(20) NOT NULL COMMENT '仓位类型(oneWay单向/twoWay双向)',
                                    `side` VARCHAR(20) NOT NULL COMMENT '仓位方向(long/short)',

@@ -38,7 +38,10 @@ type HyperWhaleAccountRes struct {
 }
 
 type HyperWhaleFillOrdersReq struct {
-	Address string `form:"address" json:"address"`
+	Address         string `form:"address" json:"address"`
+	Start           int64  `form:"start" json:"start"`
+	MaxLookbackDays int    `form:"max_lookback_days" json:"max_lookback_days"`
+	PrevWindowHours int    `form:"prev_window_hours" json:"prev_window_hours"`
 }
 
 type HyperWhaleOpenOrdersReq struct {
@@ -145,4 +148,32 @@ type HyperWhalePosition struct {
 	FundingFee string    `json:"funding_fee"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	CreatedAt  time.Time `json:"created_at"`
+}
+
+// 用于存储累积状态
+type WinRateStats struct {
+	LastProcessedTime  int64 // 上次处理的时间戳 (毫秒级)
+	AccumulatedProfits int64 // 累积盈利成交笔数
+	AccumulatedTotals  int64 // 累积总平仓成交笔数
+	FirstProcessedTime int64 // 首次处理时间
+}
+
+// 鲸鱼胜率返回结构体，包含所有必须返回的值
+type WinRateResult struct {
+	Address     string
+	WinRate     float64
+	TotalTrades int64
+	MaxTime     int64
+	IsSuccess   bool // 新增：标记本次计算是否成功
+}
+
+// 用于展示我们自己计算的鲸鱼排行榜中的单个条目
+type CustomLeaderboardEntry struct {
+	Rank    int     `json:"rank"`     // 排名 (1-based)
+	Address string  `json:"address"`  // 鲸鱼地址
+	WinRate float64 `json:"win_rate"` // 胜率 (Score)
+}
+
+type CustomLeaderboardReq struct {
+	Limit int64 `json:"limit" form:"address"`
 }

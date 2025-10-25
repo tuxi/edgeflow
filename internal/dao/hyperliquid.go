@@ -26,4 +26,12 @@ type HyperLiquidDao interface {
 	GetTopWhalePositions(ctx context.Context, req model.WhalePositionFilterReq) (*model.WhalePositionFilterRes, error)
 	// 查询某个用户的排行数据
 	WhaleLeaderBoardInfoGetByAddress(ctx context.Context, address string) (*model.HyperWhaleLeaderBoard, error)
+	// 批量保存胜率到
+	UpdateWhaleStatsWinRateBatch(ctx context.Context, results []model.WinRateResult) error
+	// 写入鲸鱼胜率快照
+	CreateSnapshotAndUpdateStatsT(ctx context.Context, snapshot *entity.WhaleWinRateSnapshot, stats entity.HyperLiquidWhaleStat) error
+	// 根据地址获取鲸鱼
+	GetWhaleStatByAddress(ctx context.Context, address string) (*entity.HyperLiquidWhaleStat, error)
+	// 更新鲸鱼最后胜率时间
+	UpdateWhaleLastSuccessfulWinRateTime(ctx context.Context, address string, last int64) error
 }

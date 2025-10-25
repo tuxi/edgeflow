@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
+	"golang.org/x/time/rate"
 	"log"
 	"math"
 	"sort"
@@ -21,6 +22,9 @@ import (
 	"sync"
 	"time"
 )
+
+// 更新鲸鱼胜率的固定时间为1小时一次
+const updateWinRateTimeChunk = 1 * time.Hour
 
 type HyperLiquidService struct {
 	dao                        dao.HyperLiquidDao
@@ -30,6 +34,9 @@ type HyperLiquidService struct {
 	updatePositionsLock        sync.Mutex
 	leaderboardLock            sync.Mutex
 	isUpdateLeaderboardLoading bool // 是否正在更新排行数据
+
+	winRateLock          sync.Mutex // 胜率计算相关的锁和状态
+	isWinRateCalculating bool       // 是否正在计算胜率
 }
 
 func NewHyperLiquidService(dao dao.HyperLiquidDao, rc *redis.Client, marketService *MarketDataService) *HyperLiquidService {
@@ -113,6 +120,49 @@ func (h *HyperLiquidService) StartLeaderboardUpdater(ctx context.Context, interv
 				}()
 			case <-ctx.Done(): // context的退出机制
 				fmt.Println("HyperLiquidService LeaderboardUpdater stopped by context.")
+				return
+			}
+		}
+	}()
+}
+
+// 开启定时任务：每隔N小时更新一次鲸鱼胜率
+func (h *HyperLiquidService) StartWinRateCalculator(ctx context.Context) {
+	go func() {
+		// 首次执行延迟，15 分钟后
+		timer := time.NewTimer(time.Minute * 2)
+		defer timer.Stop()
+
+		for {
+			select {
+			case <-timer.C:
+				timer.Reset(updateWinRateTimeChunk)
+
+				h.winRateLock.Lock()
+				if h.isWinRateCalculating {
+					h.winRateLock.Unlock()
+					continue
+				}
+				h.isWinRateCalculating = true
+				h.winRateLock.Unlock()
+
+				go func() {
+					defer func() {
+						h.winRateLock.Lock()
+						h.isWinRateCalculating = false
+						h.winRateLock.Unlock()
+					}()
+
+					// 使用新的 Context，确保 DB 和 API 调用有超时，2小时内成功就行
+					winRateCtx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+					defer cancel()
+
+					if err := h.updateWhaleWinRates(winRateCtx); err != nil {
+						log.Printf("HyperLiquidService updateWhaleWinRates error: %v\n", err)
+					}
+				}()
+			case <-ctx.Done():
+				fmt.Println("HyperLiquidService WinRateCalculator stopped by context.")
 				return
 			}
 		}
@@ -234,7 +284,7 @@ func (h *HyperLiquidService) fetchData() error {
 	}
 	// 日活跃至少10万， 账户价值至少 100万，取前 100 名
 	go func() {
-		_ = h.updateWhaleLeaderboard(rawData, 100000.0, 1000000.0, 130)
+		_ = h.updateWhaleLeaderboard(rawData, 100000.0, 1000000.0, 100)
 	}()
 	return nil
 }
@@ -255,11 +305,14 @@ func (h *HyperLiquidService) fetchLeaderboard() ([]types.TraderPerformance, erro
 }
 
 // 用户交易成交订单历史
-func (h *HyperLiquidService) WhaleUserFillOrdersHistory(ctx context.Context, userAddress string) (orders []*types.UserFillOrder, err error) {
-	rdsKey := consts.UserFillOrderKey + ":1:" + userAddress
+func (h *HyperLiquidService) WhaleUserFillOrdersHistory(ctx context.Context, req model.HyperWhaleFillOrdersReq) (data *types.UserFillOrderData, err error) {
+	if req.MaxLookbackDays <= 0 {
+		req.MaxLookbackDays = 1
+	}
+	rdsKey := fmt.Sprintf("%s:%v:%v:%v", consts.UserFillOrderKey+":1:"+req.Address, req.Start, req.MaxLookbackDays, req.PrevWindowHours)
 	bytes, err := h.rc.Get(ctx, rdsKey).Bytes()
 
-	var res []*types.UserFillOrder
+	var res *types.UserFillOrderData
 	if err == nil {
 		err = json.Unmarshal(bytes, &res)
 		if err == nil {
@@ -276,7 +329,7 @@ func (h *HyperLiquidService) WhaleUserFillOrdersHistory(ctx context.Context, use
 		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
 	)
 
-	res, err = restClient.UserFillOrdersIn24Hours(ctx, userAddress)
+	res, err = restClient.UserFillOrdersIn24Hours(ctx, req.Address, req.Start, req.MaxLookbackDays, req.PrevWindowHours)
 	if err != nil {
 		log.Printf("HyperLiquidService fetchUserFillOrdersHistory error: %v", err)
 		return nil, err
@@ -289,7 +342,7 @@ func (h *HyperLiquidService) WhaleUserFillOrdersHistory(ctx context.Context, use
 	}
 
 	// 存储redis中，30秒过期
-	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*30).Err()
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*5).Err()
 	if err != nil {
 		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
 
@@ -470,7 +523,7 @@ func (h *HyperLiquidService) updateWhaleLeaderboard(rawLeaderboard []types.Trade
 func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 
 	// 1. 获取前100鲸鱼，真正的大鲸鱼日交易量很低的，这里使用账户资产查询，不使用交易量
-	topWhales, err := h.dao.GetTopWhales(ctx, "account_value", 120)
+	topWhales, err := h.dao.GetTopWhales(ctx, "account_value", 100)
 
 	if err != nil {
 		return err
@@ -569,6 +622,344 @@ func (h *HyperLiquidService) updatePositions(ctx context.Context) error {
 	h.analyzePositions(ctx, snapshots, h.marketService.GetPrices())
 
 	return nil
+}
+
+// 更新鲸鱼胜率
+func (h *HyperLiquidService) updateWhaleWinRates(ctx context.Context) error {
+
+	const (
+		// 配置：每日任务，总耗时不超过 1 小时
+		TotalWhales       = 10000           // 假设需要计算 10000 个鲸鱼
+		TargetDurationSec = 3600            // 目标时间 1 小时 = 3600 秒
+		TargetRPS         = rate.Limit(0.2) // 目标速率：越 0.2 次/秒 (即 5 秒/次)，让等待更明显
+		// 将初始令牌桶容量降至 1，迫使第二个请求开始就立即等待 5 秒
+		BurstLimit = 1
+
+		// 保护本地资源的并发限制
+		ConcurrentLimit = 5
+	)
+
+	// 1. 获取需要计算胜率的鲸鱼地址列表
+	topWhales, err := h.dao.GetTopWhales(ctx, "account_value", TotalWhales)
+	if err != nil {
+		return fmt.Errorf("HyperLiquidService 计算胜率中获取鲸鱼数据失败: %w", err)
+	}
+
+	// 如果没有鲸鱼，直接返回
+	if len(topWhales) == 0 {
+		return nil
+	}
+
+	// 2. 初始化速率限制器 (确保任务平稳在 1 小时内完成)
+	limiter := rate.NewLimiter(TargetRPS, BurstLimit)
+
+	var wg sync.WaitGroup
+
+	// 用于保护本地并发数量的 Channel
+	concurrentChan := make(chan struct{}, ConcurrentLimit)
+
+	// 用于收集计算结果的 Channel (缓冲区设置为鲸鱼总数)
+	results := make(chan *model.WinRateResult, len(topWhales))
+
+	log.Printf("HyperLiquidService：开始计算%d个鲸鱼的获胜率，最大获胜率为%.2f RPS...", len(topWhales), TargetRPS)
+
+	for _, address := range topWhales {
+		// 增加计时和日志
+		//waitStart := time.Now()
+		// A. 速率控制 (令牌桶等待)
+		// 阻塞，直到速率限制器允许发送下一个请求
+		if err := limiter.Wait(ctx); err != nil {
+			log.Printf("HyperLiquidService：WinRate任务在速率限制期间取消: %v", err)
+			break // Context 被取消，退出循环
+		}
+
+		//waitDuration := time.Since(waitStart)
+		// 打印等待时间超过 10 毫秒的请求，证明限速器正在阻塞主循环
+		//if waitDuration > 10*time.Millisecond {
+		//	log.Printf("HyperLiquidService [速率限制成功]%s已被阻止 %v", address, waitDuration)
+		//}
+
+		// B. 本地并发槽控制
+		concurrentChan <- struct{}{}
+		wg.Add(1)
+
+		go func(addr string) {
+			defer wg.Done()
+			defer func() { <-concurrentChan }()
+
+			// 内部包含指数退避重试的计算逻辑
+			result, err := h.calculateIncrementalWinRate(ctx, addr)
+
+			if err != nil {
+				// 打印错误，但任务仍将 result (包含上次成功数据) 发送到 results Channel
+				log.Printf("HyperLiquidService：未能计算获胜率 %s: %v", addr, err)
+			}
+
+			if err != nil {
+
+			}
+
+			// 无论成功与否，将结果发送到 Channel
+			results <- result
+		}(address)
+	}
+
+	// 3. 等待所有 Goroutine 完成
+	wg.Wait()
+	close(results)
+
+	log.Println("HyperLiquidService：所有胜率计算Goroutines已完成。启动数据库和Redis更新。")
+
+	// 4. 收集和准备最终数据
+	var finalResults []model.WinRateResult
+	var winRateMembers []*redis.Z
+
+	for res := range results {
+		// 确保地址不为空 (排除可能的零值结果)
+		if res != nil && res.Address != "" {
+			finalResults = append(finalResults, *res)
+
+			// 只有当总交易笔数 > 0 时，才将其添加到 Redis ZSET 中进行排名
+			if res.TotalTrades > 0 {
+				winRateMembers = append(winRateMembers, &redis.Z{
+					Score:  res.WinRate,
+					Member: res.Address,
+				})
+			}
+		}
+	}
+
+	// --- 批量更新 Redis ZSET 排行榜 ---
+	// Redis ZSET 应该被视为排行榜的临时/缓存存储
+
+	// 将最终的胜率结果存入 Redis ZSET，实现高性能、低延迟的排行榜（Ranking）
+	// 清除旧的排行榜数据
+	if err := h.rc.Del(ctx, consts.WhaleWinRateZSetKey).Err(); err != nil {
+		log.Printf("HyperLiquidService Warning: 清空旧的redis胜率失败: %v", err)
+	}
+
+	// 批量写入新的排行榜数据 (如果 winRateMembers 为空，ZAdd 不会报错)
+	if len(winRateMembers) > 0 {
+		if err := h.rc.ZAdd(ctx, consts.WhaleWinRateZSetKey, winRateMembers...).Err(); err != nil {
+			return fmt.Errorf("failed to update Redis ZSET: %w", err)
+		}
+	}
+
+	log.Printf("HyperLiquidService：已成功更新%v条DB和Redis ZSET中的%d鲸鱼获胜率。", len(winRateMembers), len(finalResults))
+
+	return nil
+}
+
+// 从 Redis ZSET 中查询 Top N 我们自己计算的鲸鱼胜率排行榜。
+func (h *HyperLiquidService) GetWinRateLeaderboard(ctx context.Context, limit int64) ([]model.CustomLeaderboardEntry, error) {
+
+	// 1. 使用 ZREVRANGE 命令从 ZSET 中按分数（胜率）降序获取成员和分数。
+	// ZREVRANGE key start stop WITHSCORES
+	// 0 是第一名，limit-1 是第 limit 名 (0-based index)
+	zRangeArgs := h.rc.ZRevRangeWithScores(ctx, consts.WhaleWinRateZSetKey, 0, limit-1)
+
+	// 2. 检查 Redis 错误
+	result, err := zRangeArgs.Result()
+	if err != nil {
+		if err == redis.Nil {
+			return []model.CustomLeaderboardEntry{}, nil // 列表为空
+		}
+		return nil, fmt.Errorf("redis ZREVRANGE failed: %w", err)
+	}
+
+	// 3. 转换结果为业务结构体
+	leaderboard := make([]model.CustomLeaderboardEntry, len(result))
+	for i, z := range result {
+		// 由于是从 0 开始的 index，排名是 i + 1
+		leaderboard[i] = model.CustomLeaderboardEntry{
+			Rank:    i + 1,
+			Address: z.Member.(string), // ZSET member 是鲸鱼地址
+			WinRate: z.Score,           // ZSET score 是胜率
+		}
+	}
+
+	// 4. (可选但推荐) 批量查询 MySQL 获取其他详情
+	// 如果需要 TotalTrades, CalculationStartTime 等字段，则根据 leaderboard 中的 Address 批量查询 MySQL。
+	// 这只需要一次高效的 MySQL IN 查询，性能影响最小。
+
+	return leaderboard, nil
+}
+
+// 计算单个地址的增量胜率
+func (h *HyperLiquidService) calculateIncrementalWinRate(ctx context.Context, address string) (*model.WinRateResult, error) {
+	//  从 DB 读取当前态
+	stats, err := h.dao.GetWhaleStatByAddress(ctx, address)
+	if err != nil {
+		return nil, fmt.Errorf("HyperLiquidService：查找鲸鱼状态失败: %w", err)
+	}
+
+	// 确定增量拉取基线 'since' 和 绝对基线 'AbsStart'
+	const initialBacktrackDays = -10 // 初始回溯 10 天
+	var initialBacktrackTime = time.Now().AddDate(0, 0, initialBacktrackDays).UnixMilli()
+
+	// 是不是当前用户首次运行胜率计算
+	isInitialRun := true
+	if stats.WinRateCalculationStartTime != nil && *stats.WinRateCalculationStartTime > 0 {
+		isInitialRun = false
+	}
+
+	// 本次拉取订单的开始时间
+	var since int64
+	// 上次如果有拉取过，就从上次时间开始拉取数据
+	if stats.LastSuccessfulTime != nil {
+		since = *stats.LastSuccessfulTime
+	}
+
+	// 首次运行，从回溯开始
+	if isInitialRun {
+		since = initialBacktrackTime
+	}
+
+	// 确定本次拉取窗口 [since, currentEnd]
+	targetEnd := since + int64(updateWinRateTimeChunk/time.Millisecond)
+	currentEnd := min(targetEnd, time.Now().UnixMilli()) // 目标是计算[start, end] 需要查询的订单窗口
+
+	// 窗口已追平当前时间 (追平判断应该使用滚动基线)
+	if stats.LastSuccessfulTime != nil && currentEnd <= *stats.LastSuccessfulTime {
+		// 无需拉取，返回当前累计胜率
+		return createResultFromStat(*stats, true), nil
+	}
+
+	// 拉取增量数据
+	restClient, _ := rest.NewHyperliquidRestClient(
+		"https://api.hyperliquid.xyz",
+		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
+	)
+	// 支持 startTime 从上一次计算过的时间开始加载交易记录，这样只有第一次才会很慢
+	trades, err := restClient.UserFillOrdersByWindow(ctx, address, since, currentEnd)
+	if err != nil {
+		log.Printf("HyperLiquidService 计算胜率查找交易记录失败 error: %v", err)
+		// API 拉取失败，返回旧累计结果和错误
+		return createResultFromStat(*stats, false), err
+	}
+
+	// --- 增量聚合 ---
+	var deltaProfits int64 // 记录本次查询的交易记录中盈利次数
+	var deltaTotals int64  // 记录本次查询的交易次数，已平仓次数
+	var deltaPnL float64   // 本次查询的所有订单的总已实现盈利USDC，也可能为负亏损
+	var lastSuccessfulTime int64
+	if stats.LastSuccessfulTime != nil {
+		lastSuccessfulTime = *stats.LastSuccessfulTime
+	}
+	// ⚠️ 注意：这里不再需要 maxTime，因为窗口由 currentEnd 决定。
+	for _, trade := range trades {
+		// 双重检查增量时间
+		if trade.Time <= lastSuccessfulTime {
+			continue
+		}
+
+		// 判断是否是平仓操作 (无论盈亏)
+		if trade.IsClosed() {
+
+			// 计入总交易次数 (所有平仓操作都算，包括强平、平本、平仓换向)
+			deltaTotals++
+
+			// 解析 PnL
+			pnlValue, parseErr := strconv.ParseFloat(trade.ClosedPnl, 64)
+
+			// 只有在解析成功时，才累加 PnL 和盈利次数
+			if parseErr == nil {
+				deltaPnL += pnlValue
+
+				// 累加盈利次数
+				if pnlValue > 0.0 {
+					deltaProfits++
+				}
+			}
+			// 注意：如果 parseErr != nil，我们仍然增加了 deltaTotals，但盈亏和盈利次数都不变。
+			// 这意味着我们认为这是一个已平仓交易，但其 PnL 数据无效或缺失，这通常是 API 错误。
+			// 为了健壮性，我们通常假设平仓交易的 PnL 字段是有效的。
+		}
+	}
+
+	// 准备新的累计状态
+	newStats := updateHyperWhaleStat(stats, deltaTotals, deltaProfits, deltaPnL, currentEnd)
+	newStats.Address = address
+	if isInitialRun {
+		newStats.WinRateCalculationStartTime = &initialBacktrackTime // 首次运行时设置 AbsStart
+	}
+
+	// 处理三种场景：
+	// 场景 3: 非首次运行，且没有新交易 (deltaTotals == 0)
+	if deltaTotals == 0 && !isInitialRun {
+		// 只更新 LastSuccessfulTime，将窗口推进，不更新累计总数，不创建快照。
+		err := h.dao.UpdateWhaleLastSuccessfulWinRateTime(ctx, address, currentEnd)
+		return createResultFromStat(newStats, err == nil), err
+	}
+
+	// 场景 1/2: 首次运行 (isInitialRun) 或 有新交易 (deltaTotals > 0)
+	var snapshot *entity.WhaleWinRateSnapshot
+	if deltaTotals > 0 {
+		// 仅当有交易时才创建快照
+		snapshot = &entity.WhaleWinRateSnapshot{
+			Address:           address,
+			StartTime:         time.UnixMilli(since),
+			EndTime:           time.UnixMilli(currentEnd),
+			TotalClosedTrades: int64(deltaTotals),
+			WinningTrades:     int64(deltaProfits),
+			TotalPnL:          deltaPnL,
+		}
+	}
+
+	err = h.dao.CreateSnapshotAndUpdateStatsT(ctx, snapshot, newStats)
+
+	// 返回最终结果
+	return createResultFromStat(newStats, err == nil), err
+}
+
+// 计算新的累计状态
+func updateHyperWhaleStat(oldStat *entity.HyperLiquidWhaleStat, dt, dp int64, dpnl float64, currentEnd int64) entity.HyperLiquidWhaleStat {
+	newStat := *oldStat // 复制旧状态
+
+	newStat.LastSuccessfulTime = &currentEnd
+	totalAccumulatedTrades := dt
+	if oldStat.TotalAccumulatedTrades != nil {
+		totalAccumulatedTrades += *oldStat.TotalAccumulatedTrades
+	}
+	newStat.TotalAccumulatedTrades = &totalAccumulatedTrades
+
+	totalAccumulatedProfits := dp
+	if oldStat.TotalAccumulatedProfits != nil {
+		totalAccumulatedProfits += *oldStat.TotalAccumulatedProfits
+	}
+	newStat.TotalAccumulatedProfits = &totalAccumulatedProfits
+
+	totalAccumulatedPnL := dpnl
+	if oldStat.TotalAccumulatedPnL != nil {
+		totalAccumulatedPnL += *oldStat.TotalAccumulatedPnL
+	}
+	newStat.TotalAccumulatedPnL = &totalAccumulatedPnL
+	now := time.Now()
+	newStat.WinRateUpdatedAt = &now
+
+	return newStat
+}
+
+// 创建最终返回的 WinRateResult
+func createResultFromStat(stats entity.HyperLiquidWhaleStat, isSuccess bool) *model.WinRateResult {
+	var totalTrades int64
+	if stats.TotalAccumulatedTrades != nil {
+		totalTrades = *stats.TotalAccumulatedTrades
+	}
+	var lastSuccessfulTime int64
+	if stats.LastSuccessfulTime != nil {
+		lastSuccessfulTime = *stats.LastSuccessfulTime
+	}
+	result := &model.WinRateResult{
+		Address:     stats.Address,
+		IsSuccess:   isSuccess,
+		TotalTrades: totalTrades,
+		MaxTime:     lastSuccessfulTime,
+	}
+	if stats.TotalAccumulatedTrades != nil && stats.TotalAccumulatedProfits != nil && *stats.TotalAccumulatedTrades > 0 {
+		result.WinRate = (float64(*stats.TotalAccumulatedProfits) / float64(*stats.TotalAccumulatedTrades)) * 100.0
+	}
+	return result
 }
 
 func (h *HyperLiquidService) GetTopWhalePositions(ctx context.Context, req model.WhalePositionFilterReq) (*model.WhalePositionFilterRedisRes, error) {

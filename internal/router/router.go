@@ -60,7 +60,8 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		h.GET("/whales/nonfunding", api.hyperHandler.WhaleUserNonFundingLedgerGet())
 		h.GET("/whales/top-positions", api.hyperHandler.TopWhalePositionsGet())
 		h.GET("/whales/positions-analyze", api.hyperHandler.TopWhalePositionsAnalyze())
-
+		// 鲸鱼排行：此排行是我们自主研发的排行指标，非hyper官方的排行规则
+		h.GET("/whales/whale-alpha-rank", api.hyperHandler.GetCustomWinRateLeaderboardHandler())
 	}
 
 	sg := base.Group("/signal", middleware.RequestValidationMiddleware())

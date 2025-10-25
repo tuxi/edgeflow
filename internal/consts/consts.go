@@ -57,6 +57,11 @@ const (
 	WhalePositionsTop                  = "whale:positions:top"
 	HyperWhaleLeaderBoardInfoByAddress = "whale:boardInfo:address"
 	WhalePositionsAnalyze              = "WhalePositionsAnalyze"
+
+	// Redis密钥，用于存储获胜率累积统计数据（哈希）
+	WhaleWinRateStatsKey = "whale:winrate:stats"
+	// 用于存储最终胜率排序集（ZSET）的Redis密钥
+	WhaleWinRateZSetKey = "whale:winrate:ranking"
 )
 
 // 账单类型

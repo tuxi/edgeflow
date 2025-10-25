@@ -16,7 +16,7 @@ func (Whale) TableName() string {
 	return "whale"
 }
 
-// 鲸鱼排行数据
+// 代表一个鲸鱼的详情数据
 type HyperLiquidWhaleStat struct {
 	Id uint `gorm:"primaryKey;column:id" json:"id"`
 
@@ -41,6 +41,25 @@ type HyperLiquidWhaleStat struct {
 	VlmWeek  float64 `gorm:"column:vlm_week;comment:周成交量" json:"vlm_week"`
 	VlmMonth float64 `gorm:"column:vlm_month;comment:月成交量" json:"vlm_month"`
 	VlmAll   float64 `gorm:"column:vlm_all_time;comment:全部时间成交量" json:"vlm_all_time"`
+
+	// 存储最新胜率滚动数据，并且是累积的最新总胜率
+	// 胜率和总交易笔数: 根据交易订单计算而来的数据，并非hyper官方api的
+	WinRateUpdatedAt *time.Time `gorm:"column:win_rate_updated_at;comment:胜率数据最后更新时间" json:"win_rate_updated_at"` // 最后一次更新胜率的时间 (用于判断数据新鲜度)
+
+	/// 【新增】胜率累计的绝对起始时间 (用于前端展示数据的追溯期)
+	WinRateCalculationStartTime *int64 `gorm:"column:win_rate_calc_start_time;comment:开始统计胜率的时间" json:"win_rate_calc_start_time"`
+
+	// 关键增量基线：上次成功快照的结束时间戳 (用于下次增量拉取的 'since')
+	LastSuccessfulTime *int64 `gorm:"column:last_successful_time;comment:最后成功保存胜率快照的时间" json:"last_successful_time"`
+
+	// 关键累计状态：所有已处理快照的总交易笔数，针对的都是关闭订单
+	TotalAccumulatedTrades *int64 `gorm:"column:total_accumulated_trades;comment:总平仓笔数" json:"total_accumulated_trades"`
+
+	// 关键累计状态：所有已处理快照的总盈利笔数 (Σ WinningTrades)
+	TotalAccumulatedProfits *int64 `gorm:"column:total_accumulated_profits;comment:总的盈利单数" json:"total_accumulated_profits"`
+
+	// 关键累计状态：所有已处理快照的总 PnL (Σ TotalPnL)
+	TotalAccumulatedPnL *float64 `gorm:"column:total_accumulated_pnl;comment:已实现的总盈利" json:"total_accumulated_pnl"`
 
 	UpdatedAt time.Time `gorm:"autoUpdateTime;column:updated_at" json:"updated_at"`
 	CreatedAt time.Time `gorm:"autoCreateTime;column:created_at" json:"created_at"`
@@ -79,4 +98,22 @@ type HyperWhalePosition struct {
 
 func (HyperWhalePosition) TableName() string {
 	return "hyper_whale_position"
+}
+
+// 存储每次成功计算后的时间块胜率的聚合结果
+type WhaleWinRateSnapshot struct {
+	ID        uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+	Address   string    `gorm:"index" json:"address"`    // 鲸鱼地址
+	StartTime time.Time `gorm:"index" json:"start_time"` // 本次计算的开始时间 (用于聚合查询)
+	EndTime   time.Time `gorm:"index" json:"end_time"`   // 本次计算的结束时间 (用于增量基线)
+	// 该时间块的总平仓笔数
+	TotalClosedTrades int64   `gorm:"column:total_closed_trades;comment:该时间块的总平仓笔数" json:"total_closed_trades"`
+	WinningTrades     int64   `gorm:"column:winning_trades;comment:该时间块的盈利笔数" json:"winning_trades"`
+	TotalPnL          float64 `gorm:"column:total_pnl;comment:该时间块的总PnL" json:"total_pnl"`
+
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+}
+
+func (WhaleWinRateSnapshot) TableName() string {
+	return "whale_winrate_snapshots"
 }

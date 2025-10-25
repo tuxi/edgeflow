@@ -4,9 +4,11 @@ import (
 	"context"
 	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
+	"errors"
 	"fmt"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"time"
 )
 
 type hyperLiquidDao struct {
@@ -132,6 +134,31 @@ func (h *hyperLiquidDao) WhaleLeaderBoardInfoGetByAddress(ctx context.Context, a
 	return whales, err
 }
 
+func (h *hyperLiquidDao) UpdateWhaleStatsWinRateBatch(ctx context.Context, results []model.WinRateResult) error {
+	if len(results) == 0 {
+		return nil
+	}
+
+	var arr []entity.HyperLiquidWhaleStat
+	for _, stat := range results {
+		t := time.UnixMilli(stat.MaxTime)
+		arr = append(arr, entity.HyperLiquidWhaleStat{
+			Address:          stat.Address,
+			WinRateUpdatedAt: &t,
+		})
+	}
+
+	// 2. 使用 OnConflict + DoUpdates 仅更新指定字段
+	return h.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			// 冲突依据字段
+			Columns: []clause.Column{{Name: "address"}},
+			// 使用 DoUpdates 明确指定要更新的字段
+			DoUpdates: clause.AssignmentColumns([]string{"win_rate", "total_closed_trades", "win_rate_updated_at"}),
+		}).
+		CreateInBatches(arr, 60).Error
+}
+
 func (h *hyperLiquidDao) GetTopWhales(ctx context.Context, period string, limit int) (address []string, err error) {
 	if limit <= 0 {
 		limit = 100
@@ -244,6 +271,63 @@ func (s *hyperLiquidDao) GetTopWhalePositions(ctx context.Context, req model.Wha
 	}, nil
 }
 
+// 创建鲸鱼胜率快照
+func (dao *hyperLiquidDao) CreateSnapshotAndUpdateStatsT(ctx context.Context, snapshot *entity.WhaleWinRateSnapshot, stat entity.HyperLiquidWhaleStat) error {
+	// 事务：写入快照并更新主表基线
+	err := dao.db.WithContext(ctx).
+		Transaction(func(tx *gorm.DB) error {
+
+			if snapshot != nil {
+				// A. 写入快照表
+				if err := tx.Create(&snapshot).Error; err != nil {
+					return err
+				}
+			}
+
+			// B. 更新主表基线时间
+			if err := tx.Model(&entity.HyperLiquidWhaleStat{}).
+				Where("address = ?", stat.Address).
+				Update("win_rate_updated_at", time.Now()).
+				Update("last_successful_time", stat.LastSuccessfulTime).
+				Update("win_rate_calc_start_time", stat.WinRateCalculationStartTime).
+				Update("total_accumulated_profits", stat.TotalAccumulatedProfits).
+				Update("total_accumulated_pnl", stat.TotalAccumulatedPnL).
+				Update("total_accumulated_trades", stat.TotalAccumulatedTrades).Error; err != nil {
+				return err
+			}
+			return nil
+		})
+	return err
+}
+
+func (dao *hyperLiquidDao) UpdateWhaleLastSuccessfulWinRateTime(ctx context.Context, address string, last int64) error {
+	err := dao.db.WithContext(ctx).
+		Model(&entity.HyperLiquidWhaleStat{}).
+		Where("address = ?", address).
+		Update("last_successful_time", last).
+		Update("win_rate_updated_at", time.Now()).
+		Error
+
+	return err
+}
+
+// 必须在 DAO 层实现获取和更新 的方法
+func (dao *hyperLiquidDao) GetWhaleStatByAddress(ctx context.Context, address string) (*entity.HyperLiquidWhaleStat, error) {
+	var stat entity.HyperLiquidWhaleStat
+
+	err := dao.db.WithContext(ctx).
+		Where("address = ?", address).
+		Find(&stat).Error // 默认查询所有列
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &entity.HyperLiquidWhaleStat{Address: address}, nil
+		}
+		return nil, err
+	}
+	return &stat, nil
+}
+
 // 筛选币种
 func filterBySymbol(symbol string) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
@@ -309,4 +393,59 @@ func (h *hyperLiquidDao) periodOrderBy(period string) string {
 
 	orderBy := fmt.Sprintf("%s DESC", period)
 	return orderBy
+}
+
+// 专门用于接收 SUM 聚合结果的结构体
+type NDayAggregateResult struct {
+	// 对应 sum(total_closed_trades) AS total_closed_trades
+	TotalClosedTrades int64 `gorm:"column:total_closed_trades"`
+
+	// 对应 sum(winning_trades) AS winning_trades
+	WinningTrades int64 `gorm:"column:winning_trades"`
+
+	// 对应 sum(total_pnl) AS total_pnl
+	TotalPnL float64 `gorm:"column:total_pnl"`
+}
+
+// GetWhaleLastNDaysWinRate 函数：计算过去 N 天的胜率（N日胜率）
+//
+// 参数:
+//
+//	ctx: Context
+//	address: 鲸鱼地址
+//	n: 过去的天数 (例如 7 为周胜率, 30 为月胜率)
+//
+// 返回:
+//
+//	*WinRateResult: 包含 N 日聚合结果
+//	error: 错误信息
+func (dao *hyperLiquidDao) GetWhaleLastNDaysWinRate(ctx context.Context, address string, n int) (*model.WinRateResult, error) {
+
+	nDaysAgo := time.Now().AddDate(0, 0, -n).Format("2006-01-02")
+
+	// 使用修正后的结构体
+	var result NDayAggregateResult
+
+	// 修正：SELECT 语句使用精确的列名和别名，与 NDayAggregateResult 匹配
+	err := dao.db.WithContext(ctx).
+		Table("whale_daily_stats").
+		Select("sum(total_closed_trades) as total_closed_trades, sum(winning_trades) as winning_trades, sum(total_pnl) as total_pnl").
+		Where("address = ?", address).
+		Where("stat_date >= ?", nDaysAgo).
+		Scan(&result).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve %d-day stats from database: %w", n, err)
+	}
+
+	// 修正：使用 NDayAggregateResult 中的 TotalClosedTrades 和 WinningTrades
+	winRate := 0.0
+	if result.TotalClosedTrades > 0 {
+		winRate = float64(result.WinningTrades) / float64(result.TotalClosedTrades)
+	}
+
+	return &model.WinRateResult{
+		Address: address,
+		WinRate: winRate * 100,
+	}, nil
 }

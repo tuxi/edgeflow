@@ -176,7 +176,7 @@ func (dao *signalDao) SaveSignalOutcome(ctx context.Context, outcome *entity.Sig
 
 // 一个辅助结构，用于扫描数据库中的聚合结果。
 // WinRateResult 是用于接收聚合查询结果的辅助结构。
-type WinRateResult struct {
+type winRateResult struct {
 	TotalClosedSignals int64
 	TotalWins          int64
 }
@@ -185,7 +185,7 @@ type WinRateResult struct {
 // Win Rate = (Number of HIT_TPs / Total Completed Trades) * 100
 // GetSymbolWinRate 计算给定交易对的历史策略胜率 (盈亏率百分比)。
 func (dao *signalDao) GetSymbolWinRate(ctx context.Context, symbol string) (float64, error) {
-	var result WinRateResult
+	var result winRateResult
 
 	// 使用原生 SQL 查询进行高效聚合。
 	// 胜率基于所有已平仓交易 (HIT_TP, HIT_SL, EXPIRED) 计算。
