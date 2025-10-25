@@ -335,7 +335,7 @@ func (g *TickerGateway) listenForTickerUpdates() {
 // 监听其他数据变化，优先级低与Ticker
 func (g *TickerGateway) listenForSystemUpdates() {
 	// System 为低频主题
-	systemCh, err := g.consumer.Consume(context.Background(), "marketdata_system", "ticker_system_group")
+	systemCh, err := g.consumer.Consume(context.Background(), kafka.TopicSystem, "ticker_system_group")
 	if err != nil {
 		log.Fatalf("未能启动System的kafka消费者: %v", err)
 	}

@@ -208,10 +208,6 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 		return
 	}
 
-	if len(tickersToForward) == 0 {
-		return
-	}
-
 	var tickers []*pb.TickerUpdate
 	// --- 2. 非临界区操作：kafka转发 ---
 	for _, ticker := range tickersToForward {

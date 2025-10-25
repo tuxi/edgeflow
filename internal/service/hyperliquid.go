@@ -114,7 +114,7 @@ func (h *HyperLiquidService) StartLeaderboardUpdater(ctx context.Context, interv
 						h.isUpdateLeaderboardLoading = false
 						h.leaderboardLock.Unlock()
 					}()
-					if err := h.fetchData(); err != nil {
+					if err := h.fetchLeaderboard(); err != nil {
 						fmt.Printf("HyperLiquidService fetchData error: %v\n", err)
 					}
 				}()
@@ -276,32 +276,24 @@ func (h *HyperLiquidService) GetTopWhales(ctx context.Context, limit int, datePe
 	return res, nil
 }
 
-func (h *HyperLiquidService) fetchData() error {
-	rawData, err := h.fetchLeaderboard() // 调用 API 获取原始 leaderboard JSON
-	if err != nil {
-		log.Printf("HyperLiquidService fetchLeaderboard error: %v", err)
-		return err
-	}
-	// 日活跃至少10万， 账户价值至少 100万，取前 100 名
-	go func() {
-		_ = h.updateWhaleLeaderboard(rawData, 100000.0, 1000000.0, 100)
-	}()
-	return nil
-}
-
-func (h *HyperLiquidService) fetchLeaderboard() ([]types.TraderPerformance, error) {
+func (h *HyperLiquidService) fetchLeaderboard() error {
 	restClient, _ := rest.NewHyperliquidRestClient(
 		"https://api.hyperliquid.xyz",
 		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
 	)
 
-	data, err := restClient.LeaderboardCall()
+	rawData, err := restClient.LeaderboardCall()
 	if err != nil {
 		log.Printf("HyperLiquidService fetchLeaderboard error: %v", err)
-		return nil, err
+		return err
 	}
 
-	return data, nil
+	// 日活跃至少10万， 账户价值至少 100万，取前 100 名
+	go func() {
+		_ = h.updateWhaleLeaderboard(rawData, 100000.0, 1000000.0, 100)
+	}()
+
+	return nil
 }
 
 // 用户交易成交订单历史
@@ -780,14 +772,14 @@ func (h *HyperLiquidService) GetWinRateLeaderboard(ctx context.Context, limit in
 	// 查询上次更新日期
 	lastUpdate, err := h.rc.Get(ctx, consts.WhaleWinRateLastUpdatedKey).Int64()
 	if err != nil {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
 		return &model.CustomLeaderboardEntryRes{
 			Data:                 leaderboard,
 			LastUpdatedTimestamp: time.Now().UnixMilli(),
 		}, nil
 	} else {
-		if err != redis.Nil {
-			logger.Errorf("Redis连接异常:%v", err.Error())
-		}
 		return &model.CustomLeaderboardEntryRes{
 			Data:                 leaderboard,
 			LastUpdatedTimestamp: lastUpdate,
