@@ -249,7 +249,7 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 		}
 		// 在这个单 Goroutine 中执行阻塞的 m.producer.Produce(ctx, topic, messages...)
 		// 将Kafka 写入超时时间设置为 2 秒，防止超时
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 		defer cancel() // 确保context 及时释放
 		// 序列化并写入kafka
 		topic := kafka.TopicTicker // Ticker 高频主题
@@ -646,6 +646,7 @@ func (m *MarketDataService) ChangeSortField(newField string) error {
 }
 
 func (m *MarketDataService) GetPrices() map[string]float64 {
+	// 注意m.tradingItems是make创建的，是一个指针，必须从上到下加锁
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	items := m.tradingItems

@@ -779,10 +779,10 @@ func (h *HyperLiquidService) GetWinRateLeaderboard(ctx context.Context, limit in
 
 	// 查询上次更新日期
 	lastUpdate, err := h.rc.Get(ctx, consts.WhaleWinRateLastUpdatedKey).Int64()
-	if err == nil {
+	if err != nil {
 		return &model.CustomLeaderboardEntryRes{
 			Data:                 leaderboard,
-			LastUpdatedTimestamp: time.Now().Unix(),
+			LastUpdatedTimestamp: time.Now().UnixMilli(),
 		}, nil
 	} else {
 		if err != redis.Nil {
