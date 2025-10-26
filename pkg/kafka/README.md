@@ -87,6 +87,15 @@ kafka-topics --create --topic marketdata_system --bootstrap-server $KAFKA_BOOTST
 kafka-topics --list --bootstrap-server $KAFKA_BOOTSTRAP_SERVER
 ```
 
+查找 kafka 安装目录
+```shell
+brew --prefix kafka
+```
+接收`marketdata_ticker`这个topic的消息
+```shell
+/usr/local/opt/kafka/bin/kafka-console-consumer --bootstrap-server $KAFKA_BOOTSTRAP_SERVER --topic marketdata_ticker
+```
+
 ## 💻 Protobuf 模型生成步骤
 当数据模型 (.proto 文件) 发生变化时，需要重新生成 Go 语言的结构体文件
 ```shell
