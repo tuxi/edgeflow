@@ -1,7 +1,7 @@
 package okx
 
 import (
-	"edgeflow/internal/account"
+	"edgeflow/pkg/account"
 	goexv2 "github.com/nntaoli-project/goex/v2"
 	"github.com/nntaoli-project/goex/v2/okx/futures"
 	"github.com/nntaoli-project/goex/v2/options"

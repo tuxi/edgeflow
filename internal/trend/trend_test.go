@@ -2,7 +2,7 @@ package trend
 
 import (
 	"edgeflow/conf"
-	"edgeflow/internal/exchange"
+	"edgeflow/pkg/exchange"
 	"log"
 	"testing"
 	"time"

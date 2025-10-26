@@ -2,10 +2,10 @@ package trend
 
 import (
 	"context"
-	"edgeflow/internal/exchange"
 	model2 "edgeflow/internal/model"
 	"edgeflow/internal/service/signal/kline"
 	model3 "edgeflow/internal/service/signal/model"
+	"edgeflow/pkg/exchange"
 	"errors"
 	"fmt"
 	"github.com/markcheno/go-talib"

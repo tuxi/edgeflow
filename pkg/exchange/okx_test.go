@@ -3,8 +3,8 @@ package exchange
 import (
 	"context"
 	"edgeflow/conf"
-	"edgeflow/internal/exchange/okx"
 	"edgeflow/internal/model"
+	"edgeflow/pkg/exchange/okx"
 	"fmt"
 	"github.com/nntaoli-project/goex/v2"
 	"log"

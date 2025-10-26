@@ -1,11 +1,11 @@
 package signal
 
 import (
-	"edgeflow/internal/exchange"
 	"edgeflow/internal/model"
 	"edgeflow/internal/service/signal"
 	"edgeflow/pkg/errors"
 	"edgeflow/pkg/errors/ecode"
+	"edgeflow/pkg/exchange"
 	"edgeflow/pkg/response"
 	"github.com/gin-gonic/gin"
 	"strconv"

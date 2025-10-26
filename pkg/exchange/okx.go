@@ -2,8 +2,8 @@ package exchange
 
 import (
 	"context"
-	"edgeflow/internal/exchange/okx"
 	model2 "edgeflow/internal/model"
+	okx2 "edgeflow/pkg/exchange/okx"
 	"errors"
 	"fmt"
 	"github.com/nntaoli-project/goex/v2/model"
@@ -13,7 +13,7 @@ import (
 )
 
 type OkxExchange struct {
-	apiCache map[model2.OrderTradeType]okx.OkxService
+	apiCache map[model2.OrderTradeType]okx2.OkxService
 	//spot    *okx.OkxSpot
 	//swap    *okx.OkxSwap
 	//futures *okx.OkxFutures
@@ -39,7 +39,7 @@ func NewOkxExchange(apiKey, apiSecret, passphrase string) *OkxExchange {
 	}
 
 	return &OkxExchange{
-		apiCache: make(map[model2.OrderTradeType]okx.OkxService),
+		apiCache: make(map[model2.OrderTradeType]okx2.OkxService),
 		apiConf:  opts,
 	}
 }
@@ -49,7 +49,7 @@ func (e *OkxExchange) Account(tradeType model2.OrderTradeType) (acc Account, err
 	if err != nil {
 		return nil, err
 	}
-	okxApi, ok := api.(*okx.Okx)
+	okxApi, ok := api.(*okx2.Okx)
 	if ok {
 		return okxApi.Account, nil
 	}
@@ -57,19 +57,19 @@ func (e *OkxExchange) Account(tradeType model2.OrderTradeType) (acc Account, err
 }
 
 // 懒加载api服务
-func (e *OkxExchange) getApi(marketType model2.OrderTradeType) (okx.OkxService, error) {
+func (e *OkxExchange) getApi(marketType model2.OrderTradeType) (okx2.OkxService, error) {
 
 	if group, ok := e.apiCache[marketType]; ok {
 		return group, nil
 	}
 
-	var spotApi *okx.OkxSpot
-	var swapApi *okx.OkxSwap
-	var fApi *okx.OkxFutures
+	var spotApi *okx2.OkxSpot
+	var swapApi *okx2.OkxSwap
+	var fApi *okx2.OkxFutures
 
 	switch marketType {
 	case "spot":
-		spotApi = okx.NewOkxSpot(e.apiConf)
+		spotApi = okx2.NewOkxSpot(e.apiConf)
 
 		// 初始化时加载所有可交易币对
 		// 测试连接，创建订单时需要调用GetExchangeInfo获取pair
@@ -82,7 +82,7 @@ func (e *OkxExchange) getApi(marketType model2.OrderTradeType) (okx.OkxService, 
 			return spotApi, nil
 		}
 	case "swap":
-		swapApi = okx.NewOkxSwap(e.apiConf)
+		swapApi = okx2.NewOkxSwap(e.apiConf)
 		_, _, err := swapApi.GetExchangeInfo()
 		if err != nil {
 			fmt.Printf("GetExchangeInfo err : %v", err)
@@ -92,7 +92,7 @@ func (e *OkxExchange) getApi(marketType model2.OrderTradeType) (okx.OkxService, 
 			return swapApi, nil
 		}
 	case "futures":
-		fApi = okx.NewOkxFutures(e.apiConf)
+		fApi = okx2.NewOkxFutures(e.apiConf)
 		_, _, err := fApi.GetExchangeInfo()
 		if err != nil {
 			fmt.Printf("GetExchangeInfo err : %v", err)
@@ -153,9 +153,9 @@ func (e *OkxExchange) SetLeverage(symbol string, leverage int, marginMode, posSi
 		return err
 	}
 	switch v := api.(type) {
-	case *okx.OkxFutures:
+	case *okx2.OkxFutures:
 		return v.SetLeverage(symbol, leverage, marginMode, posSide)
-	case *okx.OkxSwap:
+	case *okx2.OkxSwap:
 		return v.SetLeverage(symbol, leverage, marginMode, posSide)
 	default:
 		return errors.New("当前交易类型不支持设置杠杆倍数SetLeverage")
@@ -170,9 +170,9 @@ func (e *OkxExchange) ClosePosition(symbol string, side string, quantity float64
 	}
 
 	switch v := api.(type) {
-	case *okx.OkxFutures:
+	case *okx2.OkxFutures:
 		return v.ClosePosition(symbol, side, quantity, tdMode)
-	case *okx.OkxSwap:
+	case *okx2.OkxSwap:
 		return v.ClosePosition(symbol, side, quantity, tdMode)
 	default:
 		return errors.New("当前交易类型不支持关闭仓位ClosePosition")
@@ -186,9 +186,9 @@ func (e *OkxExchange) GetPosition(symbol string, tradeType model2.OrderTradeType
 		return nil, nil, err
 	}
 	switch v := api.(type) {
-	case *okx.OkxSwap:
+	case *okx2.OkxSwap:
 		return v.GetPosition(symbol)
-	case *okx.OkxFutures:
+	case *okx2.OkxFutures:
 		return v.GetPosition(symbol)
 	default:
 		return nil, nil, errors.New("当前交易类型不支持获取仓位GetPosition")

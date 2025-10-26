@@ -1,9 +1,9 @@
 package trend
 
 import (
-	"edgeflow/internal/exchange"
 	model2 "edgeflow/internal/model"
 	"edgeflow/internal/service/signal/kline"
+	"edgeflow/pkg/exchange"
 	"edgeflow/pkg/utils"
 	"errors"
 	"fmt"

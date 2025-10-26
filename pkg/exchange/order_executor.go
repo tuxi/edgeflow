@@ -2,8 +2,8 @@ package exchange
 
 import (
 	"context"
-	"edgeflow/internal/account"
 	"edgeflow/internal/model"
+	"edgeflow/pkg/account"
 	model2 "github.com/nntaoli-project/goex/v2/model"
 )
 

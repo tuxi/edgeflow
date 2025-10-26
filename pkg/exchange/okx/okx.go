@@ -2,8 +2,8 @@ package okx
 
 import (
 	"context"
-	"edgeflow/internal/account"
 	model2 "edgeflow/internal/model"
+	"edgeflow/pkg/account"
 	"errors"
 	"fmt"
 	goexv2 "github.com/nntaoli-project/goex/v2"

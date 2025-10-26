@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 	"edgeflow/internal/dao"
-	"edgeflow/internal/exchange/okx"
 	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
+	"edgeflow/pkg/exchange/okx"
 	"log"
 	"strconv"
 	"time"

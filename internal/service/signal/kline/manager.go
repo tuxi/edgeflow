@@ -1,8 +1,8 @@
 package kline
 
 import (
-	"edgeflow/internal/exchange"
 	"edgeflow/internal/model"
+	"edgeflow/pkg/exchange"
 	"edgeflow/pkg/utils"
 	model2 "github.com/nntaoli-project/goex/v2/model"
 	"go.uber.org/multierr"

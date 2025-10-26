@@ -2,10 +2,10 @@ package service
 
 import (
 	"context"
-	"edgeflow/internal/exchange"
 	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
 	"edgeflow/internal/service/signal/repository"
+	"edgeflow/pkg/exchange"
 	"edgeflow/pkg/kafka"
 	pb "edgeflow/pkg/protobuf"
 	"errors"

@@ -4,7 +4,6 @@ import (
 	"context"
 	"edgeflow/conf"
 	"edgeflow/internal/dao/query"
-	"edgeflow/internal/exchange"
 	"edgeflow/internal/handler/hyperliquid"
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
@@ -13,11 +12,9 @@ import (
 	"edgeflow/internal/router"
 	"edgeflow/internal/service"
 	signal2 "edgeflow/internal/service/signal"
-	"edgeflow/internal/service/signal/backtest"
-	"edgeflow/internal/service/signal/kline"
 	"edgeflow/internal/service/signal/model"
-	"edgeflow/internal/service/signal/trend"
 	"edgeflow/pkg/cache"
+	"edgeflow/pkg/exchange"
 	"edgeflow/pkg/kafka"
 	"fmt"
 	"gorm.io/gorm"
@@ -39,30 +36,30 @@ func InitRouter(db *gorm.DB) Router {
 	//ps := position.NewPositionService(okxEx, d)
 	// 信号管理
 	//sm := signal.NewDefaultSignalManager(appCfg.Strategy)
+	/*
+		symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT", "LTC/USDT", "AAVE/USDT", "BNB/USDT", "XRP/USDT", "XPL/USDT", "LINK/USDT", "ENA/USDT"}
+		klineMgr := kline.NewKlineManager(okxEx, symbols)
+		symbolMgr := model.NewSymbolManager(symbols)
+		tm := trend.NewManager(okxEx, klineMgr, symbolMgr)
+		signalDao := query.NewSignalDao(db)
+		signalTracker := backtest.NewSignalTracker(10, signalDao)
+		signalService := signal2.NewService(tm, signalDao, klineMgr, symbolMgr, signalTracker)
 
-	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT", "LTC/USDT", "AAVE/USDT", "BNB/USDT", "XRP/USDT", "XPL/USDT", "LINK/USDT", "ENA/USDT"}
-	klineMgr := kline.NewKlineManager(okxEx, symbols)
-	symbolMgr := model.NewSymbolManager(symbols)
-	tm := trend.NewManager(okxEx, klineMgr, symbolMgr)
-	signalDao := query.NewSignalDao(db)
-	signalTracker := backtest.NewSignalTracker(10, signalDao)
-	signalService := signal2.NewService(tm, signalDao, klineMgr, symbolMgr, signalTracker)
+		// Trend Manager 的输入通道 (由 Kline Manager 触发)
+		trendInputCh := make(chan struct{}, 1)
 
-	// Trend Manager 的输入通道 (由 Kline Manager 触发)
-	trendInputCh := make(chan struct{}, 1)
+		// Signal Service 的输入通道 (由 Trend Manager 触发)
+		signalInputCh := make(chan struct{}, 1)
 
-	// Signal Service 的输入通道 (由 Trend Manager 触发)
-	signalInputCh := make(chan struct{}, 1)
+		// 启动 Kline Manager (只连接到流水线的第一步)
+		klineMgr.Start(trendInputCh)
 
-	// 启动 Kline Manager (只连接到流水线的第一步)
-	klineMgr.Start(trendInputCh)
-
-	// 启动 TrendManager (计算服务)
-	// TrendMgr 监听 updateTrendCh，获取最新 K线，并计算 TrendState
-	tm.StartListening(context.Background(), trendInputCh, signalInputCh)
-	// SignalService 同样监听 updateTrendCh，获取最新 K线和 TrendState，并生成信号
-	signalService.ListenForUpdates(context.Background(), signalInputCh)
-
+		// 启动 TrendManager (计算服务)
+		// TrendMgr 监听 updateTrendCh，获取最新 K线，并计算 TrendState
+		tm.StartListening(context.Background(), trendInputCh, signalInputCh)
+		// SignalService 同样监听 updateTrendCh，获取最新 K线和 TrendState，并生成信号
+		signalService.ListenForUpdates(context.Background(), signalInputCh)
+	*/
 	// k线策略
 	//engine := kline.NewSignalStrategy(tm, ps, klineManger)
 
@@ -94,6 +91,10 @@ func InitRouter(db *gorm.DB) Router {
 	kafProducer := kafka.NewKafkaProducer(kafBroker)
 	kafConsumer := kafka.NewKafkaConsumer(kafBroker)
 
+	symbols := []string{"BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT", "LTC/USDT", "AAVE/USDT", "BNB/USDT", "XRP/USDT", "XPL/USDT", "LINK/USDT", "ENA/USDT"}
+	symbolMgr := model.NewSymbolManager(symbols)
+	signalDao := query.NewSignalDao(db)
+	signalService := signal2.NewService(signalDao, okxEx, symbolMgr)
 	hyperDao := query.NewHyperLiquidDao(db)
 	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "AAVE", "AVAX", "ADA", "LINK", "TRX"}
 	tickerService := service.NewOKXTickerService(defaultsCoins)

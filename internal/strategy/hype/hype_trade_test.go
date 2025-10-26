@@ -3,10 +3,10 @@ package hype
 import (
 	"edgeflow/conf"
 	"edgeflow/internal/dao"
-	"edgeflow/internal/exchange"
 	"edgeflow/internal/position"
 	"edgeflow/internal/trend"
 	"edgeflow/pkg/db"
+	"edgeflow/pkg/exchange"
 	"edgeflow/pkg/hype/types"
 	"encoding/json"
 	"github.com/nntaoli-project/goex/v2"
