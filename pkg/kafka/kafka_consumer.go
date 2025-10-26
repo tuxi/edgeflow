@@ -76,12 +76,6 @@ func (c *kafkaConsumer) Consume(ctx context.Context, topic string, groupID strin
 				//移除 default: 逻辑，避免在自动提交模式下手动处理 Offset
 				//如果缓冲区满了，最简单的方式是阻塞或仅丢弃不提交，让自动提交在下一轮周期处理。
 			}
-
-			// 注意：这里手动提交严重影响客户端接收数据的频率，导致延迟，我们设置CommitInterval自动提交数据
-			// 提交 Offset (重要：确保消息被处理后才提交)
-			//if err := r.CommitMessages(ctx, m); err != nil {
-			//	log.Printf("ERROR: Failed to commit offset: %v", err)
-			//}
 		}
 		r.Close() // 退出时关闭 Reader
 		log.Printf("Kafka Consumer for topic %s finished.", topic)
