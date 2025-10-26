@@ -68,11 +68,11 @@ func (c *kafkaConsumer) Consume(ctx context.Context, topic string, groupID strin
 				// 上下文结束，退出循环
 				return // 使用 return 退出整个协程
 			default:
-				log.Printf("kafkaConsumer 队列满则丢弃：快速跳过消息")
+				//log.Printf("kafkaConsumer 队列满则丢弃：快速跳过消息")
 				// 🚀 队列满则丢弃：快速跳过消息 m
 				// 必须手动提交，告诉 Kafka Broker 这个消息我们已经处理（即丢弃）了。
-				if err := r.CommitMessages(ctx, m); err != nil {
-				}
+				//if err := r.CommitMessages(ctx, m); err != nil {
+				//}
 				//移除 default: 逻辑，避免在自动提交模式下手动处理 Offset
 				//如果缓冲区满了，最简单的方式是阻塞或仅丢弃不提交，让自动提交在下一轮周期处理。
 			}
