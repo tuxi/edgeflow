@@ -1,10 +1,9 @@
-package signal
+package service
 
 import (
 	"context"
+	"edgeflow/internal/dao"
 	model22 "edgeflow/internal/model"
-	"edgeflow/internal/service/signal/model"
-	"edgeflow/internal/service/signal/repository"
 	"edgeflow/pkg/exchange"
 	"fmt"
 	model2 "github.com/nntaoli-project/goex/v2/model"
@@ -13,34 +12,29 @@ import (
 
 // SignalProcessorService 是集成了所有功能的单体服务
 type SignalProcessorService struct {
-	SignalRepo repository.SignalRepository // DB 接口
+	signalRepo dao.SignalDao // DB 接口
 
 	ex exchange.Exchange
-
-	SymbolMgr *model.SymbolManager
 }
 
-func NewService(
-	signalRepo repository.SignalRepository,
+func NewSignalProcessorService(
+	signalRepo dao.SignalDao,
 	ex exchange.Exchange,
-	symbolMgr *model.SymbolManager,
-
 ) *SignalProcessorService {
 	return &SignalProcessorService{
-		SignalRepo: signalRepo,
+		signalRepo: signalRepo,
 		ex:         ex,
-		SymbolMgr:  symbolMgr,
 	}
 }
 
 func (s *SignalProcessorService) SignalGetList(ctx context.Context) ([]model22.Signal, error) {
-	signals, err := s.SignalRepo.GetAllActiveSignalList(ctx)
+	signals, err := s.signalRepo.GetAllActiveSignalList(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	for i, item := range signals {
-		summary, err := s.SignalRepo.GetSymbolPerformanceSummary(ctx, item.Symbol)
+		summary, err := s.signalRepo.GetSymbolPerformanceSummary(ctx, item.Symbol)
 		if err != nil {
 			continue
 		}
@@ -52,7 +46,7 @@ func (s *SignalProcessorService) SignalGetList(ctx context.Context) ([]model22.S
 }
 
 func (s *SignalProcessorService) SignalGetDetail(ctx context.Context, signalID int64) (*model22.SignalDetail, error) {
-	detail, err := s.SignalRepo.GetSignalDetailByID(ctx, uint(signalID))
+	detail, err := s.signalRepo.GetSignalDetailByID(ctx, uint(signalID))
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +62,7 @@ func (s *SignalProcessorService) SignalGetDetail(ctx context.Context, signalID i
 		if len(klines) >= 2 {
 			startTime := klines[0].Timestamp
 			endTime := klines[len(klines)-1].Timestamp
-			siganls, err := s.SignalRepo.GetSignalsByTimeRange(ctx, detail.Symbol, startTime, endTime)
+			siganls, err := s.signalRepo.GetSignalsByTimeRange(ctx, detail.Symbol, startTime, endTime)
 			if err == nil {
 				detail.SignalHistories = siganls
 			}
@@ -105,7 +99,7 @@ func calcKlineTimeRange(signalTime time.Time, periodMinutes int, count int, late
 
 func (s *SignalProcessorService) ExecuteOrder(ctx context.Context, signalID int64, ex exchange.Exchange) error {
 	// 查询信号
-	signal, err := s.SignalRepo.GetSignalByID(ctx, uint(signalID))
+	signal, err := s.signalRepo.GetSignalByID(ctx, uint(signalID))
 	if err != nil {
 		return err
 	}

@@ -2,9 +2,9 @@ package service
 
 import (
 	"context"
+	"edgeflow/internal/dao"
 	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
-	"edgeflow/internal/service/signal/repository"
 	"edgeflow/pkg/exchange"
 	"edgeflow/pkg/kafka"
 	pb "edgeflow/pkg/protobuf"
@@ -81,10 +81,10 @@ type MarketDataService struct {
 	currentSortField string
 
 	ex         exchange.Exchange
-	signalRepo repository.SignalRepository // DB 接口
+	signalRepo dao.SignalDao // DB 接口
 }
 
-func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher, ex exchange.Exchange, SignalRepo repository.SignalRepository, producer kafka.ProducerService) *MarketDataService {
+func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher, ex exchange.Exchange, SignalRepo dao.SignalDao, producer kafka.ProducerService) *MarketDataService {
 	m := &MarketDataService{
 		baseCoins:         make(map[string]entity.CryptoInstrument),
 		tradingItems:      make(map[string]TradingItem),
@@ -366,7 +366,7 @@ func (m *MarketDataService) performSortAndCache() {
 				Data: protoMsg,
 			}
 			if err := m.producer.Produce(ctx, topic, message); err != nil {
-				log.Printf("ERROR: topic=%s 生产者写入kafka币种id排序数据失败: %v", topic, err)
+				log.Printf("ERROR: MarketDataService topic=%s 生产者写入kafka币种id排序数据失败: %v", topic, err)
 			}
 		}()
 	}
@@ -391,11 +391,11 @@ func (m *MarketDataService) InitializeBaseInstruments(ctx context.Context, exID 
 	defer m.mu.Unlock()
 
 	// ⚠️ 核心修正：在订阅之前，同步等待 TickerService 连接成功
-	log.Println("Waiting for OKX Ticker Service connection...")
+	log.Println("MarketDataService 正在等待OKX Ticker服务连接...")
 	if err := m.tickerClient.WaitForConnectionReady(ctx); err != nil {
 		return fmt.Errorf("failed to wait for OKX WS connection: %w", err)
 	}
-	log.Println("OKX WS connection ready. Proceeding with full subscription.")
+	log.Println("MarketDataService OKX WS连接就绪。继续进行完全订阅。")
 
 	// 1. 获取所有基础数据
 	coins, err := m.instrumentFetcher.GetAllActiveUSDTInstruments(ctx, exID)
@@ -441,13 +441,13 @@ func (m *MarketDataService) runTickerResubscriptionLoop() {
 			m.mu.RUnlock() // 释放锁
 
 			if len(symbolsToResubscribe) > 0 {
-				log.Printf("TickerService reconnected. Executing resubscription for %d symbols.", len(symbolsToResubscribe))
+				log.Printf("MarketDataService 已重新连接。正在对%d个symbol执行重新订阅。", len(symbolsToResubscribe))
 
 				// 执行重新订阅
 				// 忽略 Context，因为这是后台的恢复操作
 				err := m.tickerClient.SubscribeSymbols(context.Background(), symbolsToResubscribe)
 				if err != nil {
-					log.Printf("ERROR: Failed to resubscribe symbols after reconnect: %v", err)
+					log.Printf("ERROR: MarketDataService 重新连接后重新订阅符号失败: %v", err)
 					// 此时可以加入错误处理或指数退避机制
 				}
 			}
@@ -456,102 +456,19 @@ func (m *MarketDataService) runTickerResubscriptionLoop() {
 	}
 }
 
-// 定时器每小时调用检查币种的上新和下架
-func (m *MarketDataService) PerformPeriodicUpdate(ctx context.Context) error {
-	// 获取所有USDT基础交易对
-	newCoins, err := m.instrumentFetcher.GetAllActiveUSDTInstruments(ctx, 1)
-	if err != nil {
-		// 错误处理，可能数据库连接失败等
-		return fmt.Errorf("failed to load base instruments from DAO: %w", err)
-	}
-	if len(newCoins) == 0 {
-		return errors.New("暂时没有交易对数据")
-	}
-	// 追踪需要新增订阅和需要退订的 InstID
-	var toSubscribe []string
-	var toUnsubscribe []string
+func (m *MarketDataService) UpdateInstruments(delistedInstruments, newInstruments []string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	// 取消订阅下架的币种价格
+	m.tickerClient.UnsubscribeSymbols(ctx, delistedInstruments)
+	// 订阅新上架的币种价格
+	m.tickerClient.SubscribeSymbols(ctx, newInstruments)
 
-	newCoinsMap := make(map[string]entity.CryptoInstrument, len(newCoins))
-
-	// A. 找出新增或变更的币种 (新列表 - 旧列表)
-	for _, coin := range newCoins {
-		newCoinsMap[coin.InstrumentID] = coin
-
-		// 如果旧列表（m.baseCoins）中没有这个币种，则需要新增订阅
-		if _, ok := m.baseCoins[coin.InstrumentID]; !ok {
-			toSubscribe = append(toSubscribe, coin.InstrumentID)
-		}
-		// 如果数据有变更，虽然不常见，但可以根据需要重新订阅
-	}
-
-	// B. 找出需要退订的币种 (旧列表 - 新列表)
-	for instID := range m.baseCoins {
-		// 如果新列表中没有旧列表的币种，则说明它已被下架
-		if _, ok := newCoinsMap[instID]; !ok {
-			toUnsubscribe = append(toUnsubscribe, instID)
-		}
-	}
-
-	// 3. 更新内存状态
-	m.baseCoins = newCoinsMap // 用新 Map 完全替换旧 Map
-
-	// 4. 通知 TickerService 执行订阅/退订操作
-
-	if len(toUnsubscribe) > 0 {
-		// 通知 OKX 退订已下架的币种
-		m.tickerClient.UnsubscribeSymbols(ctx, toUnsubscribe)
-		log.Printf("Unsubscribed from %d delisted instruments.", len(toUnsubscribe))
-
-		// ⚠️ 通知 DAO：将这些币种的状态更新为 'DELISTED'
-		err := m.instrumentFetcher.UpdateInstrumentStatus(ctx, 1, toUnsubscribe, "DELIST")
-		if err != nil {
-			// 如果数据库更新失败，我们需要决定是否继续。
-			// 建议：记录错误，并继续执行，因为内存状态更新更重要，下次重试。
-			log.Printf("CRITICAL ERROR: Failed to update instrument status to DELISTED for %v in DB: %v", toUnsubscribe, err)
-			// 我们可以选择返回错误，让 Worker 停止直到解决，或者继续（此处选择继续）。
-		}
-	}
-
-	if len(toSubscribe) > 0 {
-		// 通知 OKX 订阅新上架的币种
-		m.tickerClient.SubscribeSymbols(ctx, toSubscribe) // 假设 TickerService 有这个方法
-		log.Printf("Subscribed to %d newly listed instruments.", len(toSubscribe))
-	}
-
-	// 5.通知handler 上新和下架交易对的消息
-	// ⚠️ 核心：通知 MarketHandler 客户端需要更新
-	if len(toSubscribe) > 0 || len(toUnsubscribe) > 0 {
-
-		// 构造Protobuf消息
-		payload := &pb.InstrumentUpdate{
-			NewInstruments:      toSubscribe,
-			DelistedInstruments: toUnsubscribe,
-		}
-		protoMsg := &pb.WebSocketMessage{
-			Type:    "INSTRUMENT_UPDATE",
-			Payload: &pb.WebSocketMessage_InstrumentStatusUpdate{InstrumentStatusUpdate: payload},
-		}
-		// 写入kafka
-		ctx := context.Background()
-
-		topic := kafka.TopicSystem // 使用低频系统主题
-		message := kafka.Message{
-			Key:  "INSTRUMENT_CHANGE",
-			Data: protoMsg,
-		}
-		if err := m.producer.Produce(ctx, topic, message); err != nil {
-			log.Printf("ERROR: topic=%s 生产者写入Kafka 币种更新数据失败: %v", topic, err)
-		}
-	}
-
-	// 6.清理 tradingItems：移除 delisted 的数据
-	for _, instID := range toUnsubscribe {
+	// 清理 tradingItems：移除 delisted 的数据
+	for _, instID := range delistedInstruments {
 		delete(m.tradingItems, instID)
-		log.Printf("Cleaned up delisted instrument %s from tradingItems.", instID)
+		log.Printf("MarketDataService 从 tradingItems 中移除已下架的币种.", instID)
 	}
-
-	return nil
-
 }
 
 func (m *MarketDataService) GetSortedIDsl() (data []string, sortBy string) {
@@ -598,13 +515,13 @@ func (m *MarketDataService) GetPagedData(page, limit int) ([]TradingItem, error)
 	for _, instID := range pagedIDs {
 		if item, ok := m.tradingItems[instID]; ok {
 			if item.Coin.ID == 0 {
-				log.Printf("error")
+				log.Printf("MarketDataService error： item.Coin.ID = 0")
 			}
 			// ⚠️ 注意：这里返回的是 TradingItem 的值类型副本
 			results = append(results, item)
 		} else {
 			// 理论上不应该发生：如果 ID 在 SortedInstIDs 中，它就应该在 tradingItems 中。
-			log.Printf("WARN: InstID %s found in SortedInstIDs cache but not in tradingItems map.", instID)
+			log.Printf("WARN: MarketDataService 在SortedInstIDs缓存中找到InstID%s，但在tradingItems映射中找不到。", instID)
 			// 在生产环境中，可能需要返回一个带占位符的 TradingItem
 		}
 	}

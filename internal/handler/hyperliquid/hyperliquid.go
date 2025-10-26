@@ -14,12 +14,6 @@ type Handler struct {
 }
 
 func NewHandler(service *service.HyperLiquidService) *Handler {
-	//// 定时加载并存储排行榜数据
-	//service.StartLeaderboardUpdater(context.Background(), time.Minute*5)
-	//// 定时加载并分析仓位信息
-	//service.StartUpdatePositionScheduler(context.Background(), 2*time.Minute)
-	//// 定时计算并分析鲸鱼胜率
-	//service.StartWinRateCalculator(context.Background())
 	return &Handler{
 		service: service,
 	}

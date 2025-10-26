@@ -348,6 +348,9 @@ func (s *OKXTickerService) ResubscribeAll(activeClientSymbols []string) error {
 // 批量订阅，供客户端调用
 // 这里的 symbols 是 Handler 告诉 OKXService "我需要这些币种" 的列表
 func (s *OKXTickerService) SubscribeSymbols(ctx context.Context, symbols []string) error {
+	if len(symbols) == 0 {
+		return nil
+	}
 	s.Lock()
 	defer s.Unlock()
 
@@ -381,6 +384,9 @@ func (s *OKXTickerService) SubscribeSymbols(ctx context.Context, symbols []strin
 // 批量退订，供 Handler 调用 (Handler 负责客户端计数和过滤)
 // 这里的 symbols 是 Handler 确认不再需要，且需要向 OKX 退订的币种列表。
 func (s *OKXTickerService) UnsubscribeSymbols(ctx context.Context, symbols []string) error {
+	if len(symbols) == 0 {
+		return nil
+	}
 	s.Lock()
 	defer s.Unlock()
 

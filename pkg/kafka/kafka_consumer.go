@@ -70,13 +70,9 @@ func (c *kafkaConsumer) Consume(ctx context.Context, topic string, groupID strin
 			default:
 				// 🚀 队列满则丢弃：快速跳过消息 m
 				// 必须手动提交，告诉 Kafka Broker 这个消息我们已经处理（即丢弃）了。
-				if err := r.CommitMessages(ctx, m); err != nil {
-					// 如果提交失败，记录日志，但继续，因为我们不能阻塞
-					log.Printf("WARN: 消费者丢弃消息，无法提交抵消 %d: %v", m.Offset, err)
-				} else {
-					log.Printf("INFO: 由于下游缓冲区已满，消费者丢弃了消息（偏移量：%d)", m.Offset)
-				}
-				// 不需要 break/continue，直接进入下一次循环 FetchMessage
+				//if err := r.CommitMessages(ctx, m); err != nil {}
+				// 移除 default: 逻辑，避免在自动提交模式下手动处理 Offset
+				// 如果缓冲区满了，最简单的方式是阻塞或仅丢弃不提交，让自动提交在下一轮周期处理。
 			}
 
 			// 注意：这里手动提交严重影响客户端接收数据的频率，导致延迟，我们设置CommitInterval自动提交数据

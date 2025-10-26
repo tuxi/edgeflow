@@ -339,9 +339,23 @@ func (g *TickerGateway) listenForSystemUpdates() {
 	if err != nil {
 		log.Fatalf("未能启动System的kafka消费者: %v", err)
 	}
-	for msg := range systemCh {
-		// 消息已经是Protobuf格式
-		g.broadcast(msg.Value)
+
+	for message := range systemCh {
+		key := string(message.Key)
+		if key == "INSTRUMENT_CHANGE" {
+			var pbMsg pb.WebSocketMessage
+			err := proto.Unmarshal(message.Value, &pbMsg)
+			if err != nil {
+				continue
+			}
+			update := pbMsg.GetInstrumentStatusUpdate()
+			if update != nil {
+				g.marketService.UpdateInstruments(update.DelistedInstruments, update.NewInstruments)
+				g.broadcast(message.Value)
+			}
+		} else {
+			g.broadcast(message.Value)
+		}
 	}
 }
 

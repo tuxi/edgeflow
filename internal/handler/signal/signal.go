@@ -2,7 +2,7 @@ package signal
 
 import (
 	"edgeflow/internal/model"
-	"edgeflow/internal/service/signal"
+	"edgeflow/internal/service"
 	"edgeflow/pkg/errors"
 	"edgeflow/pkg/errors/ecode"
 	"edgeflow/pkg/exchange"
@@ -12,11 +12,11 @@ import (
 )
 
 type SignalHandler struct {
-	signalService *signal.SignalProcessorService
+	signalService *service.SignalProcessorService
 	ex            exchange.Exchange
 }
 
-func NewSignalHandler(signalService *signal.SignalProcessorService, ex exchange.Exchange) *SignalHandler {
+func NewSignalHandler(signalService *service.SignalProcessorService, ex exchange.Exchange) *SignalHandler {
 	return &SignalHandler{
 		signalService: signalService,
 		ex:            ex,
