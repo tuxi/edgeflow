@@ -467,7 +467,7 @@ func (m *MarketDataService) UpdateInstruments(delistedInstruments, newInstrument
 	// 清理 tradingItems：移除 delisted 的数据
 	for _, instID := range delistedInstruments {
 		delete(m.tradingItems, instID)
-		log.Printf("MarketDataService 从 tradingItems 中移除已下架的币种.", instID)
+		log.Println("MarketDataService 从 tradingItems 中移除已下架的币种:", instID)
 	}
 }
 

@@ -1,5 +1,9 @@
 package types
 
+import (
+	"time"
+)
+
 type CumFunding struct {
 	AllTime     string `json:"allTime"`     // 总资金费（可能正或负）
 	SinceChange string `json:"sinceChange"` // 自最近价格变动后的资金费
@@ -52,4 +56,24 @@ type MarginData struct {
 	MarginSummary              MarginSummary      `json:"marginSummary"`
 	Time                       int64              `json:"time"`
 	Withdrawable               string             `json:"withdrawable"`
+}
+
+type WhalePortfolio struct {
+	Total struct {
+		Day, Week, Month, AllTime PeriodData
+	}
+	Perp struct {
+		Day, Week, Month, AllTime PeriodData
+	}
+}
+
+type PeriodData struct {
+	AccountValue []DataPoint // 净值曲线
+	Pnl          []DataPoint // 盈亏曲线
+	Vlm          float64     // 成交量
+}
+
+type DataPoint struct {
+	Time  time.Time
+	Value float64
 }

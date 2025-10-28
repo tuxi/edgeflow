@@ -162,6 +162,56 @@ func (rest *HyperliquidRestClient) PerpetualAssetContexts() ([]types.UniverseIte
 	return universeData.Universe, assetContexts, nil
 }
 
+// Hyperliquid 的账户持仓分析接口（type: "portfolio"），返回指定用户的账户资产历史和盈亏历史
+// 获取指定用户在 Hyperliquid 平台的账户资金变化accountValueHistory、盈亏历史pnlHistory、交易量vlm等数据（从天、周、月、全部时间四个维度统计
+func (rest *HyperliquidRestClient) WhalePortfolioInfo(ctx context.Context, address string) (*types.WhalePortfolio, error) {
+	reqBody := map[string]interface{}{"type": "portfolio", "user": address}
+	reqBodyJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", rest.url+"/info", bytes.NewBuffer(reqBodyJSON))
+	req.Header.Set("Content-Type", "application/json")
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := rest.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch leaderboard: %v", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	portfolio, err := parsePortfolio(body)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("=== 总账户 (Total) ===")
+	fmt.Printf("Day PnL: %.2f\n", lastValue(portfolio.Total.Day.Pnl))
+	fmt.Printf("Day Account Value: %.2f\n", lastValue(portfolio.Total.Day.AccountValue))
+	fmt.Println("=== 合约账户 (Perp) ===")
+	fmt.Printf("PerpDay PnL: %.2f\n", lastValue(portfolio.Perp.Day.Pnl))
+	fmt.Printf("PerpDay Account Value: %.2f\n", lastValue(portfolio.Perp.Day.AccountValue))
+	return portfolio, nil
+}
+
+func lastValue(arr []types.DataPoint) float64 {
+	if len(arr) == 0 {
+		return 0
+	}
+	return arr[len(arr)-1].Value
+}
+
 // 获取账号信息: 主要包含永续合约持仓、盈亏、资金费
 // New method for fetching a user's perpetuals account summary
 func (rest *HyperliquidRestClient) PerpetualsAccountSummary(ctx context.Context, user string) (types.MarginData, error) {
@@ -190,8 +240,8 @@ const (
 // UserFillOrdersIn24Hours：实现客户端可追溯的分页查询
 func (rest *HyperliquidRestClient) UserFillOrdersIn24Hours( // 客户端可追溯的分页查询，支持动态窗口
 	ctx context.Context,
-	userAddress string, // 鲸鱼地址
-	since int64, // 上次查询返回的起始时间戳（客户端传回）。如果为 0，则默认查询 [now - 3h, now]。
+	userAddress string,  // 鲸鱼地址
+	since int64,         // 上次查询返回的起始时间戳（客户端传回）。如果为 0，则默认查询 [now - 3h, now]。
 	maxLookbackDays int, // 最大追溯天数，默认1天
 	prevWindowHours int, // 上次查询使用的窗口大小（小时）。如果为 0，使用默认窗口。
 ) (data *types.UserFillOrderData, err error) {
@@ -372,7 +422,7 @@ func (rest *HyperliquidRestClient) UserFillOrdersByWindow(
 	ctx context.Context,
 	userAddress string,
 	startTime int64, // 窗口起始时间戳 (毫秒)
-	endTime int64, // 窗口结束时间戳 (毫秒)
+	endTime int64,   // 窗口结束时间戳 (毫秒)
 ) ([]*types.UserFillOrder, error) {
 
 	// 确保窗口有效
@@ -601,4 +651,126 @@ func (rest *HyperliquidRestClient) LeaderboardCall() ([]types.TraderPerformance,
 		traderPerformances[i] = traderPerformance
 	}
 	return traderPerformances, nil
+}
+
+func parsePortfolio(jsonData []byte) (*types.WhalePortfolio, error) {
+	var raw [][]json.RawMessage
+	if err := json.Unmarshal(jsonData, &raw); err != nil {
+		return nil, fmt.Errorf("解析顶层JSON失败: %v", err)
+	}
+
+	result := &types.WhalePortfolio{}
+
+	for _, entry := range raw {
+		if len(entry) != 2 {
+			continue
+		}
+
+		// 第一个字段：周期名
+		var period string
+		if err := json.Unmarshal(entry[0], &period); err != nil {
+			continue
+		}
+
+		// 第二个字段：详细数据
+		var detail struct {
+			AccountValueHistory [][]interface{} `json:"accountValueHistory"`
+			PnlHistory          [][]interface{} `json:"pnlHistory"`
+			Vlm                 string          `json:"vlm"`
+		}
+		if err := json.Unmarshal(entry[1], &detail); err != nil {
+			continue
+		}
+
+		pd := types.PeriodData{}
+
+		// 解析 AccountValueHistory
+		for _, arr := range detail.AccountValueHistory {
+			if len(arr) != 2 {
+				continue
+			}
+			ts, ok1 := toInt64(arr[0])
+			val, ok2 := toFloat64(arr[1])
+			if ok1 && ok2 {
+				pd.AccountValue = append(pd.AccountValue, types.DataPoint{
+					Time:  time.UnixMilli(ts),
+					Value: val,
+				})
+			}
+		}
+
+		// 解析 PnlHistory
+		for _, arr := range detail.PnlHistory {
+			if len(arr) != 2 {
+				continue
+			}
+			ts, ok1 := toInt64(arr[0])
+			val, ok2 := toFloat64(arr[1])
+			if ok1 && ok2 {
+				pd.Pnl = append(pd.Pnl, types.DataPoint{
+					Time:  time.UnixMilli(ts),
+					Value: val,
+				})
+			}
+		}
+
+		// 解析 vlm
+		if f, ok := toFloat64(detail.Vlm); ok {
+			pd.Vlm = f
+		}
+
+		// 分类存储到 WhalePortfolio
+		switch period {
+		case "day":
+			result.Total.Day = pd
+		case "week":
+			result.Total.Week = pd
+		case "month":
+			result.Total.Month = pd
+		case "allTime":
+			result.Total.AllTime = pd
+		case "perpDay":
+			result.Perp.Day = pd
+		case "perpWeek":
+			result.Perp.Week = pd
+		case "perpMonth":
+			result.Perp.Month = pd
+		case "perpAllTime":
+			result.Perp.AllTime = pd
+		default:
+			// 忽略未知周期
+		}
+	}
+
+	return result, nil
+}
+
+// ---------- 辅助函数 ----------
+
+// interface{} → int64
+func toInt64(v interface{}) (int64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return int64(t), true
+	case string:
+		var x int64
+		_, err := fmt.Sscan(t, &x)
+		return x, err == nil
+	default:
+		return 0, false
+	}
+}
+
+// interface{} → float64
+func toFloat64(v interface{}) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case string:
+		var x float64
+		_, err := fmt.Sscan(t, &x)
+		return x, err == nil
+	default:
+		return 0, false
+	}
 }

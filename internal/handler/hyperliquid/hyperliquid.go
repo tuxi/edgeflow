@@ -67,7 +67,7 @@ func (h *Handler) WhaleInfoGetByAddress() gin.HandlerFunc {
 			return
 		}
 
-		res, err := h.service.WhaleLeaderBoardInfoGetByAddress(ctx, req.Address)
+		res, err := h.service.GetWhalePortfolioInfoGetAddress(ctx, req.Address)
 		if err != nil {
 			response.JSON(ctx, err, nil)
 		} else {

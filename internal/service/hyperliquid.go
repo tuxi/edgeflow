@@ -76,6 +76,39 @@ func (h *HyperLiquidService) WhaleAccountSummaryGet(ctx context.Context, address
 	return &res, nil
 }
 
+// 查询用户收益数据
+func (h *HyperLiquidService) GetWhalePortfolioInfoGetAddress(ctx context.Context, address string) (*model.HyperWhaleLeaderBoard, error) {
+	restClient, err := rest.NewHyperliquidRestClient(
+		"https://api.hyperliquid.xyz",
+		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	portfolio, err := restClient.WhalePortfolioInfo(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := h.dao.WhaleLeaderBoardInfoGetByAddress(ctx, address)
+	res.PnLDay = lastValue(portfolio.Total.Day.Pnl)
+	res.PnLAll = lastValue(portfolio.Total.AllTime.Pnl)
+	res.PnLMonth = lastValue(portfolio.Total.Month.Pnl)
+	res.PnLWeek = lastValue(portfolio.Total.Week.Pnl)
+	fmt.Printf("Day PnL: %.2f\n")
+
+	return res, nil
+}
+
+func lastValue(arr []types.DataPoint) float64 {
+	if len(arr) == 0 {
+		return 0
+	}
+	return arr[len(arr)-1].Value
+}
+
 // 查询用户在排行榜中的收益数据
 func (h *HyperLiquidService) WhaleLeaderBoardInfoGetByAddress(ctx context.Context, address string) (*model.HyperWhaleLeaderBoard, error) {
 
