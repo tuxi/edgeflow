@@ -93,6 +93,12 @@ func (h *HyperLiquidService) GetWhalePortfolioInfoGetAddress(ctx context.Context
 	}
 
 	res, err := h.dao.WhaleLeaderBoardInfoGetByAddress(ctx, address)
+	res.Address = address
+	res.AccountValue = lastValue(portfolio.Total.AllTime.AccountValue)
+	res.VlmMonth = portfolio.Total.Month.Vlm
+	res.VlmDay = portfolio.Total.Day.Vlm
+	res.VlmWeek = portfolio.Total.Week.Vlm
+	res.VlmAll = portfolio.Total.AllTime.Vlm
 	res.PnLDay = lastValue(portfolio.Total.Day.Pnl)
 	res.PnLAll = lastValue(portfolio.Total.AllTime.Pnl)
 	res.PnLMonth = lastValue(portfolio.Total.Month.Pnl)
