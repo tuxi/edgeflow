@@ -7,6 +7,9 @@ type Whale struct {
 	Address     string `gorm:"size:100;index;not null;column:address;comment:钱包地址" json:"address"`
 	DisplayName string `gorm:"size:100;column:display_name;comment:昵称" json:"display_name"`
 
+	Weight int    `gorm:"column:weight;comment:权重" json:"weight"`   // 鲸鱼权重
+	Source string `gorm:"column:source;comment:鲸鱼来源" json:"source"` // 鲸鱼来源
+
 	UpdatedAt time.Time `gorm:"autoUpdateTime;column:updated_at" json:"updated_at"`
 	CreatedAt time.Time `gorm:"autoCreateTime;column:created_at" json:"created_at"`
 }

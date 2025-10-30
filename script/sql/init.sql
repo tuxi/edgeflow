@@ -33,7 +33,9 @@ CREATE TABLE `whale` (
 
                        UNIQUE KEY `uniq_address` (`address`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='鲸鱼';
-
+ALTER TABLE `whale`
+    ADD COLUMN `source` VARCHAR(32) COMMENT '来源' AFTER `address`,
+    ADD COLUMN `weight` INT DEFAULT 0 COMMENT '权重' AFTER `source`;
 
 CREATE TABLE `hyper_whale_leaderboard` (
                                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
