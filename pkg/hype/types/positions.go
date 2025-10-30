@@ -1,9 +1,5 @@
 package types
 
-import (
-	"time"
-)
-
 type CumFunding struct {
 	AllTime     string `json:"allTime"`     // 总资金费（可能正或负）
 	SinceChange string `json:"sinceChange"` // 自最近价格变动后的资金费
@@ -74,6 +70,6 @@ type PeriodData struct {
 }
 
 type DataPoint struct {
-	Time  time.Time
-	Value float64
+	Time  int64   `json:"time"`
+	Value float64 `json:"value"`
 }

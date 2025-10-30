@@ -18,6 +18,17 @@ type HyperWhaleLeaderBoard struct {
 	entity.HyperLiquidWhaleStat
 }
 
+type HyperWhalePortfolioRes struct {
+	HyperWhaleLeaderBoard
+
+	PortfolioData struct {
+		TotalPnl     []types.DataPoint `json:"totalPnl"`
+		PerpPnl      []types.DataPoint `json:"perpPnl"`
+		TotalBalance []types.DataPoint `json:"totalBalance"`
+		PerpBalance  []types.DataPoint `json:"perpBalance"`
+	} `gorm:"-" json:"portfolio_data"`
+}
+
 // 鲸鱼排行数据
 type HyperWhale struct {
 	Address string `gorm:"size:100;index;not null;column:address;comment:钱包地址" json:"address"`

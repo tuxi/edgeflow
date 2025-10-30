@@ -77,7 +77,7 @@ func (h *HyperLiquidService) WhaleAccountSummaryGet(ctx context.Context, address
 }
 
 // 查询用户收益数据
-func (h *HyperLiquidService) GetWhalePortfolioInfoGetAddress(ctx context.Context, address string) (*model.HyperWhaleLeaderBoard, error) {
+func (h *HyperLiquidService) GetWhalePortfolioInfoGetAddress(ctx context.Context, address string) (*model.HyperWhalePortfolioRes, error) {
 	restClient, err := rest.NewHyperliquidRestClient(
 		"https://api.hyperliquid.xyz",
 		"https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
@@ -92,20 +92,43 @@ func (h *HyperLiquidService) GetWhalePortfolioInfoGetAddress(ctx context.Context
 		return nil, err
 	}
 
+	var result model.HyperWhalePortfolioRes
 	res, err := h.dao.WhaleLeaderBoardInfoGetByAddress(ctx, address)
-	res.Address = address
-	res.AccountValue = lastValue(portfolio.Total.AllTime.AccountValue)
-	res.VlmMonth = portfolio.Total.Month.Vlm
-	res.VlmDay = portfolio.Total.Day.Vlm
-	res.VlmWeek = portfolio.Total.Week.Vlm
-	res.VlmAll = portfolio.Total.AllTime.Vlm
-	res.PnLDay = lastValue(portfolio.Total.Day.Pnl)
-	res.PnLAll = lastValue(portfolio.Total.AllTime.Pnl)
-	res.PnLMonth = lastValue(portfolio.Total.Month.Pnl)
-	res.PnLWeek = lastValue(portfolio.Total.Week.Pnl)
+
+	result.PortfolioData = struct {
+		TotalPnl     []types.DataPoint `json:"totalPnl"`
+		PerpPnl      []types.DataPoint `json:"perpPnl"`
+		TotalBalance []types.DataPoint `json:"totalBalance"`
+		PerpBalance  []types.DataPoint `json:"perpBalance"`
+	}(struct {
+		TotalPnl     []types.DataPoint
+		PerpPnl      []types.DataPoint
+		TotalBalance []types.DataPoint
+		PerpBalance  []types.DataPoint
+	}{TotalPnl: portfolio.Total.AllTime.Pnl, PerpPnl: portfolio.Perp.AllTime.Pnl, TotalBalance: portfolio.Total.AllTime.AccountValue, PerpBalance: portfolio.Perp.AllTime.AccountValue})
+
+	result.DisplayName = res.DisplayName
+
+	result.Address = address
+	result.AccountValue = lastValue(portfolio.Total.AllTime.AccountValue)
+	result.VlmMonth = portfolio.Total.Month.Vlm
+	result.VlmDay = portfolio.Total.Day.Vlm
+	result.VlmWeek = portfolio.Total.Week.Vlm
+	result.VlmAll = portfolio.Total.AllTime.Vlm
+	result.PnLDay = lastValue(portfolio.Total.Day.Pnl)
+	result.PnLAll = lastValue(portfolio.Total.AllTime.Pnl)
+	result.PnLMonth = lastValue(portfolio.Total.Month.Pnl)
+	result.PnLWeek = lastValue(portfolio.Total.Week.Pnl)
+
+	result.WinRateUpdatedAt = res.WinRateUpdatedAt
+	result.WinRateCalculationStartTime = res.WinRateCalculationStartTime
+	result.TotalAccumulatedTrades = res.TotalAccumulatedTrades
+	result.TotalAccumulatedProfits = res.TotalAccumulatedProfits
+	result.TotalAccumulatedPnL = res.TotalAccumulatedPnL
+
 	fmt.Printf("Day PnL: %.2f\n")
 
-	return res, nil
+	return &result, nil
 }
 
 func lastValue(arr []types.DataPoint) float64 {

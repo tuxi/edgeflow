@@ -240,8 +240,8 @@ const (
 // UserFillOrdersIn24Hours：实现客户端可追溯的分页查询
 func (rest *HyperliquidRestClient) UserFillOrdersIn24Hours( // 客户端可追溯的分页查询，支持动态窗口
 	ctx context.Context,
-	userAddress string,  // 鲸鱼地址
-	since int64,         // 上次查询返回的起始时间戳（客户端传回）。如果为 0，则默认查询 [now - 3h, now]。
+	userAddress string, // 鲸鱼地址
+	since int64, // 上次查询返回的起始时间戳（客户端传回）。如果为 0，则默认查询 [now - 3h, now]。
 	maxLookbackDays int, // 最大追溯天数，默认1天
 	prevWindowHours int, // 上次查询使用的窗口大小（小时）。如果为 0，使用默认窗口。
 ) (data *types.UserFillOrderData, err error) {
@@ -422,7 +422,7 @@ func (rest *HyperliquidRestClient) UserFillOrdersByWindow(
 	ctx context.Context,
 	userAddress string,
 	startTime int64, // 窗口起始时间戳 (毫秒)
-	endTime int64,   // 窗口结束时间戳 (毫秒)
+	endTime int64, // 窗口结束时间戳 (毫秒)
 ) ([]*types.UserFillOrder, error) {
 
 	// 确保窗口有效
@@ -693,7 +693,7 @@ func parsePortfolio(jsonData []byte) (*types.WhalePortfolio, error) {
 			val, ok2 := toFloat64(arr[1])
 			if ok1 && ok2 {
 				pd.AccountValue = append(pd.AccountValue, types.DataPoint{
-					Time:  time.UnixMilli(ts),
+					Time:  ts,
 					Value: val,
 				})
 			}
@@ -708,7 +708,7 @@ func parsePortfolio(jsonData []byte) (*types.WhalePortfolio, error) {
 			val, ok2 := toFloat64(arr[1])
 			if ok1 && ok2 {
 				pd.Pnl = append(pd.Pnl, types.DataPoint{
-					Time:  time.UnixMilli(ts),
+					Time:  ts,
 					Value: val,
 				})
 			}
