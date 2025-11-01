@@ -311,6 +311,32 @@ func (dao *hyperLiquidDao) UpdateWhaleLastSuccessfulWinRateTime(ctx context.Cont
 	return err
 }
 
+func (dao *hyperLiquidDao) GetWinRateLeaderboard(ctx context.Context, limit int) ([]model.WhaleRankResult, error) {
+	if limit == 0 {
+		limit = 100
+	}
+	// 由于表中没有win_rate字段，而win_rate是需要total_accumulated_profits / total_accumulated_trades计算得到的
+	// 所以需要在数据库中使用 SQL 运行时计算
+	// 使用 GORM 的 Select 结合表达式，在查询时计算 Win Rate
+	// 计算 WinRate，并按其降序排序
+	query := dao.db.WithContext(ctx).
+		Model(&entity.HyperLiquidWhaleStat{}).
+		// 使用 SQL 表达式计算胜率，并给它一个别名 win_rate
+		Select("address, total_accumulated_trades, total_accumulated_profits, (CAST(total_accumulated_profits AS DECIMAL(10, 4)) / total_accumulated_trades) AS win_rate").
+		Where("total_accumulated_trades > ?", 0). // 排除分母为 0 的情况
+		Order("win_rate DESC").                   // 按计算出的字段降序排序
+		Limit(limit)
+
+	var stats []model.WhaleRankResult
+
+	err := query.Find(&stats).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return stats, nil
+}
+
 // 必须在 DAO 层实现获取和更新 的方法
 func (dao *hyperLiquidDao) GetWhaleStatByAddress(ctx context.Context, address string) (*entity.HyperLiquidWhaleStat, error) {
 	var stat entity.HyperLiquidWhaleStat
@@ -357,12 +383,12 @@ func filterByPnlStatus(status string) func(db *gorm.DB) *gorm.DB {
 		switch status {
 		case "profit": // 盈利
 			// 未实现盈亏 > 0
-			return db.Where("funding_fee > 0")
+			return db.Where("unrealized_pnl > 0")
 		case "loss": // 亏损
 			// 未实现盈亏 < 0
-			return db.Where("funding_fee < 0")
+			return db.Where("unrealized_pnl < 0")
 		case "neutral": // 平衡 (通常忽略，但如果需要，可以设置一个非常小的范围)
-			return db.Where("funding_fee BETWEEN -0.01 AND 0.01")
+			return db.Where("unrealized_pnl BETWEEN -0.01 AND 0.01")
 		default:
 			return db // 不筛选
 		}
@@ -376,12 +402,12 @@ func filterByFundingFee(status string) func(db *gorm.DB) *gorm.DB {
 		switch status {
 		case "profit": // 盈利
 			// 未实现盈亏 > 0
-			return db.Where("unrealized_pnl > 0")
+			return db.Where("funding_fee > 0")
 		case "loss": // 亏损
 			// 未实现盈亏 < 0
-			return db.Where("unrealized_pnl < 0")
+			return db.Where("funding_fee < 0")
 		case "neutral": // 平衡 (通常忽略，但如果需要，可以设置一个非常小的范围)
-			return db.Where("unrealized_pnl BETWEEN -0.01 AND 0.01")
+			return db.Where("funding_fee BETWEEN -0.01 AND 0.01")
 		default:
 			return db // 不筛选
 		}

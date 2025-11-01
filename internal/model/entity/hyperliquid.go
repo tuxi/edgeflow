@@ -49,7 +49,7 @@ type HyperLiquidWhaleStat struct {
 	// 胜率和总交易笔数: 根据交易订单计算而来的数据，并非hyper官方api的
 	WinRateUpdatedAt *time.Time `gorm:"column:win_rate_updated_at;comment:胜率数据最后更新时间" json:"win_rate_updated_at"` // 最后一次更新胜率的时间 (用于判断数据新鲜度)
 
-	/// 【新增】胜率累计的绝对起始时间 (用于前端展示数据的追溯期)
+	/// 胜率累计的绝对起始时间 (用于前端展示数据的追溯期)
 	WinRateCalculationStartTime *int64 `gorm:"column:win_rate_calc_start_time;comment:开始统计胜率的时间" json:"win_rate_calc_start_time"`
 
 	// 关键增量基线：上次成功快照的结束时间戳 (用于下次增量拉取的 'since')

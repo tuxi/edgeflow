@@ -185,10 +185,23 @@ type CustomLeaderboardEntry struct {
 	WinRate float64 `json:"win_rate"` // 胜率 (Score)
 }
 
+// 定义一个专门用于排行榜结果的结构体，包含计算出的 WinRate
+type WhaleRankResult struct {
+	Address                 string  `gorm:"column:address" json:"address"`
+	TotalAccumulatedTrades  int64   `gorm:"column:total_accumulated_trades" json:"total_accumulated_trades"`
+	TotalAccumulatedProfits int64   `gorm:"column:total_accumulated_profits" json:"total_accumulated_profits"`
+	WinRate                 float64 `gorm:"column:win_rate" json:"win_rate"` // 计算出的胜率
+}
+
 type CustomLeaderboardReq struct {
 	Limit int64 `json:"limit" form:"address"`
 }
 type CustomLeaderboardEntryRes struct {
 	Data                 []CustomLeaderboardEntry `json:"data"`
 	LastUpdatedTimestamp int64                    `json:"last-updated-timestamp"`
+}
+
+type CustomLeaderboardEntryDBRes struct {
+	Data                 []WhaleRankResult `json:"data"`
+	LastUpdatedTimestamp int64             `json:"last-updated-timestamp"`
 }

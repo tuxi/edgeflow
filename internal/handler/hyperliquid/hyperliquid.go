@@ -189,7 +189,7 @@ func (h *Handler) GetCustomWinRateLeaderboardHandler() gin.HandlerFunc {
 		}
 
 		// 将直接从 Redis ZSET 中查询数据
-		leaderboard, err := h.service.GetWinRateLeaderboard(ctx, req.Limit)
+		leaderboard, err := h.service.GetWinRateLeaderboardFromDB(ctx, req.Limit)
 		if err != nil {
 			response.JSON(ctx, err, nil)
 			return

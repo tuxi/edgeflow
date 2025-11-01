@@ -34,4 +34,6 @@ type HyperLiquidDao interface {
 	GetWhaleStatByAddress(ctx context.Context, address string) (*entity.HyperLiquidWhaleStat, error)
 	// 更新鲸鱼最后胜率时间
 	UpdateWhaleLastSuccessfulWinRateTime(ctx context.Context, address string, last int64) error
+
+	GetWinRateLeaderboard(ctx context.Context, limit int) ([]model.WhaleRankResult, error)
 }

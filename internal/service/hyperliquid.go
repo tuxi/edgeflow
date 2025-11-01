@@ -334,6 +334,30 @@ func (h *HyperLiquidService) WhaleUserNonFundingLedgerGet(ctx context.Context, u
 	return res, nil
 }
 
+func (h *HyperLiquidService) GetWinRateLeaderboardFromDB(ctx context.Context, limit int64) (*model.CustomLeaderboardEntryDBRes, error) {
+	items, err := h.dao.GetWinRateLeaderboard(ctx, int(limit))
+	if err != nil {
+		return nil, err
+	}
+
+	// 查询上次更新日期
+	lastUpdate, err := h.rc.Get(ctx, consts.WhaleWinRateLastUpdatedKey).Int64()
+	if err != nil {
+		if err != redis.Nil {
+			logger.Errorf("Redis连接异常:%v", err.Error())
+		}
+		return &model.CustomLeaderboardEntryDBRes{
+			Data:                 items,
+			LastUpdatedTimestamp: time.Now().UnixMilli(),
+		}, nil
+	} else {
+		return &model.CustomLeaderboardEntryDBRes{
+			Data:                 items,
+			LastUpdatedTimestamp: lastUpdate,
+		}, nil
+	}
+}
+
 // 从 Redis ZSET 中查询 Top N 我们自己计算的鲸鱼胜率排行榜。
 func (h *HyperLiquidService) GetWinRateLeaderboard(ctx context.Context, limit int64) (*model.CustomLeaderboardEntryRes, error) {
 
@@ -483,21 +507,28 @@ func (h *HyperLiquidService) analyzePositions(ctx context.Context, positions []*
 		analysis.TotalValue += posValue
 		analysis.TotalMargin += marginUsed
 		analysis.TotalPnl += upnl
-		analysis.TotalFundingFee += fundingFee
 
 		if pos.Side == "long" {
 			analysis.LongValue += posValue
 			analysis.LongMargin += marginUsed
 			analysis.LongPnl += upnl
-			analysis.LongFundingFee += fundingFee
+			analysis.LongFundingFee += -fundingFee // 所有多头的资金费
 			analysis.LongCount++
 		} else if pos.Side == "short" {
 			analysis.ShortValue += posValue
 			analysis.ShortMargin += marginUsed
 			analysis.ShortPnl += upnl
-			analysis.ShortFundingFee += fundingFee
+			analysis.ShortFundingFee += -fundingFee // 所有空头的资金费
 			analysis.ShortCount++
 		}
+
+		/*
+			    资金费的意义:
+				1.当仓位为多头时，资金费率为正时 -> 支付资金费 (支出)，资金费率为负时，收取资金费 (收入)
+				2.当仓位为空头时，资金费率为正时 -> 收取资金费 (收入)，资金费率为负时，支付资金费 (支出)
+		*/
+
+		analysis.TotalFundingFee += -fundingFee // 所有鲸鱼总资金费（收入为正，支出为负）
 
 		liqPx, _ := strconv.ParseFloat(pos.LiquidationPx, 64)
 
@@ -593,7 +624,7 @@ func (h *HyperLiquidService) analyzePositions(ctx context.Context, positions []*
 	// 把分析的结果缓存到redis
 	rdsKey := consts.WhalePositionsAnalyze
 	// 存储redis中，30秒过期
-	err = h.rc.Set(ctx, rdsKey, bytes, time.Minute*1).Err()
+	err = h.rc.Set(ctx, rdsKey, bytes, time.Second*30).Err()
 	if err != nil {
 		logger.Errorf("HyperLiquidService存储Cache失败:%v", err.Error())
 
