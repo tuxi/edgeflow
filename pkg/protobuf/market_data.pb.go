@@ -20,6 +20,109 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// --- 消息级别 ---
+type AlertLevel int32
+
+const (
+	AlertLevel_ALERT_LEVEL_INFO    AlertLevel = 0 // 普通信息
+	AlertLevel_ALERT_LEVEL_WARNING AlertLevel = 1 // 警告
+	AlertLevel_ALERT_LEVEL_DANGER  AlertLevel = 2 // 严重
+)
+
+// Enum value maps for AlertLevel.
+var (
+	AlertLevel_name = map[int32]string{
+		0: "ALERT_LEVEL_INFO",
+		1: "ALERT_LEVEL_WARNING",
+		2: "ALERT_LEVEL_DANGER",
+	}
+	AlertLevel_value = map[string]int32{
+		"ALERT_LEVEL_INFO":    0,
+		"ALERT_LEVEL_WARNING": 1,
+		"ALERT_LEVEL_DANGER":  2,
+	}
+)
+
+func (x AlertLevel) Enum() *AlertLevel {
+	p := new(AlertLevel)
+	*p = x
+	return p
+}
+
+func (x AlertLevel) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AlertLevel) Descriptor() protoreflect.EnumDescriptor {
+	return file_market_data_proto_enumTypes[0].Descriptor()
+}
+
+func (AlertLevel) Type() protoreflect.EnumType {
+	return &file_market_data_proto_enumTypes[0]
+}
+
+func (x AlertLevel) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AlertLevel.Descriptor instead.
+func (AlertLevel) EnumDescriptor() ([]byte, []int) {
+	return file_market_data_proto_rawDescGZIP(), []int{0}
+}
+
+// --- 消息类型 ---
+type AlertType int32
+
+const (
+	AlertType_ALERT_TYPE_SYSTEM   AlertType = 0 // 系统公告，如“维护通知”
+	AlertType_ALERT_TYPE_PRICE    AlertType = 1 // 行情类提醒，如价格突破
+	AlertType_ALERT_TYPE_STRATEGY AlertType = 2 // 策略信号类提醒
+	AlertType_ALERT_TYPE_CUSTOM   AlertType = 3 // 用户自定义提醒
+)
+
+// Enum value maps for AlertType.
+var (
+	AlertType_name = map[int32]string{
+		0: "ALERT_TYPE_SYSTEM",
+		1: "ALERT_TYPE_PRICE",
+		2: "ALERT_TYPE_STRATEGY",
+		3: "ALERT_TYPE_CUSTOM",
+	}
+	AlertType_value = map[string]int32{
+		"ALERT_TYPE_SYSTEM":   0,
+		"ALERT_TYPE_PRICE":    1,
+		"ALERT_TYPE_STRATEGY": 2,
+		"ALERT_TYPE_CUSTOM":   3,
+	}
+)
+
+func (x AlertType) Enum() *AlertType {
+	p := new(AlertType)
+	*p = x
+	return p
+}
+
+func (x AlertType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AlertType) Descriptor() protoreflect.EnumDescriptor {
+	return file_market_data_proto_enumTypes[1].Descriptor()
+}
+
+func (AlertType) Type() protoreflect.EnumType {
+	return &file_market_data_proto_enumTypes[1]
+}
+
+func (x AlertType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AlertType.Descriptor instead.
+func (AlertType) EnumDescriptor() ([]byte, []int) {
+	return file_market_data_proto_rawDescGZIP(), []int{1}
+}
+
 // Ticker 数据 (价格网关使用)
 type TickerUpdate struct {
 	state         protoimpl.MessageState
@@ -901,6 +1004,121 @@ func (x *CryptoInstrumentMetadata) GetTags() []*CryptoTag {
 	return nil
 }
 
+// --- 提醒/通知消息 ---
+// 通常由 AlertService 推送，用于实时通知、价格触发、系统公告等
+type AlertMessage struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Id        string     `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                                           // 唯一ID（UUID）
+	Title     string     `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`                                                     // 标题，如 “BTC价格突破70000”
+	Content   string     `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`                                                 // 消息内容，可展示在UI中
+	Symbol    string     `protobuf:"bytes,4,opt,name=symbol,proto3" json:"symbol,omitempty"`                                                   // 相关币种（可选）
+	Level     AlertLevel `protobuf:"varint,5,opt,name=level,proto3,enum=marketdata.AlertLevel" json:"level,omitempty"`                         // 消息级别（信息、警告、严重）
+	AlertType AlertType  `protobuf:"varint,6,opt,name=alert_type,json=alertType,proto3,enum=marketdata.AlertType" json:"alert_type,omitempty"` // 消息类型（价格、系统、策略、自定义等）
+	Timestamp int64      `protobuf:"varint,7,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                                            // 服务器时间戳（毫秒）
+	// 定向推送的目标（为空时代表广播）
+	Targets []string `protobuf:"bytes,8,rep,name=targets,proto3" json:"targets,omitempty"` // 目标deviceId或userId
+	// 可扩展字段，用于自定义展示或行为
+	Extra map[string]string `protobuf:"bytes,9,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"` // 比如 {"trigger_price": "70000", "direction": "up"}
+}
+
+func (x *AlertMessage) Reset() {
+	*x = AlertMessage{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_market_data_proto_msgTypes[12]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AlertMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AlertMessage) ProtoMessage() {}
+
+func (x *AlertMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_market_data_proto_msgTypes[12]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AlertMessage.ProtoReflect.Descriptor instead.
+func (*AlertMessage) Descriptor() ([]byte, []int) {
+	return file_market_data_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AlertMessage) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AlertMessage) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *AlertMessage) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+func (x *AlertMessage) GetSymbol() string {
+	if x != nil {
+		return x.Symbol
+	}
+	return ""
+}
+
+func (x *AlertMessage) GetLevel() AlertLevel {
+	if x != nil {
+		return x.Level
+	}
+	return AlertLevel_ALERT_LEVEL_INFO
+}
+
+func (x *AlertMessage) GetAlertType() AlertType {
+	if x != nil {
+		return x.AlertType
+	}
+	return AlertType_ALERT_TYPE_SYSTEM
+}
+
+func (x *AlertMessage) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *AlertMessage) GetTargets() []string {
+	if x != nil {
+		return x.Targets
+	}
+	return nil
+}
+
+func (x *AlertMessage) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
 // --- 通用数据体（服务端 -> 客户端）---
 // 这是最终通过 WebSocket 发送给客户端的消息体，包含一个 Oneof 字段
 type WebSocketMessage struct {
@@ -920,13 +1138,14 @@ type WebSocketMessage struct {
 	//	*WebSocketMessage_InstrumentStatusUpdate
 	//	*WebSocketMessage_InstrumentMetadata
 	//	*WebSocketMessage_InstrumentTradingList
+	//	*WebSocketMessage_AlertMessage
 	Payload isWebSocketMessage_Payload `protobuf_oneof:"payload"`
 }
 
 func (x *WebSocketMessage) Reset() {
 	*x = WebSocketMessage{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_market_data_proto_msgTypes[12]
+		mi := &file_market_data_proto_msgTypes[13]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -939,7 +1158,7 @@ func (x *WebSocketMessage) String() string {
 func (*WebSocketMessage) ProtoMessage() {}
 
 func (x *WebSocketMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_market_data_proto_msgTypes[12]
+	mi := &file_market_data_proto_msgTypes[13]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -952,7 +1171,7 @@ func (x *WebSocketMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WebSocketMessage.ProtoReflect.Descriptor instead.
 func (*WebSocketMessage) Descriptor() ([]byte, []int) {
-	return file_market_data_proto_rawDescGZIP(), []int{12}
+	return file_market_data_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *WebSocketMessage) GetType() string {
@@ -1032,6 +1251,13 @@ func (x *WebSocketMessage) GetInstrumentTradingList() *CryptoInstrumentTradingAr
 	return nil
 }
 
+func (x *WebSocketMessage) GetAlertMessage() *AlertMessage {
+	if x, ok := x.GetPayload().(*WebSocketMessage_AlertMessage); ok {
+		return x.AlertMessage
+	}
+	return nil
+}
+
 type isWebSocketMessage_Payload interface {
 	isWebSocketMessage_Payload()
 }
@@ -1081,6 +1307,11 @@ type WebSocketMessage_InstrumentTradingList struct {
 	InstrumentTradingList *CryptoInstrumentTradingArray `protobuf:"bytes,10,opt,name=instrument_trading_list,json=instrumentTradingList,proto3,oneof"`
 }
 
+type WebSocketMessage_AlertMessage struct {
+	// 提醒/通知消息
+	AlertMessage *AlertMessage `protobuf:"bytes,11,opt,name=alert_message,json=alertMessage,proto3,oneof"`
+}
+
 func (*WebSocketMessage_TickerBatch) isWebSocketMessage_Payload() {}
 
 func (*WebSocketMessage_Ticker) isWebSocketMessage_Payload() {}
@@ -1098,6 +1329,8 @@ func (*WebSocketMessage_InstrumentStatusUpdate) isWebSocketMessage_Payload() {}
 func (*WebSocketMessage_InstrumentMetadata) isWebSocketMessage_Payload() {}
 
 func (*WebSocketMessage_InstrumentTradingList) isWebSocketMessage_Payload() {}
+
+func (*WebSocketMessage_AlertMessage) isWebSocketMessage_Payload() {}
 
 // 内嵌 K 线详细数据
 type WsKlineUpdate_KlineData struct {
@@ -1117,7 +1350,7 @@ type WsKlineUpdate_KlineData struct {
 func (x *WsKlineUpdate_KlineData) Reset() {
 	*x = WsKlineUpdate_KlineData{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_market_data_proto_msgTypes[13]
+		mi := &file_market_data_proto_msgTypes[14]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1130,7 +1363,7 @@ func (x *WsKlineUpdate_KlineData) String() string {
 func (*WsKlineUpdate_KlineData) ProtoMessage() {}
 
 func (x *WsKlineUpdate_KlineData) ProtoReflect() protoreflect.Message {
-	mi := &file_market_data_proto_msgTypes[13]
+	mi := &file_market_data_proto_msgTypes[14]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1331,7 +1564,31 @@ var file_market_data_proto_rawDesc = []byte{
 	0x6e, 0x74, 0x72, 0x61, 0x63, 0x74, 0x12, 0x29, 0x0a, 0x04, 0x74, 0x61, 0x67, 0x73, 0x18, 0x0d,
 	0x20, 0x03, 0x28, 0x0b, 0x32, 0x15, 0x2e, 0x6d, 0x61, 0x72, 0x6b, 0x65, 0x74, 0x64, 0x61, 0x74,
 	0x61, 0x2e, 0x43, 0x72, 0x79, 0x70, 0x74, 0x6f, 0x54, 0x61, 0x67, 0x52, 0x04, 0x74, 0x61, 0x67,
-	0x73, 0x22, 0xc3, 0x05, 0x0a, 0x10, 0x57, 0x65, 0x62, 0x53, 0x6f, 0x63, 0x6b, 0x65, 0x74, 0x4d,
+	0x73, 0x22, 0xfd, 0x02, 0x0a, 0x0c, 0x41, 0x6c, 0x65, 0x72, 0x74, 0x4d, 0x65, 0x73, 0x73, 0x61,
+	0x67, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02,
+	0x69, 0x64, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x69, 0x74, 0x6c, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x05, 0x74, 0x69, 0x74, 0x6c, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x63, 0x6f, 0x6e, 0x74,
+	0x65, 0x6e, 0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x63, 0x6f, 0x6e, 0x74, 0x65,
+	0x6e, 0x74, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x79, 0x6d, 0x62, 0x6f, 0x6c, 0x18, 0x04, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x06, 0x73, 0x79, 0x6d, 0x62, 0x6f, 0x6c, 0x12, 0x2c, 0x0a, 0x05, 0x6c, 0x65,
+	0x76, 0x65, 0x6c, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x16, 0x2e, 0x6d, 0x61, 0x72, 0x6b,
+	0x65, 0x74, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x41, 0x6c, 0x65, 0x72, 0x74, 0x4c, 0x65, 0x76, 0x65,
+	0x6c, 0x52, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x34, 0x0a, 0x0a, 0x61, 0x6c, 0x65, 0x72,
+	0x74, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x15, 0x2e, 0x6d,
+	0x61, 0x72, 0x6b, 0x65, 0x74, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x41, 0x6c, 0x65, 0x72, 0x74, 0x54,
+	0x79, 0x70, 0x65, 0x52, 0x09, 0x61, 0x6c, 0x65, 0x72, 0x74, 0x54, 0x79, 0x70, 0x65, 0x12, 0x1c,
+	0x0a, 0x09, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x18, 0x07, 0x20, 0x01, 0x28,
+	0x03, 0x52, 0x09, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x12, 0x18, 0x0a, 0x07,
+	0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x73, 0x18, 0x08, 0x20, 0x03, 0x28, 0x09, 0x52, 0x07, 0x74,
+	0x61, 0x72, 0x67, 0x65, 0x74, 0x73, 0x12, 0x39, 0x0a, 0x05, 0x65, 0x78, 0x74, 0x72, 0x61, 0x18,
+	0x09, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x23, 0x2e, 0x6d, 0x61, 0x72, 0x6b, 0x65, 0x74, 0x64, 0x61,
+	0x74, 0x61, 0x2e, 0x41, 0x6c, 0x65, 0x72, 0x74, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x2e,
+	0x45, 0x78, 0x74, 0x72, 0x61, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x05, 0x65, 0x78, 0x74, 0x72,
+	0x61, 0x1a, 0x38, 0x0a, 0x0a, 0x45, 0x78, 0x74, 0x72, 0x61, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12,
+	0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65,
+	0x79, 0x12, 0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
+	0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x4a, 0x04, 0x08, 0x0a, 0x10,
+	0x14, 0x22, 0x84, 0x06, 0x0a, 0x10, 0x57, 0x65, 0x62, 0x53, 0x6f, 0x63, 0x6b, 0x65, 0x74, 0x4d,
 	0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x01,
 	0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x3c, 0x0a, 0x0c, 0x74, 0x69,
 	0x63, 0x6b, 0x65, 0x72, 0x5f, 0x62, 0x61, 0x74, 0x63, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b,
@@ -1374,8 +1631,24 @@ var file_market_data_proto_rawDesc = []byte{
 	0x65, 0x74, 0x64, 0x61, 0x74, 0x61, 0x2e, 0x43, 0x72, 0x79, 0x70, 0x74, 0x6f, 0x49, 0x6e, 0x73,
 	0x74, 0x72, 0x75, 0x6d, 0x65, 0x6e, 0x74, 0x54, 0x72, 0x61, 0x64, 0x69, 0x6e, 0x67, 0x41, 0x72,
 	0x72, 0x61, 0x79, 0x48, 0x00, 0x52, 0x15, 0x69, 0x6e, 0x73, 0x74, 0x72, 0x75, 0x6d, 0x65, 0x6e,
-	0x74, 0x54, 0x72, 0x61, 0x64, 0x69, 0x6e, 0x67, 0x4c, 0x69, 0x73, 0x74, 0x42, 0x09, 0x0a, 0x07,
-	0x70, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x42, 0x0f, 0x5a, 0x0d, 0x2e, 0x2f, 0x70, 0x72, 0x6f,
+	0x74, 0x54, 0x72, 0x61, 0x64, 0x69, 0x6e, 0x67, 0x4c, 0x69, 0x73, 0x74, 0x12, 0x3f, 0x0a, 0x0d,
+	0x61, 0x6c, 0x65, 0x72, 0x74, 0x5f, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x18, 0x0b, 0x20,
+	0x01, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x6d, 0x61, 0x72, 0x6b, 0x65, 0x74, 0x64, 0x61, 0x74, 0x61,
+	0x2e, 0x41, 0x6c, 0x65, 0x72, 0x74, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x48, 0x00, 0x52,
+	0x0c, 0x61, 0x6c, 0x65, 0x72, 0x74, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x42, 0x09, 0x0a,
+	0x07, 0x70, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x2a, 0x53, 0x0a, 0x0a, 0x41, 0x6c, 0x65, 0x72,
+	0x74, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x14, 0x0a, 0x10, 0x41, 0x4c, 0x45, 0x52, 0x54, 0x5f,
+	0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f, 0x49, 0x4e, 0x46, 0x4f, 0x10, 0x00, 0x12, 0x17, 0x0a, 0x13,
+	0x41, 0x4c, 0x45, 0x52, 0x54, 0x5f, 0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f, 0x57, 0x41, 0x52, 0x4e,
+	0x49, 0x4e, 0x47, 0x10, 0x01, 0x12, 0x16, 0x0a, 0x12, 0x41, 0x4c, 0x45, 0x52, 0x54, 0x5f, 0x4c,
+	0x45, 0x56, 0x45, 0x4c, 0x5f, 0x44, 0x41, 0x4e, 0x47, 0x45, 0x52, 0x10, 0x02, 0x2a, 0x68, 0x0a,
+	0x09, 0x41, 0x6c, 0x65, 0x72, 0x74, 0x54, 0x79, 0x70, 0x65, 0x12, 0x15, 0x0a, 0x11, 0x41, 0x4c,
+	0x45, 0x52, 0x54, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x53, 0x59, 0x53, 0x54, 0x45, 0x4d, 0x10,
+	0x00, 0x12, 0x14, 0x0a, 0x10, 0x41, 0x4c, 0x45, 0x52, 0x54, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f,
+	0x50, 0x52, 0x49, 0x43, 0x45, 0x10, 0x01, 0x12, 0x17, 0x0a, 0x13, 0x41, 0x4c, 0x45, 0x52, 0x54,
+	0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x53, 0x54, 0x52, 0x41, 0x54, 0x45, 0x47, 0x59, 0x10, 0x02,
+	0x12, 0x15, 0x0a, 0x11, 0x41, 0x4c, 0x45, 0x52, 0x54, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x43,
+	0x55, 0x53, 0x54, 0x4f, 0x4d, 0x10, 0x03, 0x42, 0x0f, 0x5a, 0x0d, 0x2e, 0x2f, 0x70, 0x72, 0x6f,
 	0x74, 0x6f, 0x62, 0x75, 0x66, 0x3b, 0x70, 0x62, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
@@ -1391,46 +1664,55 @@ func file_market_data_proto_rawDescGZIP() []byte {
 	return file_market_data_proto_rawDescData
 }
 
-var file_market_data_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_market_data_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_market_data_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_market_data_proto_goTypes = []interface{}{
-	(*TickerUpdate)(nil),                 // 0: marketdata.TickerUpdate
-	(*TickerBatch)(nil),                  // 1: marketdata.TickerBatch
-	(*WsKlineUpdate)(nil),                // 2: marketdata.WsKlineUpdate
-	(*ErrorMessage)(nil),                 // 3: marketdata.ErrorMessage
-	(*InstrumentListUpdate)(nil),         // 4: marketdata.InstrumentListUpdate
-	(*InstrumentUpdate)(nil),             // 5: marketdata.InstrumentUpdate
-	(*CryptoExchange)(nil),               // 6: marketdata.CryptoExchange
-	(*SortUpdate)(nil),                   // 7: marketdata.SortUpdate
-	(*CryptoTag)(nil),                    // 8: marketdata.CryptoTag
-	(*CryptoInstrumentTradingItem)(nil),  // 9: marketdata.CryptoInstrumentTradingItem
-	(*CryptoInstrumentTradingArray)(nil), // 10: marketdata.CryptoInstrumentTradingArray
-	(*CryptoInstrumentMetadata)(nil),     // 11: marketdata.CryptoInstrumentMetadata
-	(*WebSocketMessage)(nil),             // 12: marketdata.WebSocketMessage
-	(*WsKlineUpdate_KlineData)(nil),      // 13: marketdata.WsKlineUpdate.KlineData
-	nil,                                  // 14: marketdata.ErrorMessage.DataEntry
+	(AlertLevel)(0),                      // 0: marketdata.AlertLevel
+	(AlertType)(0),                       // 1: marketdata.AlertType
+	(*TickerUpdate)(nil),                 // 2: marketdata.TickerUpdate
+	(*TickerBatch)(nil),                  // 3: marketdata.TickerBatch
+	(*WsKlineUpdate)(nil),                // 4: marketdata.WsKlineUpdate
+	(*ErrorMessage)(nil),                 // 5: marketdata.ErrorMessage
+	(*InstrumentListUpdate)(nil),         // 6: marketdata.InstrumentListUpdate
+	(*InstrumentUpdate)(nil),             // 7: marketdata.InstrumentUpdate
+	(*CryptoExchange)(nil),               // 8: marketdata.CryptoExchange
+	(*SortUpdate)(nil),                   // 9: marketdata.SortUpdate
+	(*CryptoTag)(nil),                    // 10: marketdata.CryptoTag
+	(*CryptoInstrumentTradingItem)(nil),  // 11: marketdata.CryptoInstrumentTradingItem
+	(*CryptoInstrumentTradingArray)(nil), // 12: marketdata.CryptoInstrumentTradingArray
+	(*CryptoInstrumentMetadata)(nil),     // 13: marketdata.CryptoInstrumentMetadata
+	(*AlertMessage)(nil),                 // 14: marketdata.AlertMessage
+	(*WebSocketMessage)(nil),             // 15: marketdata.WebSocketMessage
+	(*WsKlineUpdate_KlineData)(nil),      // 16: marketdata.WsKlineUpdate.KlineData
+	nil,                                  // 17: marketdata.ErrorMessage.DataEntry
+	nil,                                  // 18: marketdata.AlertMessage.ExtraEntry
 }
 var file_market_data_proto_depIdxs = []int32{
-	0,  // 0: marketdata.TickerBatch.tickers:type_name -> marketdata.TickerUpdate
-	13, // 1: marketdata.WsKlineUpdate.data:type_name -> marketdata.WsKlineUpdate.KlineData
-	14, // 2: marketdata.ErrorMessage.data:type_name -> marketdata.ErrorMessage.DataEntry
-	11, // 3: marketdata.CryptoInstrumentTradingItem.instrument_metadata:type_name -> marketdata.CryptoInstrumentMetadata
-	0,  // 4: marketdata.CryptoInstrumentTradingItem.ticker_update:type_name -> marketdata.TickerUpdate
-	9,  // 5: marketdata.CryptoInstrumentTradingArray.data:type_name -> marketdata.CryptoInstrumentTradingItem
-	8,  // 6: marketdata.CryptoInstrumentMetadata.tags:type_name -> marketdata.CryptoTag
-	1,  // 7: marketdata.WebSocketMessage.ticker_batch:type_name -> marketdata.TickerBatch
-	0,  // 8: marketdata.WebSocketMessage.ticker:type_name -> marketdata.TickerUpdate
-	2,  // 9: marketdata.WebSocketMessage.kline_update:type_name -> marketdata.WsKlineUpdate
-	7,  // 10: marketdata.WebSocketMessage.sort_update:type_name -> marketdata.SortUpdate
-	3,  // 11: marketdata.WebSocketMessage.error_message:type_name -> marketdata.ErrorMessage
-	4,  // 12: marketdata.WebSocketMessage.instrument_list:type_name -> marketdata.InstrumentListUpdate
-	5,  // 13: marketdata.WebSocketMessage.instrument_status_update:type_name -> marketdata.InstrumentUpdate
-	11, // 14: marketdata.WebSocketMessage.instrument_metadata:type_name -> marketdata.CryptoInstrumentMetadata
-	10, // 15: marketdata.WebSocketMessage.instrument_trading_list:type_name -> marketdata.CryptoInstrumentTradingArray
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	2,  // 0: marketdata.TickerBatch.tickers:type_name -> marketdata.TickerUpdate
+	16, // 1: marketdata.WsKlineUpdate.data:type_name -> marketdata.WsKlineUpdate.KlineData
+	17, // 2: marketdata.ErrorMessage.data:type_name -> marketdata.ErrorMessage.DataEntry
+	13, // 3: marketdata.CryptoInstrumentTradingItem.instrument_metadata:type_name -> marketdata.CryptoInstrumentMetadata
+	2,  // 4: marketdata.CryptoInstrumentTradingItem.ticker_update:type_name -> marketdata.TickerUpdate
+	11, // 5: marketdata.CryptoInstrumentTradingArray.data:type_name -> marketdata.CryptoInstrumentTradingItem
+	10, // 6: marketdata.CryptoInstrumentMetadata.tags:type_name -> marketdata.CryptoTag
+	0,  // 7: marketdata.AlertMessage.level:type_name -> marketdata.AlertLevel
+	1,  // 8: marketdata.AlertMessage.alert_type:type_name -> marketdata.AlertType
+	18, // 9: marketdata.AlertMessage.extra:type_name -> marketdata.AlertMessage.ExtraEntry
+	3,  // 10: marketdata.WebSocketMessage.ticker_batch:type_name -> marketdata.TickerBatch
+	2,  // 11: marketdata.WebSocketMessage.ticker:type_name -> marketdata.TickerUpdate
+	4,  // 12: marketdata.WebSocketMessage.kline_update:type_name -> marketdata.WsKlineUpdate
+	9,  // 13: marketdata.WebSocketMessage.sort_update:type_name -> marketdata.SortUpdate
+	5,  // 14: marketdata.WebSocketMessage.error_message:type_name -> marketdata.ErrorMessage
+	6,  // 15: marketdata.WebSocketMessage.instrument_list:type_name -> marketdata.InstrumentListUpdate
+	7,  // 16: marketdata.WebSocketMessage.instrument_status_update:type_name -> marketdata.InstrumentUpdate
+	13, // 17: marketdata.WebSocketMessage.instrument_metadata:type_name -> marketdata.CryptoInstrumentMetadata
+	12, // 18: marketdata.WebSocketMessage.instrument_trading_list:type_name -> marketdata.CryptoInstrumentTradingArray
+	14, // 19: marketdata.WebSocketMessage.alert_message:type_name -> marketdata.AlertMessage
+	20, // [20:20] is the sub-list for method output_type
+	20, // [20:20] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_market_data_proto_init() }
@@ -1584,7 +1866,7 @@ func file_market_data_proto_init() {
 			}
 		}
 		file_market_data_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*WebSocketMessage); i {
+			switch v := v.(*AlertMessage); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1596,6 +1878,18 @@ func file_market_data_proto_init() {
 			}
 		}
 		file_market_data_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*WebSocketMessage); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_market_data_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*WsKlineUpdate_KlineData); i {
 			case 0:
 				return &v.state
@@ -1608,7 +1902,7 @@ func file_market_data_proto_init() {
 			}
 		}
 	}
-	file_market_data_proto_msgTypes[12].OneofWrappers = []interface{}{
+	file_market_data_proto_msgTypes[13].OneofWrappers = []interface{}{
 		(*WebSocketMessage_TickerBatch)(nil),
 		(*WebSocketMessage_Ticker)(nil),
 		(*WebSocketMessage_KlineUpdate)(nil),
@@ -1618,19 +1912,21 @@ func file_market_data_proto_init() {
 		(*WebSocketMessage_InstrumentStatusUpdate)(nil),
 		(*WebSocketMessage_InstrumentMetadata)(nil),
 		(*WebSocketMessage_InstrumentTradingList)(nil),
+		(*WebSocketMessage_AlertMessage)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_market_data_proto_rawDesc,
-			NumEnums:      0,
-			NumMessages:   15,
+			NumEnums:      2,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_market_data_proto_goTypes,
 		DependencyIndexes: file_market_data_proto_depIdxs,
+		EnumInfos:         file_market_data_proto_enumTypes,
 		MessageInfos:      file_market_data_proto_msgTypes,
 	}.Build()
 	File_market_data_proto = out.File

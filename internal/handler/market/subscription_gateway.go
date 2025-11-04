@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+const cleanupGrace = 10 * time.Second
+
 // SubscriptionGateway 负责按需订阅（K线、深度等）的连接管理和定向推送
 type SubscriptionGateway struct {
 	// 依赖：K线服务 (目前唯一的外部数据源)

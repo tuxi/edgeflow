@@ -26,9 +26,11 @@ type ProducerService interface {
 
 // 定义所有合法的 Topic 名称
 const (
-	TopicTicker    = "marketdata_ticker"
-	TopicSubscribe = "marketdata_subscribe"
-	TopicSystem    = "marketdata_system"
+	TopicTicker      = "marketdata_ticker"
+	TopicSubscribe   = "marketdata_subscribe"
+	TopicSystem      = "marketdata_system"
+	TopicAlertSystem = "alert_system" // 全量推送的topic
+	TopicAlertDirect = "alert_direct" // 定向推送的topic
 )
 
 // kafkaProducer 结构体修改为支持懒加载和并发安全
@@ -71,7 +73,7 @@ func (p *kafkaProducer) getWriter(topic string) (*kafka.Writer, error) {
 
 	// 3. 验证 Topic 合法性并创建新的 Writer
 	switch topic {
-	case TopicSubscribe, TopicSystem, TopicTicker:
+	case TopicSubscribe, TopicSystem, TopicTicker, AlertSubscribe:
 		// Topic 合法，创建 Writer
 		newWriter := &kafka.Writer{
 			Addr:     kafka.TCP(p.brokerURL),

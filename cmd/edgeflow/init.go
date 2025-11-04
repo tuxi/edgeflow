@@ -8,6 +8,7 @@ import (
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
 	signal3 "edgeflow/internal/handler/signal"
+	"edgeflow/internal/handler/ticker"
 	"edgeflow/internal/handler/user"
 	"edgeflow/internal/router"
 	"edgeflow/internal/service"
@@ -93,7 +94,7 @@ func InitRouter(db *gorm.DB) Router {
 
 	signalHandler := signal3.NewSignalHandler(signalService, okxEx)
 
-	tickerGw := market.NewTickerGateway(marketService, kafConsumer)
+	tickerGw := ticker.NewTickerGateway(marketService, kafConsumer)
 	subscriptionGw := market.NewSubscriptionGateway(okxCandleService, kafConsumer)
 
 	apiRouter := router.NewApiRouter(coinH, marketHandler, hyperHandler, userHandler, signalHandler, tickerGw, subscriptionGw)

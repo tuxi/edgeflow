@@ -5,6 +5,7 @@ import (
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
 	"edgeflow/internal/handler/signal"
+	"edgeflow/internal/handler/ticker"
 	"edgeflow/internal/handler/user"
 	"edgeflow/internal/middleware"
 	"github.com/gin-gonic/gin"
@@ -16,11 +17,11 @@ type ApiRouter struct {
 	marketHandler  *market.MarketHandler
 	userHandler    *user.UserHandler
 	signalHandler  *signal.SignalHandler
-	tickerGw       *market.TickerGateway
+	tickerGw       *ticker.TickerGateway
 	subscriptionGw *market.SubscriptionGateway
 }
 
-func NewApiRouter(ch *instrument.Handler, marketHandler *market.MarketHandler, hyperHandler *hyperliquid.Handler, userHandler *user.UserHandler, SignalHandler *signal.SignalHandler, tickerGw *market.TickerGateway, subscriptionGw *market.SubscriptionGateway) *ApiRouter {
+func NewApiRouter(ch *instrument.Handler, marketHandler *market.MarketHandler, hyperHandler *hyperliquid.Handler, userHandler *user.UserHandler, SignalHandler *signal.SignalHandler, tickerGw *ticker.TickerGateway, subscriptionGw *market.SubscriptionGateway) *ApiRouter {
 	return &ApiRouter{coinHandler: ch, marketHandler: marketHandler, hyperHandler: hyperHandler, userHandler: userHandler, signalHandler: SignalHandler, tickerGw: tickerGw, subscriptionGw: subscriptionGw}
 }
 

@@ -1,6 +1,7 @@
-package market
+package ticker
 
 import (
+	"edgeflow/internal/handler/market"
 	"github.com/goccy/go-json"
 	"github.com/gorilla/websocket"
 	"log"
@@ -83,7 +84,7 @@ func (c *TickerClientConn) readPump(h *TickerGateway) {
 			break // 退出循环，触发 defer
 		}
 
-		var clientMsg ClientMessage
+		var clientMsg market.ClientMessage
 
 		if err := json.Unmarshal(msg, &clientMsg); err != nil {
 			log.Println("invalid message format, skipping:", string(msg))
