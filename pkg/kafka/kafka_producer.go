@@ -6,9 +6,10 @@ import (
 	"sync" // 引入 sync 包用于并发控制
 	"time"
 
+	"log"
+
 	"github.com/segmentio/kafka-go"
 	"google.golang.org/protobuf/proto"
-	"log"
 )
 
 type Message struct {
@@ -73,7 +74,7 @@ func (p *kafkaProducer) getWriter(topic string) (*kafka.Writer, error) {
 
 	// 3. 验证 Topic 合法性并创建新的 Writer
 	switch topic {
-	case TopicSubscribe, TopicSystem, TopicTicker, AlertSubscribe:
+	case TopicSubscribe, TopicSystem, TopicTicker, TopicAlertSystem, TopicAlertDirect:
 		// Topic 合法，创建 Writer
 		newWriter := &kafka.Writer{
 			Addr:     kafka.TCP(p.brokerURL),
