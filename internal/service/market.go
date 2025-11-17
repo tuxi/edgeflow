@@ -10,13 +10,15 @@ import (
 	pb "edgeflow/pkg/protobuf"
 	"errors"
 	"fmt"
-	model2 "github.com/nntaoli-project/goex/v2/model"
 	"log"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
+	model2 "github.com/nntaoli-project/goex/v2/model"
 )
 
 // 定义支持的排序字段常量
@@ -54,6 +56,12 @@ type InstrumentFetcher interface {
 	UpdateInstrumentStatus(ctx context.Context, exid int64, instIDs []string, status string) error
 }
 
+// 历史价格结构体
+type PricePoint struct {
+	Timestamp int64   // 时间戳（毫秒）
+	Price     float64 // 价格
+}
+
 // 行情服务，负责整合数据、排序和缓存结构
 // 整合 Kafka 生产者
 type MarketDataService struct {
@@ -82,9 +90,19 @@ type MarketDataService struct {
 
 	ex         exchange.Exchange
 	signalRepo dao.SignalDao // DB 接口
+
+	// AlertService 接口
+	alertService AlertPublisher
+	// 价格提醒订阅存储 (InstID -> []Subscription)
+	// ⚠️ 注意：这是一个临界资源，必须在 mu 锁保护下访问
+	priceAlerts map[string][]*PriceAlertSubscription
+
+	// 历史价格队列 (InstID -> []PricePoint)
+	// 这是一个临界资源，必须在 mu 锁保护下访问
+	priceHistory map[string][]PricePoint
 }
 
-func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher, ex exchange.Exchange, SignalRepo dao.SignalDao, producer kafka.ProducerService) *MarketDataService {
+func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher, ex exchange.Exchange, SignalRepo dao.SignalDao, producer kafka.ProducerService, alertService AlertPublisher) *MarketDataService {
 	m := &MarketDataService{
 		baseCoins:         make(map[string]entity.CryptoInstrument),
 		tradingItems:      make(map[string]TradingItem),
@@ -96,6 +114,9 @@ func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher Instrument
 		ex:                ex,
 		signalRepo:        SignalRepo,
 		producer:          producer,
+		alertService:      alertService,
+		priceAlerts:       make(map[string][]*PriceAlertSubscription),
+		priceHistory:      make(map[string][]PricePoint),
 	}
 	// 启动 MarketService 的核心 Worker
 	go m.startDataWorkers()
@@ -174,12 +195,50 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 	m.mu.Lock()
 
 	for instID, ticker := range tickerMap {
+		currentPrice, err := strconv.ParseFloat(ticker.LastPrice, 64)
+		if err != nil {
+			// 如果价格转换失败，记录错误并跳过此币种的提醒检查
+			log.Printf("WARN: 价格转换失败，跳过提醒检查。InstID: %s, Price: %s, Error: %v",
+				instID, ticker.LastPrice, err)
+			currentPrice = 0
+		}
+
+		// 更新价格历史
+		newPricePoint := PricePoint{
+			Timestamp: ticker.Ts, // 使用 Ticker 中的时间戳
+			Price:     currentPrice,
+		}
+
+		// 获取当前币种的历史记录
+		history := m.priceHistory[instID]
+		// 追加新的价格点
+		history = append(history, newPricePoint)
+
+		// 清理旧数据 (只保留过去 N 分钟，例如 6分钟)
+		maxAge := time.Now().Add(-6 * time.Minute).UnixMilli()
+
+		// 找到第一个比 maxAge 新的价格点索引
+		startIndex := 0
+		for i, pp := range history {
+			if pp.Timestamp >= maxAge {
+				startIndex = i
+				break
+			}
+		}
+		// 截断旧数据
+		history = history[startIndex:]
+		m.priceHistory[instID] = history
 
 		// A. 尝试更新已存在的 TradingItem
 		if item, ok := m.tradingItems[instID]; ok {
 			// 直接更新 Ticker 数据
 			item.Ticker = ticker
 			m.tradingItems[instID] = item
+
+			if currentPrice > 0 {
+				m.CheckAndTriggerAlerts(instID, currentPrice)
+			}
+
 			// 将此 Ticker 加入转发列表
 			tickersToForward = append(tickersToForward, ticker)
 			continue
@@ -191,6 +250,11 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 			m.tradingItems[instID] = TradingItem{
 				Coin:   coin,
 				Ticker: ticker,
+			}
+
+			// 检查并触发提醒
+			if currentPrice > 0 {
+				m.CheckAndTriggerAlerts(instID, currentPrice)
 			}
 
 			// 将此 Ticker 加入转发列表
@@ -612,4 +676,131 @@ func (m *MarketDataService) GetDetailByID(ctx context.Context, req model.MarketD
 		}
 	}
 	return &detail, nil
+}
+
+// CheckAndTriggerAlerts 检查并触发给定币种的价格提醒
+// 必须在 m.mu.Lock() 保护下调用
+func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice float64) {
+
+	// 1. 检查该币种是否有活跃的提醒
+	subs, ok := m.priceAlerts[instID]
+	if !ok {
+		return // 没有订阅
+	}
+
+	history := m.priceHistory[instID]
+
+	// 2. 遍历该币种的所有订阅
+	for _, sub := range subs {
+		if !sub.IsActive {
+			continue // 已经触发或不活跃
+		}
+
+		// 检查突破
+		if sub.Direction == "UP" && currentPrice >= sub.TargetPrice || // 向上突破
+			sub.Direction == "DOWN" && currentPrice <= sub.TargetPrice { // 向下突破
+			// 3. 触发提醒
+			// 标记订阅为非活跃，防止重复触发
+			sub.IsActive = false
+
+			// 4. 构建 Protobuf 提醒消息
+			alertMsg := &pb.AlertMessage{
+				UserId:         sub.UserID,
+				SubscriptionId: sub.SubscriptionID,
+				Id:             uuid.NewString(),
+				Title:          fmt.Sprintf("%s 价格提醒", instID),
+				Content:        fmt.Sprintf("%s 已达到 ¥%.2f", instID, currentPrice),
+				Symbol:         instID,
+				Level:          pb.AlertLevel_ALERT_LEVEL_WARNING,
+				AlertType:      pb.AlertType_ALERT_TYPE_PRICE,
+				Timestamp:      time.Now().UnixMilli(),
+				// 附加数据用于 UI 展示
+				Extra: map[string]string{
+					"trigger_price": fmt.Sprintf("%.2f", sub.TargetPrice),
+					"current_price": fmt.Sprintf("%.2f", currentPrice),
+				},
+			}
+
+			// 5. 🚀 调用 AlertService 异步发送 (写入 Kafka 定向 Topic)
+			// 避免在锁内执行耗时操作，但AlertService是同步写入Kafka，需要注意性能
+			// 最佳实践是AlertService内部将消息放入Channel并异步写入Kafka
+			go m.alertService.PublishToDevice(alertMsg)
+		}
+
+		// 检查极速上涨/下跌 (ChangePercent)
+		if sub.ChangePercent > 0 && sub.WindowMinutes > 0 && len(history) > 0 {
+			// 1. 确定时间窗口的起点时间戳
+			startTime := time.Now().Add(-time.Duration(sub.WindowMinutes) * time.Minute).UnixMilli()
+
+			// 2. 找到窗口内的起始价格点 (最旧的价格)
+			// 由于历史记录是有序且已清理，只需从头开始找第一个在窗口内的点
+			var startPrice float64 = -1
+			for _, pp := range history {
+				if pp.Timestamp >= startTime {
+					startPrice = pp.Price
+					break
+				}
+			}
+
+			// 如果历史记录不足，无法计算速率，跳过
+			if startPrice <= 0 {
+				continue
+			}
+
+			// 3. 计算实际变化率
+			actualChange := (currentPrice - startPrice) / startPrice * 100.0
+
+			// 4. 检查触发条件
+			triggered := false
+			alertTitle := ""
+
+			// 检查极速上涨
+			if sub.Direction == "UP" && actualChange >= sub.ChangePercent {
+				triggered = true
+				alertTitle = fmt.Sprintf("%s 极速上涨 %s%% 预警", instID, fmt.Sprintf("%.2f", sub.ChangePercent))
+			}
+			// 检查极速下跌
+			if sub.Direction == "DOWN" && actualChange <= -sub.ChangePercent {
+				triggered = true
+				alertTitle = fmt.Sprintf("%s 极速下跌 %s%% 预警", instID, fmt.Sprintf("%.2f", sub.ChangePercent))
+			}
+
+			if triggered {
+				sub.IsActive = false // 标记为非活跃
+
+				// 构建 Protobuf 提醒消息
+				alertMsg := &pb.AlertMessage{
+					UserId:         sub.UserID,
+					SubscriptionId: sub.SubscriptionID,
+					Id:             uuid.NewString(),
+					Title:          alertTitle,
+					Content:        fmt.Sprintf("%s 在 %d 分钟内变化了 %.2f%%，当前价格 %.2f", instID, sub.WindowMinutes, actualChange, currentPrice),
+					Symbol:         instID,
+					Level:          pb.AlertLevel_ALERT_LEVEL_CRITICAL,
+					AlertType:      pb.AlertType_ALERT_TYPE_PRICE,
+					Timestamp:      time.Now().UnixMilli(),
+					Extra: map[string]string{
+						"change_percent": fmt.Sprintf("%.2f", actualChange),
+						"window_minutes": fmt.Sprintf("%d", sub.WindowMinutes),
+					},
+				}
+
+				// 异步发送
+				go m.alertService.PublishToDevice(alertMsg)
+			}
+		}
+	}
+}
+
+// 外部调用 API / Admin API 调用此方法
+func (m *MarketDataService) AddOrUpdatePriceAlert(sub PriceAlertSubscription) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 简化逻辑：找到该币种的订阅列表，进行更新或添加
+	// 复杂的逻辑可能需要先删除旧的，再添加新的
+
+	list := m.priceAlerts[sub.InstID]
+	// 添加或更新到 list
+	m.priceAlerts[sub.InstID] = list
 }

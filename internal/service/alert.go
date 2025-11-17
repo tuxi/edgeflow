@@ -13,6 +13,26 @@ type AlertService struct {
 	producer kafka.ProducerService
 }
 
+type AlertPublisher interface {
+	PublishToDevice(alert *pb.AlertMessage)
+}
+
+// 提醒订阅结构体（MDS 内部存储）
+type PriceAlertSubscription struct {
+	UserID         string // 对应 Kafka Key 和客户端 ID
+	SubscriptionID string // 用户的订阅唯一 ID
+	InstID         string // 交易对，如 BTC-USDT
+	IsActive       bool   // 是否已触发或活跃
+
+	// 极速提醒字段
+	ChangePercent float64 // 变化百分比 (例如 5.0 代表 5%)
+	WindowMinutes int     // 时间窗口 (例如 5 代表 5分钟)
+
+	// 现有价格突破字段
+	TargetPrice float64 // 目标价格
+	Direction   string  // "UP", "DOWN" (现在也用于极速提醒的上升/下降)
+}
+
 func NewAlertService(producer kafka.ProducerService) *AlertService {
 	return &AlertService{
 		producer: producer,
@@ -46,11 +66,11 @@ func (s *AlertService) PublishBroadcast(msg *pb.AlertMessage) {
 }
 
 // 写入定向推送 Topic
-func (s *AlertService) PublishToDevice(deviceId string, msg *pb.AlertMessage) {
+func (s *AlertService) PublishToDevice(msg *pb.AlertMessage) {
 	// 1. 构造消息
 	protoMsg := kafka.Message{
 		// Kafka Key 必须是 deviceId
-		Key: deviceId,
+		Key: msg.UserId,
 		Data: &pb.WebSocketMessage{
 			Type:    "ALERT_DIRECT",
 			Payload: &pb.WebSocketMessage_AlertMessage{AlertMessage: msg},
@@ -64,8 +84,6 @@ func (s *AlertService) PublishToDevice(deviceId string, msg *pb.AlertMessage) {
 	// 使用定向推送 Topic
 	if err := s.producer.Produce(ctx, kafka.TopicAlertDirect, protoMsg); err != nil {
 		// 定向推送写入失败，记录日志
-		log.Printf("ERROR: AlertService 定向推送写入 Kafka失败 (Device: %s): %v", deviceId, err)
+		log.Printf("ERROR: AlertService 定向推送写入 Kafka失败 (Device: %s): %v", msg.UserId, err)
 	}
-	// 注意：AlertService 不关心客户端是否在线，只负责写入 Kafka。
-	// 在线判断和推送由 AlertGateway 负责。
 }

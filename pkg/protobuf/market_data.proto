@@ -120,6 +120,7 @@ message CryptoInstrumentMetadata {
 // --- 提醒/通知消息 ---
 // 通常由 AlertService 推送，用于实时通知、价格触发、系统公告等
 message AlertMessage {
+  // 基础信息
   string id = 1;                  // 唯一ID（UUID）
   string title = 2;               // 标题，如 “BTC价格突破70000”
   string content = 3;             // 消息内容，可展示在UI中
@@ -128,21 +129,23 @@ message AlertMessage {
   AlertType alert_type = 6;       // 消息类型（价格、系统、策略、自定义等）
   int64 timestamp = 7;            // 服务器时间戳（毫秒）
 
-  // 定向推送的目标（为空时代表广播）
-  repeated string targets = 8;    // 目标deviceId或userId
+  // 🚀 路由与追踪字段
+  string user_id = 8;             // 接收者 User ID (Kafka Key)
+  string subscription_id = 10;    // 触发此提醒的用户订阅 ID (用于追踪)
+  string related_url = 11;        // 相关链接，如交易哈希或推文链接
 
   // 可扩展字段，用于自定义展示或行为
   map<string, string> extra = 9;  // 比如 {"trigger_price": "70000", "direction": "up"}
 
   // 保留字段，未来扩展时不影响现有客户端
-  reserved 10 to 19;
+  reserved 12 to 19;
 }
 
 // --- 消息级别 ---
 enum AlertLevel {
   ALERT_LEVEL_INFO = 0;     // 普通信息
   ALERT_LEVEL_WARNING = 1;  // 警告
-  ALERT_LEVEL_DANGER = 2;   // 严重
+  ALERT_LEVEL_CRITICAL = 2; // 严重/致命
 }
 
 // --- 消息类型 ---
@@ -151,8 +154,12 @@ enum AlertType {
   ALERT_TYPE_PRICE = 1;    // 行情类提醒，如价格突破
   ALERT_TYPE_STRATEGY = 2; // 策略信号类提醒
   ALERT_TYPE_CUSTOM = 3;   // 用户自定义提醒
-}
 
+  // 🚀 新增的核心业务提醒类型
+  ALERT_TYPE_LISTING = 4;  // 交易对上新/下架/调整
+  ALERT_TYPE_ON_CHAIN = 5; // 链上提醒，如鲸鱼转移、大额稳定币铸造
+  ALERT_TYPE_SOCIAL = 6;   // 社交媒体提醒，如大V提及
+}
 
 
 // --- 通用数据体（服务端 -> 客户端）---
