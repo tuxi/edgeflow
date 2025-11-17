@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,9 +94,6 @@ type MarketDataService struct {
 
 	// AlertService 接口
 	alertService AlertPublisher
-	// 价格提醒订阅存储 (InstID -> []Subscription)
-	// ⚠️ 注意：这是一个临界资源，必须在 mu 锁保护下访问
-	priceAlerts map[string][]*PriceAlertSubscription
 
 	// 历史价格队列 (InstID -> []PricePoint)
 	// 这是一个临界资源，必须在 mu 锁保护下访问
@@ -115,7 +113,6 @@ func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher Instrument
 		signalRepo:        SignalRepo,
 		producer:          producer,
 		alertService:      alertService,
-		priceAlerts:       make(map[string][]*PriceAlertSubscription),
 		priceHistory:      make(map[string][]PricePoint),
 	}
 	// 启动 MarketService 的核心 Worker
@@ -683,17 +680,54 @@ func (m *MarketDataService) GetDetailByID(ctx context.Context, req model.MarketD
 func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice float64) {
 
 	// 1. 检查该币种是否有活跃的提醒
-	subs, ok := m.priceAlerts[instID]
-	if !ok {
+	subs := m.alertService.GetSubscriptionsForInstID(instID)
+	if len(subs) == 0 {
 		return // 没有订阅
 	}
 
 	history := m.priceHistory[instID]
 
+	// 价格重置缓冲区：价格必须远离目标价格 0.5% 才能重置
+	// 这是一个关键参数，防止价格在阈值附近震荡导致频繁触发和重置
+	const resetBuffer = 0.005
+
 	// 2. 遍历该币种的所有订阅
 	for _, sub := range subs {
+		// ----------------------------------------------------
+		// 📢 阶段 1：重置检查 (检查已触发的提醒是否可以重新激活)
+		// ----------------------------------------------------
 		if !sub.IsActive {
-			continue // 已经触发或不活跃
+
+			// 只有 TargetPrice > 0 或 ChangePercent > 0 且上次触发价有效才检查重置
+			if sub.LastTriggeredPrice <= 0 {
+				continue
+			}
+
+			shouldReset := false
+
+			// 检查价格突破提醒的重置条件 (TargetPrice > 0)
+			if sub.TargetPrice > 0 {
+				// UP 提醒 (突破 TargetPrice): 需跌破 TargetPrice 的另一侧缓冲区
+				if sub.Direction == "UP" && currentPrice < sub.TargetPrice*(1.0-resetBuffer) {
+					shouldReset = true
+				} else if sub.Direction == "DOWN" && currentPrice > sub.TargetPrice*(1.0+resetBuffer) {
+					// DOWN 提醒 (跌破 TargetPrice): 需涨回 TargetPrice 的另一侧缓冲区
+					shouldReset = true
+				}
+			} else if sub.ChangePercent > 0 {
+				// 检查极速提醒的重置条件 (基于上次触发价格的相对重置)
+				// 如果是极速提醒，假设价格必须远离上次触发价格至少 1% 才重置
+				if math.Abs(currentPrice-sub.LastTriggeredPrice)/sub.LastTriggeredPrice > 0.01 {
+					shouldReset = true
+				}
+			}
+
+			if shouldReset {
+				// 🚀 通知 AlertService 重置状态
+				m.alertService.MarkSubscriptionAsReset(sub.InstID, sub.SubscriptionID)
+			}
+
+			continue // 仍然处于已触发/重置缓冲区内
 		}
 
 		// 检查突破
@@ -701,7 +735,7 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice fl
 			sub.Direction == "DOWN" && currentPrice <= sub.TargetPrice { // 向下突破
 			// 3. 触发提醒
 			// 标记订阅为非活跃，防止重复触发
-			sub.IsActive = false
+			m.alertService.MarkSubscriptionAsTriggered(sub.InstID, sub.SubscriptionID, currentPrice)
 
 			// 4. 构建 Protobuf 提醒消息
 			alertMsg := &pb.AlertMessage{
@@ -766,7 +800,8 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice fl
 			}
 
 			if triggered {
-				sub.IsActive = false // 标记为非活跃
+				// 标记已经触发
+				m.alertService.MarkSubscriptionAsTriggered(sub.InstID, sub.SubscriptionID, currentPrice)
 
 				// 构建 Protobuf 提醒消息
 				alertMsg := &pb.AlertMessage{
@@ -790,17 +825,4 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice fl
 			}
 		}
 	}
-}
-
-// 外部调用 API / Admin API 调用此方法
-func (m *MarketDataService) AddOrUpdatePriceAlert(sub PriceAlertSubscription) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// 简化逻辑：找到该币种的订阅列表，进行更新或添加
-	// 复杂的逻辑可能需要先删除旧的，再添加新的
-
-	list := m.priceAlerts[sub.InstID]
-	// 添加或更新到 list
-	m.priceAlerts[sub.InstID] = list
 }
