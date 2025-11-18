@@ -4,6 +4,7 @@ import (
 	"context"
 	"edgeflow/conf"
 	"edgeflow/internal/dao/query"
+	"edgeflow/internal/handler/alert"
 	"edgeflow/internal/handler/hyperliquid"
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
@@ -16,8 +17,9 @@ import (
 	"edgeflow/pkg/exchange"
 	"edgeflow/pkg/kafka"
 	"fmt"
-	"gorm.io/gorm"
 	"os"
+
+	"gorm.io/gorm"
 )
 
 func InitRouter(db *gorm.DB) Router {
@@ -68,9 +70,11 @@ func InitRouter(db *gorm.DB) Router {
 	signalDao := query.NewSignalDao(db)
 	signalService := service.NewSignalProcessorService(signalDao, okxEx)
 	hyperDao := query.NewHyperLiquidDao(db)
+	alertDao := query.NewAlertDAO(db)
 	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "AAVE", "AVAX", "ADA", "LINK", "TRX"}
 	tickerService := service.NewOKXTickerService(defaultsCoins)
-	marketService := service.NewMarketDataService(tickerService, instrumentDao, okxEx, signalDao, kafProducer)
+	alertServcice := service.NewAlertService(kafProducer, alertDao)
+	marketService := service.NewMarketDataService(tickerService, instrumentDao, okxEx, signalDao, kafProducer, alertServcice)
 	err := marketService.InitializeBaseInstruments(context.Background(), 1)
 	if err != nil {
 		panic(err)
@@ -97,7 +101,9 @@ func InitRouter(db *gorm.DB) Router {
 	tickerGw := ticker.NewTickerGateway(marketService, kafConsumer)
 	subscriptionGw := market.NewSubscriptionGateway(okxCandleService, kafConsumer)
 
-	apiRouter := router.NewApiRouter(coinH, marketHandler, hyperHandler, userHandler, signalHandler, tickerGw, subscriptionGw)
+	alertHandler := alert.NewAlertGateway(alertServcice, kafConsumer)
+
+	apiRouter := router.NewApiRouter(coinH, marketHandler, hyperHandler, userHandler, signalHandler, tickerGw, subscriptionGw, alertHandler)
 
 	return apiRouter
 }

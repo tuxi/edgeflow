@@ -462,3 +462,61 @@ CREATE TABLE IF NOT EXISTS `signal_outcomes` (
                                                 FOREIGN KEY (`signal_id`) REFERENCES `signals`(`id`),
                                                  INDEX `idx_symbol_outcome` (`symbol`, `outcome`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='信号模拟结果表';
+
+CREATE TABLE `alert_subscription` (
+    -- 主键
+                                      `id` VARCHAR(36) NOT NULL PRIMARY KEY,
+
+    -- 索引字段
+                                      `user_id` VARCHAR(36) NOT NULL,
+                                      `inst_id` VARCHAR(30) NOT NULL,
+
+    -- 提醒规则
+                                      `alert_type` INT NOT NULL COMMENT '消息类型 (1=PRICE, 2=STRATEGY, 4=LISTING等)',
+                                      `direction` VARCHAR(10) NOT NULL COMMENT 'UP/DOWN/RATE',
+
+    -- 价格突破字段 (使用 DECIMAL 保证精度)
+                                      `target_price` DECIMAL(20, 8) NULL COMMENT '目标价格',
+
+    -- 极速提醒字段
+                                      `change_percent` DECIMAL(6, 2) NULL COMMENT '变化百分比',
+                                      `window_minutes` INT NULL COMMENT '时间窗口 (分钟)',
+
+    -- 状态字段
+                                      `is_active` BOOLEAN NOT NULL COMMENT '是否活跃 (1=待触发, 0=已触发)',
+                                      `last_triggered_price` DECIMAL(20, 8) NULL COMMENT '上次触发时的价格，用于重置判断',
+
+    -- Gorm 约定时间戳
+                                      `created_at` DATETIME NOT NULL,
+                                      `updated_at` DATETIME NOT NULL,
+
+    -- 联合索引：方便根据用户和币种查找订阅
+                                      INDEX `idx_user_inst` (`user_id`, `inst_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户提醒订阅规则表';
+
+CREATE TABLE `alert_history` (
+    -- 主键
+                                 `id` VARCHAR(36) NOT NULL PRIMARY KEY,
+
+    -- 索引字段
+                                 `user_id` VARCHAR(36) NOT NULL COMMENT '接收者用户ID',
+
+    -- 消息内容和类型
+                                 `subscription_id` VARCHAR(36) NULL COMMENT '关联的订阅ID',
+                                 `title` VARCHAR(100) NOT NULL,
+                                 `content` TEXT NOT NULL,
+                                 `level` INT NOT NULL COMMENT '消息级别 (1=WARNING, 2=CRITICAL)',
+                                 `alert_type` INT NOT NULL COMMENT '消息类型',
+
+    -- 时间戳
+                                 `timestamp` BIGINT NOT NULL COMMENT '消息时间戳 (毫秒)',
+
+    -- 可扩展字段，使用 JSON 存储 Protobuf 的 extra map
+                                 `extra_json` JSON NULL COMMENT '额外数据，JSON格式',
+
+    -- Gorm 约定时间戳
+                                 `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- 联合索引：方便根据用户ID和时间倒序查询历史记录
+                                 INDEX `idx_user_ts` (`user_id`, `timestamp` DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='已发送的提醒消息历史记录表';

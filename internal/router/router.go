@@ -1,6 +1,7 @@
 package router
 
 import (
+	"edgeflow/internal/handler/alert"
 	"edgeflow/internal/handler/hyperliquid"
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
@@ -8,6 +9,7 @@ import (
 	"edgeflow/internal/handler/ticker"
 	"edgeflow/internal/handler/user"
 	"edgeflow/internal/middleware"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,10 +21,11 @@ type ApiRouter struct {
 	signalHandler  *signal.SignalHandler
 	tickerGw       *ticker.TickerGateway
 	subscriptionGw *market.SubscriptionGateway
+	alertGw        *alert.AlertGateway
 }
 
-func NewApiRouter(ch *instrument.Handler, marketHandler *market.MarketHandler, hyperHandler *hyperliquid.Handler, userHandler *user.UserHandler, SignalHandler *signal.SignalHandler, tickerGw *ticker.TickerGateway, subscriptionGw *market.SubscriptionGateway) *ApiRouter {
-	return &ApiRouter{coinHandler: ch, marketHandler: marketHandler, hyperHandler: hyperHandler, userHandler: userHandler, signalHandler: SignalHandler, tickerGw: tickerGw, subscriptionGw: subscriptionGw}
+func NewApiRouter(ch *instrument.Handler, marketHandler *market.MarketHandler, hyperHandler *hyperliquid.Handler, userHandler *user.UserHandler, SignalHandler *signal.SignalHandler, tickerGw *ticker.TickerGateway, subscriptionGw *market.SubscriptionGateway, alertGw *alert.AlertGateway) *ApiRouter {
+	return &ApiRouter{coinHandler: ch, marketHandler: marketHandler, hyperHandler: hyperHandler, userHandler: userHandler, signalHandler: SignalHandler, tickerGw: tickerGw, subscriptionGw: subscriptionGw, alertGw: alertGw}
 }
 
 func (api *ApiRouter) Load(g *gin.Engine) {
@@ -49,6 +52,7 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 	{
 		ws.GET("/ticker", api.tickerGw.ServeWS)       // 通过websocket连接获取价格
 		ws.GET("/market", api.subscriptionGw.ServeWS) // 通过websocket连接获取k线数据等
+		ws.GET("/alert", api.alertGw.ServeWS)         // 通过websocket连接订阅
 	}
 
 	h := base.Group("/hyperliquid", middleware.AntiDuplicateMiddleware(), middleware.RequestValidationMiddleware())
