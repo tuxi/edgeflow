@@ -2,8 +2,12 @@ package alert
 
 import (
 	"context"
+	"edgeflow/internal/model"
 	"edgeflow/internal/service"
+	"edgeflow/pkg/errors"
+	"edgeflow/pkg/errors/ecode"
 	"edgeflow/pkg/kafka"
+	"edgeflow/pkg/response"
 	"log"
 	"net/http"
 	"sync"
@@ -172,4 +176,54 @@ func (g *AlertGateway) sendToDevice(deviceId string, data []byte) bool {
 		return c.safeSend(data) // 内部安全发送
 	}
 	return false
+}
+
+// 创建订阅
+func (g *AlertGateway) CreateSubscription() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req model.CreateUpdateSubscriptionRequest
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+		err := g.service.CreateSubscription(ctx, req)
+		if err != nil {
+			response.JSON(ctx, errors.Wrap(err, ecode.Unknown, "接口调用失败"), nil)
+		} else {
+			response.JSON(ctx, nil, nil)
+		}
+	}
+}
+
+// 更新订阅
+func (g *AlertGateway) UpdateSubscription() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req model.CreateUpdateSubscriptionRequest
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+		err := g.service.UpdateSubscription(ctx, "", req)
+		if err != nil {
+			response.JSON(ctx, errors.Wrap(err, ecode.Unknown, "接口调用失败"), nil)
+		} else {
+			response.JSON(ctx, nil, nil)
+		}
+	}
+}
+
+func (g *AlertGateway) DeleteSubscription() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req model.DeleteSubscriptionRequest
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+		err := g.service.DeleteSubscription(ctx, req.ID, req.InstID)
+		if err != nil {
+			response.JSON(ctx, errors.Wrap(err, ecode.Unknown, "接口调用失败"), nil)
+		} else {
+			response.JSON(ctx, nil, nil)
+		}
+	}
 }

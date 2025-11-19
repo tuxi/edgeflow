@@ -95,3 +95,30 @@ func (d *AlertDAOImpl) GetSubscriptionsByInstID(ctx context.Context, instID stri
 	err := d.db.WithContext(ctx).Where("inst_id = ?", instID).Find(&subs).Error
 	return subs, err
 }
+
+// GetSubscriptionsByUserID 查询用户所有订阅
+func (d *AlertDAOImpl) GetSubscriptionsByUserID(ctx context.Context, userID string) ([]entity.AlertSubscription, error) {
+	var subs []entity.AlertSubscription
+	if err := d.db.WithContext(ctx).Where("user_id = ?", userID).Find(&subs).Error; err != nil {
+		return nil, fmt.Errorf("failed to get subscriptions for user %s: %w", userID, err)
+	}
+	return subs, nil
+}
+
+// UpdateSubscription 更新整个订阅
+// ⚠️ 注意：GORM 的 Save() 方法会更新所有字段。如果 model.AlertSubscription 字段为零值，
+// 且它不是 sql.Null* 类型，数据库中对应的字段会被更新为零值。
+func (d *AlertDAOImpl) UpdateSubscription(ctx context.Context, sub *entity.AlertSubscription) error {
+	sub.UpdatedAt = time.Now()
+
+	// 使用 Save 方法，Gorm 会根据主键 (ID) 查找记录并更新所有字段
+	// 确保 sub.ID 字段在传入时已设置
+	result := d.db.WithContext(ctx).Save(sub)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update subscription %s: %w", sub.ID, result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("subscription with ID %s not found for update", sub.ID)
+	}
+	return nil
+}

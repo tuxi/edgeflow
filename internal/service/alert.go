@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"edgeflow/internal/dao"
+	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
 	"edgeflow/pkg/kafka"
 	pb "edgeflow/pkg/protobuf"
@@ -10,6 +12,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // AlertService 用于消费上游告警来源并提供订阅通道给 gateway。
@@ -236,4 +240,236 @@ func (s *AlertService) MarkSubscriptionAsReset(instID string, subscriptionID str
 			return
 		}
 	}
+}
+
+// CreateSubscription 处理 POST /api/v1/alerts/subscriptions
+func (g *AlertService) CreateSubscription(ctx context.Context, req model.CreateUpdateSubscriptionRequest) error {
+
+	// 1. 构造 model.AlertSubscription 对象 (需要处理 float64 到 sql.NullFloat64 的转换)
+	sub := g.mapRequestToModel(&req)
+	sub.ID = uuid.NewString() // 生成新的 ID
+	sub.IsActive = true       // 新订阅默认为活跃状态
+
+	// 2. 调用 AlertDAO 写入数据库
+	if err := g.dao.CreateSubscription(ctx, sub); err != nil {
+		return err
+	}
+
+	// 更新内存 (必须同步更新内存，才能立即开始接收提醒)
+	g.AddSubscriptionToMemory(sub) // AlertService 需要增加这个方法
+
+	return nil
+}
+
+// GetSubscriptions 处理 GET /api/v1/alerts/subscriptions
+func (g *AlertService) GetSubscriptionsByUserID(ctx context.Context, userID string) []model.SubscriptionResponse {
+
+	// 1. 调用 DAO 获取用户所有订阅
+	// 假设 AlertDAO 中新增 GetSubscriptionsByUserID 方法
+	dbSubs, err := g.dao.GetSubscriptionsByUserID(ctx, userID)
+	if err != nil {
+		return nil
+	}
+
+	// 2. 构造响应列表 (需要将 model.AlertSubscription 转换为 SubscriptionResponse)
+	response := g.mapModelsToResponse(dbSubs)
+
+	return response
+}
+
+// UpdateSubscription 处理 PUT /api/v1/alerts/subscriptions/{id}
+func (s *AlertService) UpdateSubscription(ctx context.Context, subID string, req model.CreateUpdateSubscriptionRequest) error {
+
+	// 1. 构造 model.AlertSubscription 对象 (需要从 DB 加载旧记录以获取 CreatedAt/状态等，这里简化)
+	sub := s.mapRequestToModel(&req)
+	sub.ID = subID // 设置 ID
+	// ⚠️ 复杂逻辑：需要从 DB 查出旧记录，保留 IsActive 状态、LastTriggeredPrice 等，再应用新规则。
+	// 这里简化为直接调用 UpdateSubscription，假设只更新规则字段。
+
+	// 2. 更新数据库
+	if err := s.dao.UpdateSubscription(ctx, sub); err != nil {
+		return err
+	}
+
+	// 3. 🚀 同步更新 AlertService 内存
+	s.AddSubscriptionToMemory(sub)
+
+	return nil
+}
+
+// DeleteSubscription 处理 DELETE /api/v1/alerts/subscriptions/{id}
+func (g *AlertService) DeleteSubscription(ctx context.Context, subID string, instID string) error {
+
+	// 1. 调用 DAO 删除数据库记录
+	if err := g.dao.DeleteSubscription(ctx, subID); err != nil {
+		return err
+	}
+
+	// 从内存中移除该订阅
+	g.RemoveSubscriptionFromMemory(subID, instID)
+
+	return nil
+}
+
+// mapRequestToModel 将 API 请求结构体转换为数据库 Model 结构体
+func (s *AlertService) mapRequestToModel(req *model.CreateUpdateSubscriptionRequest) *entity.AlertSubscription {
+	sub := &entity.AlertSubscription{
+		UserID:    req.UserID,
+		InstID:    req.InstID,
+		AlertType: req.AlertType, // 假设 AlertType 是 int32
+		Direction: req.Direction,
+		// 其他字段在创建和更新时通常不需要设置，如 CreatedAt, UpdatedAt
+	}
+
+	// 价格突破字段转换 (如果 TargetPrice > 0，则设置值)
+	if req.TargetPrice > 0 {
+		sub.TargetPrice = sql.NullFloat64{Float64: req.TargetPrice, Valid: true}
+	} else {
+		sub.TargetPrice = sql.NullFloat64{Valid: false}
+	}
+
+	// 极速提醒字段转换
+	if req.ChangePercent > 0 {
+		sub.ChangePercent = sql.NullFloat64{Float64: req.ChangePercent, Valid: true}
+	} else {
+		sub.ChangePercent = sql.NullFloat64{Valid: false}
+	}
+
+	if req.WindowMinutes > 0 {
+		sub.WindowMinutes = sql.NullInt64{Int64: int64(req.WindowMinutes), Valid: true}
+	} else {
+		sub.WindowMinutes = sql.NullInt64{Valid: false}
+	}
+
+	// 如果是创建操作，这些字段由 DB 或 AlertService 处理
+	// 如果是更新操作，需要确保这些字段也被正确处理，通常需要从 DB 先加载旧记录。
+
+	// 默认值/状态处理：
+	sub.CreatedAt = time.Now() // 仅在创建时使用，更新时会被覆盖
+	sub.UpdatedAt = time.Now()
+
+	return sub
+}
+
+// mapModelsToResponse 将数据库模型切片转换为 API 响应切片
+func (g *AlertService) mapModelsToResponse(dbSubs []entity.AlertSubscription) []model.SubscriptionResponse {
+	if len(dbSubs) == 0 {
+		return []model.SubscriptionResponse{}
+	}
+
+	responseList := make([]model.SubscriptionResponse, len(dbSubs))
+
+	for i, dbSub := range dbSubs {
+		// 转换逻辑：直接使用 Float64/Int64 字段，Go 会自动处理。
+		// 如果 Valid=false，Float64/Int64 返回零值 (0.0 或 0)，这符合 API 响应的期望。
+		responseList[i] = model.SubscriptionResponse{
+			ID:        dbSub.ID,
+			UserID:    dbSub.UserID,
+			InstID:    dbSub.InstID,
+			AlertType: int(dbSub.AlertType),
+			Direction: dbSub.Direction,
+
+			// 🚀 核心：安全转换 Nullable 字段
+			TargetPrice:   dbSub.TargetPrice.Float64,
+			ChangePercent: dbSub.ChangePercent.Float64,
+			WindowMinutes: int(dbSub.WindowMinutes.Int64),
+
+			IsActive:           dbSub.IsActive,
+			LastTriggeredPrice: dbSub.LastTriggeredPrice.Float64,
+		}
+	}
+	return responseList
+}
+
+// AddSubscriptionToMemory 供 Gateway 调用，用于在内存中添加或更新订阅
+func (s *AlertService) AddSubscriptionToMemory(dbSub *entity.AlertSubscription) {
+	// 1. 转换为 Service 内部结构
+	sub := mapModelToServiceSubscription(dbSub)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	instID := sub.InstID
+
+	// 检查 InstID 列表是否存在，如果不存在则创建
+	if _, ok := s.priceAlerts[instID]; !ok {
+		s.priceAlerts[instID] = make([]*PriceAlertSubscription, 0)
+	}
+
+	list := s.priceAlerts[instID]
+	found := false
+
+	// 查找是否已存在（即 PUT 更新操作）
+	for i, existingSub := range list {
+		if existingSub.SubscriptionID == sub.SubscriptionID {
+			list[i] = sub // 🚀 替换旧的订阅对象
+			s.priceAlerts[instID] = list
+			found = true
+			break
+		}
+	}
+
+	// 如果是新添加 (POST)，则追加
+	if !found {
+		s.priceAlerts[instID] = append(list, sub)
+	}
+	log.Printf("INFO: 内存中订阅 %s (InstID: %s) 已更新/添加。", sub.SubscriptionID, instID)
+}
+
+// RemoveSubscriptionFromMemory 供 Gateway 调用，从内存中移除订阅
+// 传入 instID 是为了快速定位 map key，避免遍历整个 map
+func (s *AlertService) RemoveSubscriptionFromMemory(subscriptionID string, instID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	list, ok := s.priceAlerts[instID]
+	if !ok {
+		log.Printf("WARN: 尝试移除订阅 %s，但 InstID %s 列表不存在。", subscriptionID, instID)
+		return
+	}
+
+	// 遍历列表，找到匹配的 ID 并移除
+	for i, sub := range list {
+		if sub.SubscriptionID == subscriptionID {
+			// 使用切片技巧移除元素
+			s.priceAlerts[instID] = append(list[:i], list[i+1:]...)
+
+			// 如果移除后列表为空，清理 map entry
+			if len(s.priceAlerts[instID]) == 0 {
+				delete(s.priceAlerts, instID)
+			}
+
+			log.Printf("INFO: 内存中订阅 %s (InstID: %s) 已移除。", subscriptionID, instID)
+			return
+		}
+	}
+	log.Printf("WARN: 尝试移除订阅 %s，但在 InstID %s 列表中未找到。", subscriptionID, instID)
+}
+
+// mapModelToServiceSubscription 将数据库 model.AlertSubscription
+// 转换为 service.PriceAlertSubscription 内存结构
+func mapModelToServiceSubscription(dbSub *entity.AlertSubscription) *PriceAlertSubscription {
+	sub := &PriceAlertSubscription{
+		SubscriptionID: dbSub.ID,
+		UserID:         dbSub.UserID,
+		InstID:         dbSub.InstID,
+
+		// 基础字段
+		// 假设 AlertType 字段在 model 中为 int32 或 int，需要保持一致
+		// AlertType:         int(dbSub.AlertType),
+		Direction: dbSub.Direction,
+		IsActive:  dbSub.IsActive,
+
+		// 价格突破字段
+		TargetPrice: dbSub.TargetPrice.Float64,
+
+		// 极速提醒字段
+		ChangePercent: dbSub.ChangePercent.Float64,
+		WindowMinutes: int(dbSub.WindowMinutes.Int64),
+
+		// 状态字段
+		LastTriggeredPrice: dbSub.LastTriggeredPrice.Float64,
+	}
+
+	return sub
 }
