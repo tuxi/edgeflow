@@ -485,6 +485,7 @@ CREATE TABLE `alert_subscription` (
     -- 状态字段
                                       `is_active` BOOLEAN NOT NULL COMMENT '是否活跃 (1=待触发, 0=已触发)',
                                       `last_triggered_price` DECIMAL(20, 8) NULL COMMENT '上次触发时的价格，用于重置判断',
+                                      `boundary_precision` DECIMAL(10, 8) NULL COMMENT '0.01 表示以 0.01 为单位跨越',
 
     -- Gorm 约定时间戳
                                       `created_at` DATETIME NOT NULL,
@@ -493,6 +494,7 @@ CREATE TABLE `alert_subscription` (
     -- 联合索引：方便根据用户和币种查找订阅
                                       INDEX `idx_user_inst` (`user_id`, `inst_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户提醒订阅规则表';
+
 
 CREATE TABLE `alert_history` (
     -- 主键

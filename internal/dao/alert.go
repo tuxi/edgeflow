@@ -34,4 +34,5 @@ type AlertDAO interface {
 	GetSubscriptionsByUserID(ctx context.Context, userID string) ([]entity.AlertSubscription, error)
 	// 更新整个订阅（用于客户端修改价格/百分比）
 	UpdateSubscription(ctx context.Context, sub *entity.AlertSubscription) error
+	GetSubscriptionByID(ctx context.Context, id string) (entity.AlertSubscription, error)
 }

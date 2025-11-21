@@ -18,6 +18,9 @@ type AlertSubscription struct {
 	IsActive           bool            `gorm:"not null"`                                      // 当前状态：是否活跃/待触发
 	LastTriggeredPrice sql.NullFloat64 `gorm:"type:decimal(20,8)"`                            // 上次触发时的价格，可空
 
+	// 定义通用关口的粒度 (例如: 1.0, 0.1, 0.01)
+	BoundaryPrecision sql.NullFloat64 `gorm:"column:boundary_precision;type:decimal(10, 8)"` // 0.01 表示以 0.01 为单位跨越
+
 	CreatedAt time.Time // 创建时间
 	UpdatedAt time.Time // 更新时间
 }

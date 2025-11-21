@@ -122,3 +122,19 @@ func (d *AlertDAOImpl) UpdateSubscription(ctx context.Context, sub *entity.Alert
 	}
 	return nil
 }
+
+// 根据订阅ID获取订阅信息
+func (d *AlertDAOImpl) GetSubscriptionByID(cxt context.Context, id string) (entity.AlertSubscription, error) {
+	var sub entity.AlertSubscription
+	// 使用 First 确保只获取一条记录
+	err := d.db.Where("id = ?", id).First(&sub).Error
+
+	// Gorm 会在找不到记录时返回 gorm.ErrRecordNotFound
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return sub, nil // 返回空结构体和 nil 错误，表示不存在
+	}
+	if err != nil {
+		return sub, fmt.Errorf("failed to get subscription by ID %s: %w", id, err)
+	}
+	return sub, nil
+}

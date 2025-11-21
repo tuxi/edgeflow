@@ -16,6 +16,105 @@ import (
 	"github.com/google/uuid"
 )
 
+// DefaultSubscriptionRules 定义系统需要自动创建的默认规则
+var DefaultSubscriptionRules = []entity.AlertSubscription{
+
+	// --- 1. 系统级极速波动提醒 (RATE) ---
+	// 确保用户不会错过核心资产的剧烈波动
+	{
+		UserID:    "SYSTEM_GLOBAL_ALERT",
+		InstID:    "BTC-USDT",
+		AlertType: 1, // PRICE_ALERT
+		Direction: "RATE",
+
+		ChangePercent: sql.NullFloat64{Float64: 3.0, Valid: true}, // 3.0% 变化
+		WindowMinutes: sql.NullInt64{Int64: 5, Valid: true},       // 5 分钟窗口
+
+		IsActive: true,
+		ID:       "SYS_RATE_BTC_5P", // 固定的唯一 ID
+	},
+
+	// --- 2. BTC/USDT 通用价格关口突破提醒 (粒度 $1.0) ---
+	// 监控整数价格的跨越，适用于高价资产
+	{
+		UserID:    "SYSTEM_GLOBAL_ALERT",
+		InstID:    "BTC-USDT",
+		AlertType: 1,
+		Direction: "UP",
+
+		// 🚀 关口精度：1.0 (监控 $60000, $60001, $60002...)
+		BoundaryPrecision: sql.NullFloat64{Float64: 1.0, Valid: true},
+
+		IsActive: true,
+		ID:       "SYS_BOUND_BTC_UP_1",
+	},
+	{
+		UserID:    "SYSTEM_GLOBAL_ALERT",
+		InstID:    "BTC-USDT",
+		AlertType: 1,
+		Direction: "DOWN",
+
+		// 关口精度：1.0
+		BoundaryPrecision: sql.NullFloat64{Float64: 1.0, Valid: true},
+
+		IsActive: true,
+		ID:       "SYS_BOUND_BTC_DOWN_1",
+	},
+
+	// --- 3. ETH/USDT 通用价格关口突破提醒 (粒度 $1.0) ---
+	{
+		UserID:    "SYSTEM_GLOBAL_ALERT",
+		InstID:    "ETH-USDT",
+		AlertType: 1,
+		Direction: "UP",
+
+		// 关口精度：1.0
+		BoundaryPrecision: sql.NullFloat64{Float64: 1.0, Valid: true},
+
+		IsActive: true,
+		ID:       "SYS_BOUND_ETH_UP_1",
+	},
+	{
+		UserID:    "SYSTEM_GLOBAL_ALERT",
+		InstID:    "ETH-USDT",
+		AlertType: 1,
+		Direction: "DOWN",
+
+		// 关口精度：1.0
+		BoundaryPrecision: sql.NullFloat64{Float64: 1.0, Valid: true},
+
+		IsActive: true,
+		ID:       "SYS_BOUND_ETH_DOWN_1",
+	},
+
+	// --- 4. DOGE/USDT 通用价格关口突破提醒 (粒度 $0.01) ---
+	// 监控分钱价格的跨越，适用于低价资产
+	{
+		UserID:    "SYSTEM_GLOBAL_ALERT",
+		InstID:    "DOGE-USDT",
+		AlertType: 1,
+		Direction: "UP",
+
+		// 🚀 关口精度：0.01 (监控 $0.17, $0.18, $0.19...)
+		BoundaryPrecision: sql.NullFloat64{Float64: 0.01, Valid: true},
+
+		IsActive: true,
+		ID:       "SYS_BOUND_DOGE_UP_001",
+	},
+	{
+		UserID:    "SYSTEM_GLOBAL_ALERT",
+		InstID:    "DOGE-USDT",
+		AlertType: 1,
+		Direction: "DOWN",
+
+		// 关口精度：0.01
+		BoundaryPrecision: sql.NullFloat64{Float64: 0.01, Valid: true},
+
+		IsActive: true,
+		ID:       "SYS_BOUND_DOGE_DOWN_001",
+	},
+}
+
 // AlertService 用于消费上游告警来源并提供订阅通道给 gateway。
 type AlertService struct {
 	producer kafka.ProducerService
@@ -50,8 +149,9 @@ type PriceAlertSubscription struct {
 	TargetPrice float64 // 目标价格
 	Direction   string  // "UP", "DOWN" (现在也用于极速提醒的上升/下降)
 
-	// 上次触发时的价格（用于判断是否重置）
-	LastTriggeredPrice float64
+	LastTriggeredPrice float64 // 上次触发时的价格（用于判断是否重置）
+
+	BoundaryPrecision float64 // 0.01 表示以 0.01 为单位跨越
 }
 
 func NewAlertService(producer kafka.ProducerService, dao dao.AlertDAO) *AlertService {
@@ -62,7 +162,48 @@ func NewAlertService(producer kafka.ProducerService, dao dao.AlertDAO) *AlertSer
 	}
 	// 🚀 启动时从数据库加载所有活跃订阅到内存
 	s.loadActiveSubscriptions()
+	s.createDefaultSubscriptions()
 	return s
+}
+
+// createDefaultSubscriptions 检查数据库中是否已存在系统默认订阅，若无则创建
+func (s *AlertService) createDefaultSubscriptions() {
+	log.Println("INFO: 正在检查并创建系统默认订阅...")
+
+	for _, rule := range DefaultSubscriptionRules {
+		// 确保使用 rule 变量的副本，防止在循环中被修改
+		currentRule := rule
+
+		ruleID := currentRule.ID // 直接使用定义好的固定 ID
+
+		// 2. 检查数据库中是否已存在此 ID
+		// 🚨 需要 AlertDAO 增加 GetSubscriptionByID 方法
+		existingSub, err := s.dao.GetSubscriptionByID(context.Background(), ruleID)
+
+		if err == nil && existingSub.ID == ruleID {
+			// 订阅已存在，跳过创建
+			log.Printf("INFO: 系统默认订阅 %s 已存在，跳过。", ruleID)
+
+			// 确保内存中也有该订阅（如果 loadActiveSubscriptions 没有加载到）
+			s.AddSubscriptionToMemory(&existingSub)
+
+			continue
+		}
+
+		// 3. 数据库中不存在，则创建
+		currentRule.CreatedAt = time.Now()
+		currentRule.UpdatedAt = time.Now()
+
+		if err := s.dao.CreateSubscription(context.Background(), &currentRule); err != nil {
+			log.Printf("ERROR: 创建系统默认订阅 %s 失败: %v", ruleID, err)
+			continue
+		}
+
+		// 4. 🚀 创建成功，同步更新内存
+		s.AddSubscriptionToMemory(&currentRule)
+
+		log.Printf("INFO: 成功创建系统默认订阅 %s。", ruleID)
+	}
 }
 
 // loadActiveSubscriptions 从 DB 加载活跃订阅到内存

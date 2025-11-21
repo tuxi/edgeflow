@@ -107,5 +107,15 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		auth.POST("/anonymous/accessToken", api.userHandler.GetAnonymousAccessToken())
 	}
 
+	alerts := base.Group("/alerts")
+	{
+		// 创建订阅
+		alerts.POST("/subscriptions", api.alertGw.CreateSubscription())
+		// 更新订阅
+		alerts.PUT("/subscriptions", api.alertGw.UpdateSubscription())
+		// 删除订阅
+		alerts.DELETE("/subscriptions", api.alertGw.DeleteSubscription())
+	}
+
 	//base.POST("/webhook", middleware.RequestValidationMiddleware(), api.wh.HandlerWebhook())
 }

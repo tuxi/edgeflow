@@ -230,10 +230,11 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 		if item, ok := m.tradingItems[instID]; ok {
 			// 直接更新 Ticker 数据
 			item.Ticker = ticker
+			lastPrice, _ := strconv.ParseFloat(item.Ticker.LastPrice, 64)
 			m.tradingItems[instID] = item
 
 			if currentPrice > 0 {
-				m.CheckAndTriggerAlerts(instID, currentPrice)
+				m.CheckAndTriggerAlerts(instID, currentPrice, lastPrice)
 			}
 
 			// 将此 Ticker 加入转发列表
@@ -251,7 +252,7 @@ func (m *MarketDataService) updateRealTimeData(tickerMap map[string]TickerData) 
 
 			// 检查并触发提醒
 			if currentPrice > 0 {
-				m.CheckAndTriggerAlerts(instID, currentPrice)
+				m.CheckAndTriggerAlerts(instID, currentPrice, 0)
 			}
 
 			// 将此 Ticker 加入转发列表
@@ -677,7 +678,7 @@ func (m *MarketDataService) GetDetailByID(ctx context.Context, req model.MarketD
 
 // CheckAndTriggerAlerts 检查并触发给定币种的价格提醒
 // 必须在 m.mu.Lock() 保护下调用
-func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice float64) {
+func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, lastPrice float64) {
 
 	// 1. 检查该币种是否有活跃的提醒
 	subs := m.alertService.GetSubscriptionsForInstID(instID)
@@ -697,6 +698,85 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice fl
 		// 📢 阶段 1：重置检查 (检查已触发的提醒是否可以重新激活)
 		// ----------------------------------------------------
 		if !sub.IsActive {
+
+			// 🚀 阶段 1：检查通用价格关口提醒 (BoundaryPrecision > 0.0)
+			// 假设 BoundaryPrecision 已经被 mapModelToServiceSubscription 转换为 float64
+			if sub.BoundaryPrecision > 0.0 {
+
+				if lastPrice <= 0 {
+					continue
+				} // 价格无效，跳过
+
+				// 核心参数
+				precision := sub.BoundaryPrecision
+
+				// 确保从低到高遍历
+				low := math.Min(currentPrice, lastPrice)
+				high := math.Max(currentPrice, lastPrice)
+
+				// 1. 计算起始关口和结束关口
+				// 示例：precision=0.01。low=0.1689。startBoundary = 0.17
+				startBoundary := math.Floor(low/precision)*precision + precision
+				endBoundary := math.Floor(high/precision) * precision
+
+				// 修正浮点数误差，确保计算精确
+				startBoundary = math.Round(startBoundary/precision) * precision
+				endBoundary = math.Round(endBoundary/precision) * precision
+
+				boundary := startBoundary
+
+				// 2. 遍历所有跨越的关口
+				for boundary <= endBoundary {
+
+					// 修正浮点数误差
+					boundary = math.Round(boundary/precision) * precision
+
+					triggered := false
+					alertTitle := ""
+
+					// UP 订阅：上次价格 < 关口 AND 当前价格 >= 关口
+					if sub.Direction == "UP" && lastPrice < boundary && currentPrice >= boundary {
+						triggered = true
+						alertTitle = fmt.Sprintf("%s 向上突破价格关口 $%.*f", instID, m.GetPrecisionDecimals(precision), boundary)
+					} else if sub.Direction == "DOWN" && lastPrice > boundary && currentPrice <= boundary {
+						// DOWN 订阅：上次价格 > 关口 AND 当前价格 <= 关口
+						triggered = true
+						alertTitle = fmt.Sprintf("%s 向下突破价格关口 $%.*f", instID, m.GetPrecisionDecimals(precision), boundary)
+					}
+
+					if triggered {
+						// 3. 🚀 构建 AlertMessage 并调用 PublishToDevice
+						alertMsg := &pb.AlertMessage{
+							UserId:         sub.UserID,
+							SubscriptionId: sub.SubscriptionID,
+							Id:             uuid.NewString(), // 唯一消息 ID
+							Title:          alertTitle,
+							Content: fmt.Sprintf("当前价格已达到 $%.*f，成功突破了 $%.*f 的关口。",
+								m.GetPrecisionDecimals(precision),
+								currentPrice,
+								m.GetPrecisionDecimals(precision),
+								boundary),
+							Symbol:    instID,
+							Level:     pb.AlertLevel_ALERT_LEVEL_INFO, // 通用关口设为 INFO 级别
+							AlertType: pb.AlertType_ALERT_TYPE_PRICE,
+							Timestamp: time.Now().UnixMilli(),
+							Extra: map[string]string{
+								"trigger_price":   fmt.Sprintf("%.*f", m.GetPrecisionDecimals(precision), boundary),
+								"current_price":   fmt.Sprintf("%.8f", currentPrice), // 记录原始全精度价格
+								"precision_level": fmt.Sprintf("%.8f", precision),
+							},
+						}
+
+						// 4. 异步发布消息 (不需要调用 MarkSubscriptionAsTriggered)
+						go m.alertService.PublishToDevice(alertMsg)
+
+						log.Printf("ALERT: [%s] 触发通用价格关口提醒: %s", instID, alertTitle)
+					}
+
+					// 移动到下一个关口
+					boundary += precision
+				}
+			}
 
 			// 只有 TargetPrice > 0 或 ChangePercent > 0 且上次触发价有效才检查重置
 			if sub.LastTriggeredPrice <= 0 {
@@ -731,8 +811,8 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice fl
 		}
 
 		// 检查突破
-		if sub.Direction == "UP" && currentPrice >= sub.TargetPrice || // 向上突破
-			sub.Direction == "DOWN" && currentPrice <= sub.TargetPrice { // 向下突破
+		if sub.TargetPrice > 0 && (sub.Direction == "UP" && currentPrice >= sub.TargetPrice || // 向上突破
+			sub.Direction == "DOWN" && currentPrice <= sub.TargetPrice) { // 向下突破
 			// 3. 触发提醒
 			// 标记订阅为非活跃，防止重复触发
 			m.alertService.MarkSubscriptionAsTriggered(sub.InstID, sub.SubscriptionID, currentPrice)
@@ -825,4 +905,33 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice fl
 			}
 		}
 	}
+}
+
+// GetPrecisionDecimals 根据粒度（如 0.01）确定格式化所需的有效小数位数（如 2）。
+// 这对于正确显示价格关口非常重要。
+func (m *MarketDataService) GetPrecisionDecimals(precision float64) int {
+	if precision <= 0 {
+		return 8 // 安全默认值
+	}
+
+	// 1. 处理整数粒度 (1, 10, 100...)
+	// 如果 precision >= 1.0，则不需要小数位
+	if precision >= 1.0 {
+		return 0
+	}
+
+	// 2. 处理小数粒度 (0.1, 0.01, 0.001...)
+	// 使用 Log10 来找到 10 的幂次，即需要的小数位数。
+	// 示例：Log10(0.01) = -2。取绝对值即为 2。
+
+	// ⚠️ 注意：Go 的 float64 运算可能导致微小的误差 (如 0.01 可能变成 0.009999999999999998)
+	// 解决方法：
+	// a) 先将 precision 取倒数： 1 / 0.01 = 100.0
+	val := 1.0 / precision
+
+	// b) 计算 Log10，并四舍五入到最近的整数，避免浮点误差
+	decimals := math.Log10(val)
+
+	// c) 确保结果是正整数
+	return int(math.Round(decimals))
 }
