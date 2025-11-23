@@ -695,36 +695,51 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 	// 2. 遍历该币种的所有订阅
 	for _, sub := range subs {
 		// 检查通用价格关口提醒 (BoundaryPrecision > 0.0)
-		// 假设 BoundaryPrecision 已经被 mapModelToServiceSubscription 转换为 float64
-		if sub.BoundaryPrecision > 0.0 {
+		if sub.BoundaryStep > 0.0 {
+
+			// 检查是否设置了 MajorBoundary，如果没有，则退化为 BoundaryStep
+			magnitude := sub.BoundaryMagnitude
+			if magnitude <= 0 {
+				magnitude = 1.0 // 默认至少是 $1.0 的整数关口
+			}
 
 			if lastPrice <= 0 {
 				continue
 			} // 价格无效，跳过
 
 			// 核心参数
-			precision := sub.BoundaryPrecision
+			// 关口步长现在由 Magnitude 决定
+			step := magnitude
 
 			// 确保从低到高遍历
 			low := math.Min(currentPrice, lastPrice)
 			high := math.Max(currentPrice, lastPrice)
 
-			// 1. 计算起始关口和结束关口
-			// 示例：precision=0.01。low=0.1689。startBoundary = 0.17
-			startBoundary := math.Floor(low/precision)*precision + precision
-			endBoundary := math.Floor(high/precision) * precision
+			// 1. 计算起始关口和结束关口 (使用 step 作为除数)
 
-			// 修正浮点数误差，确保计算精确
-			startBoundary = math.Round(startBoundary/precision) * precision
-			endBoundary = math.Round(endBoundary/precision) * precision
+			// startBoundary: 找到 low 之后的第一个 step 的倍数
+			// 示例：low=86679.5, step=10000.0。
+			// math.Floor(86679.5/10000) * 10000 + 10000 = 80000 + 10000 = 90000.0
+			startBoundary := math.Floor(low/step)*step + step
 
+			// endBoundary: 找到 high 之前的最后一个 step 的倍数
+			// 示例：high=90001.0, step=10000.0。
+			// math.Floor(90001.0/10000) * 10000 = 90000.0
+			endBoundary := math.Floor(high/step) * step
+
+			// 2. 遍历所有跨越的关口
 			boundary := startBoundary
 
 			// 2. 遍历所有跨越的关口
 			for boundary <= endBoundary {
 
-				// 修正浮点数误差
-				boundary = math.Round(boundary/precision) * precision
+				// 🚨 重要：修正浮点数误差，确保 boundary 是 step 的准确倍数
+				// 如果 step=10000, 可以跳过这一步，但如果 step=1000/3，则需要精度修正
+				// 由于我们设置的是整数数量级，可以假设误差较小，或使用精确的 Decimal 库。
+				// 为了安全，我们基于 sub.BoundaryStep 的精度进行修正（如果存在）。
+				if sub.BoundaryStep > 0 {
+					boundary = math.Round(boundary/sub.BoundaryStep) * sub.BoundaryStep
+				}
 
 				triggered := false
 				alertTitle := ""
@@ -732,11 +747,11 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 				// UP 订阅：上次价格 < 关口 AND 当前价格 >= 关口
 				if sub.Direction == "UP" && lastPrice < boundary && currentPrice >= boundary {
 					triggered = true
-					alertTitle = fmt.Sprintf("%s 向上突破价格关口 $%.*f", instID, m.GetPrecisionDecimals(precision), boundary)
+					alertTitle = fmt.Sprintf("%s 向上突破价格关口 $%.*f", instID, m.GetPrecisionDecimals(step), boundary)
 				} else if sub.Direction == "DOWN" && lastPrice > boundary && currentPrice <= boundary {
 					// DOWN 订阅：上次价格 > 关口 AND 当前价格 <= 关口
 					triggered = true
-					alertTitle = fmt.Sprintf("%s 向下突破价格关口 $%.*f", instID, m.GetPrecisionDecimals(precision), boundary)
+					alertTitle = fmt.Sprintf("%s 向下突破价格关口 $%.*f", instID, m.GetPrecisionDecimals(step), boundary)
 				}
 
 				if triggered {
@@ -747,18 +762,18 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 						Id:             uuid.NewString(), // 唯一消息 ID
 						Title:          alertTitle,
 						Content: fmt.Sprintf("当前价格已达到 $%.*f，成功突破了 $%.*f 的关口。",
-							m.GetPrecisionDecimals(precision),
+							m.GetPrecisionDecimals(step),
 							currentPrice,
-							m.GetPrecisionDecimals(precision),
+							m.GetPrecisionDecimals(step),
 							boundary),
 						Symbol:    instID,
 						Level:     pb.AlertLevel_ALERT_LEVEL_INFO, // 通用关口设为 INFO 级别
 						AlertType: pb.AlertType_ALERT_TYPE_PRICE,
 						Timestamp: time.Now().UnixMilli(),
 						Extra: map[string]string{
-							"trigger_price":   fmt.Sprintf("%.*f", m.GetPrecisionDecimals(precision), boundary),
+							"trigger_price":   fmt.Sprintf("%.*f", m.GetPrecisionDecimals(step), boundary),
 							"current_price":   fmt.Sprintf("%.8f", currentPrice), // 记录原始全精度价格
-							"precision_level": fmt.Sprintf("%.8f", precision),
+							"precision_level": fmt.Sprintf("%.8f", step),
 						},
 					}
 
@@ -769,7 +784,7 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 				}
 
 				// 移动到下一个关口
-				boundary += precision
+				boundary += step
 			}
 		}
 

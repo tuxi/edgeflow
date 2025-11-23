@@ -17,101 +17,121 @@ import (
 )
 
 // DefaultSubscriptionRules 定义系统需要自动创建的默认规则
+// DefaultSubscriptionRules 定义系统需要自动创建的默认规则
 var DefaultSubscriptionRules = []entity.AlertSubscription{
 
 	// --- 1. 系统级极速波动提醒 (RATE) ---
-	// 确保用户不会错过核心资产的剧烈波动
+	// 采用更合理的 3.0% 变化作为默认高频提醒的阈值
 	{
 		UserID:    "SYSTEM_GLOBAL_ALERT",
 		InstID:    "BTC-USDT",
 		AlertType: 1, // PRICE_ALERT
 		Direction: "RATE",
 
-		ChangePercent: sql.NullFloat64{Float64: 1, Valid: true}, // 3.0% 变化
-		WindowMinutes: sql.NullInt64{Int64: 5, Valid: true},     // 5 分钟窗口
+		ChangePercent: sql.NullFloat64{Float64: 3.0, Valid: true}, // 3.0% 变化
+		WindowMinutes: sql.NullInt64{Int64: 5, Valid: true},       // 5 分钟窗口
 
 		IsActive: true,
-		ID:       "SYS_RATE_BTC_5P", // 固定的唯一 ID
+		ID:       "SYS_RATE_BTC_3P_5M", // 更新ID以反映3%
 	},
 
-	// --- 2. BTC/USDT 通用价格关口突破提醒 (粒度 $1.0) ---
-	// 监控整数价格的跨越，适用于高价资产
+	// --- 2. BTC/USDT 通用价格关口 (千位，步长 1000) ---
+	// 监控大整数关口，如 $70000, $71000, $72000...
 	{
 		UserID:    "SYSTEM_GLOBAL_ALERT",
 		InstID:    "BTC-USDT",
 		AlertType: 1,
 		Direction: "UP",
 
-		// 🚀 关口精度：1.0 (监控 $60000, $60001, $60002...)
-		BoundaryPrecision: sql.NullFloat64{Float64: 1.0, Valid: true},
+		// 精度：1.0 (用于浮点数修正)
+		BoundaryStep: sql.NullFloat64{Float64: 1.0, Valid: true},
+		// 🚀 关口步长 (Magnitude): 1000.0 (触发 $1000$ 的倍数)
+		BoundaryMagnitude: sql.NullFloat64{Float64: 1000.0, Valid: true},
 
 		IsActive: true,
-		ID:       "SYS_BOUND_BTC_UP_1",
+		ID:       "SYS_BOUND_BTC_UP_1K",
 	},
 	{
-		UserID:    "SYSTEM_GLOBAL_ALERT",
-		InstID:    "BTC-USDT",
-		AlertType: 1,
-		Direction: "DOWN",
-
-		// 关口精度：1.0
-		BoundaryPrecision: sql.NullFloat64{Float64: 1.0, Valid: true},
-
-		IsActive: true,
-		ID:       "SYS_BOUND_BTC_DOWN_1",
+		UserID:            "SYSTEM_GLOBAL_ALERT",
+		InstID:            "BTC-USDT",
+		AlertType:         1,
+		Direction:         "DOWN",
+		BoundaryStep:      sql.NullFloat64{Float64: 1.0, Valid: true},
+		BoundaryMagnitude: sql.NullFloat64{Float64: 1000.0, Valid: true},
+		IsActive:          true,
+		ID:                "SYS_BOUND_BTC_DOWN_1K",
 	},
 
-	// --- 3. ETH/USDT 通用价格关口突破提醒 (粒度 $1.0) ---
+	// --- 3. ETH/USDT 通用价格关口 (百位，步长 100) ---
+	// 监控 $2700, $2800, $2900...
 	{
-		UserID:    "SYSTEM_GLOBAL_ALERT",
-		InstID:    "ETH-USDT",
-		AlertType: 1,
-		Direction: "UP",
-
-		// 关口精度：1.0
-		BoundaryPrecision: sql.NullFloat64{Float64: 1.0, Valid: true},
-
-		IsActive: true,
-		ID:       "SYS_BOUND_ETH_UP_1",
+		UserID:       "SYSTEM_GLOBAL_ALERT",
+		InstID:       "ETH-USDT",
+		AlertType:    1,
+		Direction:    "UP",
+		BoundaryStep: sql.NullFloat64{Float64: 1.0, Valid: true},
+		// 🚀 关口步长 (Magnitude): 100.0 (触发 $100$ 的倍数)
+		BoundaryMagnitude: sql.NullFloat64{Float64: 100.0, Valid: true},
+		IsActive:          true,
+		ID:                "SYS_BOUND_ETH_UP_100",
 	},
 	{
-		UserID:    "SYSTEM_GLOBAL_ALERT",
-		InstID:    "ETH-USDT",
-		AlertType: 1,
-		Direction: "DOWN",
-
-		// 关口精度：1.0
-		BoundaryPrecision: sql.NullFloat64{Float64: 1.0, Valid: true},
-
-		IsActive: true,
-		ID:       "SYS_BOUND_ETH_DOWN_1",
+		UserID:            "SYSTEM_GLOBAL_ALERT",
+		InstID:            "ETH-USDT",
+		AlertType:         1,
+		Direction:         "DOWN",
+		BoundaryStep:      sql.NullFloat64{Float64: 1.0, Valid: true},
+		BoundaryMagnitude: sql.NullFloat64{Float64: 100.0, Valid: true},
+		IsActive:          true,
+		ID:                "SYS_BOUND_ETH_DOWN_100",
 	},
 
-	// --- 4. DOGE/USDT 通用价格关口突破提醒 (粒度 $0.01) ---
-	// 监控分钱价格的跨越，适用于低价资产
+	// --- 4. SOL/USDT 通用价格关口 (五刀，步长 5.0) ---
+	// 监控 $125, $130, $135...
 	{
-		UserID:    "SYSTEM_GLOBAL_ALERT",
-		InstID:    "DOGE-USDT",
-		AlertType: 1,
-		Direction: "UP",
-
-		// 🚀 关口精度：0.01 (监控 $0.17, $0.18, $0.19...)
-		BoundaryPrecision: sql.NullFloat64{Float64: 0.01, Valid: true},
-
-		IsActive: true,
-		ID:       "SYS_BOUND_DOGE_UP_001",
+		UserID:       "SYSTEM_GLOBAL_ALERT",
+		InstID:       "SOL-USDT",
+		AlertType:    1,
+		Direction:    "UP",
+		BoundaryStep: sql.NullFloat64{Float64: 0.1, Valid: true}, // 小数点后一位精度修正
+		// 🚀 关口步长 (Magnitude): 5.0
+		BoundaryMagnitude: sql.NullFloat64{Float64: 5.0, Valid: true},
+		IsActive:          true,
+		ID:                "SYS_BOUND_SOL_UP_5",
 	},
 	{
-		UserID:    "SYSTEM_GLOBAL_ALERT",
-		InstID:    "DOGE-USDT",
-		AlertType: 1,
-		Direction: "DOWN",
+		UserID:            "SYSTEM_GLOBAL_ALERT",
+		InstID:            "SOL-USDT",
+		AlertType:         1,
+		Direction:         "DOWN",
+		BoundaryStep:      sql.NullFloat64{Float64: 0.1, Valid: true},
+		BoundaryMagnitude: sql.NullFloat64{Float64: 5.0, Valid: true},
+		IsActive:          true,
+		ID:                "SYS_BOUND_SOL_DOWN_5",
+	},
 
-		// 关口精度：0.01
-		BoundaryPrecision: sql.NullFloat64{Float64: 0.01, Valid: true},
-
-		IsActive: true,
-		ID:       "SYS_BOUND_DOGE_DOWN_001",
+	// --- 5. DOGE/USDT 通用价格关口 (分位，步长 0.01) ---
+	// 监控 $0.13, $0.14, $0.15...
+	{
+		UserID:       "SYSTEM_GLOBAL_ALERT",
+		InstID:       "DOGE-USDT",
+		AlertType:    1,
+		Direction:    "UP",
+		BoundaryStep: sql.NullFloat64{Float64: 0.0001, Valid: true}, // 小数点后四位精度修正
+		// 🚀 关口步长 (Magnitude): 0.01
+		BoundaryMagnitude: sql.NullFloat64{Float64: 0.01, Valid: true},
+		IsActive:          true,
+		ID:                "SYS_BOUND_DOGE_UP_001",
+	},
+	{
+		UserID:            "SYSTEM_GLOBAL_ALERT",
+		InstID:            "DOGE-USDT",
+		AlertType:         1,
+		Direction:         "DOWN",
+		BoundaryStep:      sql.NullFloat64{Float64: 0.0001, Valid: true},
+		BoundaryMagnitude: sql.NullFloat64{Float64: 0.01, Valid: true},
+		IsActive:          true,
+		ID:                "SYS_BOUND_DOGE_DOWN_001",
 	},
 }
 
@@ -152,7 +172,8 @@ type PriceAlertSubscription struct {
 
 	LastTriggeredPrice float64 // 上次触发时的价格（用于判断是否重置）
 
-	BoundaryPrecision float64 // 0.01 表示以 0.01 为单位跨越
+	BoundaryStep      float64 // 0.01 表示以 0.01 为单位跨越
+	BoundaryMagnitude float64
 }
 
 func NewAlertService(producer kafka.ProducerService, dao dao.AlertDAO) *AlertService {
@@ -231,7 +252,8 @@ func (s *AlertService) loadActiveSubscriptions() {
 			TargetPrice:        dbSub.TargetPrice.Float64,
 			Direction:          dbSub.Direction,
 			LastTriggeredPrice: dbSub.LastTriggeredPrice.Float64,
-			BoundaryPrecision:  dbSub.BoundaryPrecision.Float64,
+			BoundaryStep:       dbSub.BoundaryStep.Float64,
+			BoundaryMagnitude:  dbSub.BoundaryMagnitude.Float64,
 		}
 		s.priceAlerts[sub.InstID] = append(s.priceAlerts[sub.InstID], sub)
 	}
@@ -612,7 +634,8 @@ func mapModelToServiceSubscription(dbSub *entity.AlertSubscription) *PriceAlertS
 
 		// 状态字段
 		LastTriggeredPrice: dbSub.LastTriggeredPrice.Float64,
-		BoundaryPrecision:  dbSub.BoundaryPrecision.Float64,
+		BoundaryStep:       dbSub.BoundaryStep.Float64,
+		BoundaryMagnitude:  dbSub.BoundaryMagnitude.Float64,
 	}
 
 	return sub

@@ -485,7 +485,8 @@ CREATE TABLE `alert_subscription` (
     -- 状态字段
                                       `is_active` BOOLEAN NOT NULL COMMENT '是否活跃 (1=待触发, 0=已触发)',
                                       `last_triggered_price` DECIMAL(20, 8) NULL COMMENT '上次触发时的价格，用于重置判断',
-                                      `boundary_precision` DECIMAL(10, 8) NULL COMMENT '0.01 表示以 0.01 为单位跨越',
+                                      `boundary_step` DECIMAL(10, 8) NULL COMMENT '用于通用关口的粒度 (例如 1.0, 0.01)',
+                                      `boundary_magnitude` DECIMAL(18, 8) NULL COMMENT '关口量级（只有当 BoundaryStep > 0 时使用）',
 
     -- Gorm 约定时间戳
                                       `created_at` DATETIME NOT NULL,
