@@ -1,11 +1,12 @@
 package alert
 
 import (
-	"github.com/gorilla/websocket"
 	"log"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // ======================== ClientConn ========================
@@ -55,7 +56,7 @@ func (c *AlertClientConn) writePump() {
 				return
 			}
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := c.Conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			if err := c.Conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
 				log.Println("writePump write error:", err)
 				return
 			}

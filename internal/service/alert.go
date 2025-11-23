@@ -27,8 +27,8 @@ var DefaultSubscriptionRules = []entity.AlertSubscription{
 		AlertType: 1, // PRICE_ALERT
 		Direction: "RATE",
 
-		ChangePercent: sql.NullFloat64{Float64: 3.0, Valid: true}, // 3.0% 变化
-		WindowMinutes: sql.NullInt64{Int64: 5, Valid: true},       // 5 分钟窗口
+		ChangePercent: sql.NullFloat64{Float64: 1, Valid: true}, // 3.0% 变化
+		WindowMinutes: sql.NullInt64{Int64: 5, Valid: true},     // 5 分钟窗口
 
 		IsActive: true,
 		ID:       "SYS_RATE_BTC_5P", // 固定的唯一 ID
@@ -127,6 +127,7 @@ type AlertService struct {
 
 type AlertPublisher interface {
 	PublishToDevice(alert *pb.AlertMessage)
+	PublishBroadcast(msg *pb.AlertMessage)
 	GetSubscriptionsForInstID(instID string) []*PriceAlertSubscription
 	// 标记为已触发，并记录触发价格
 	MarkSubscriptionAsTriggered(instID string, subscriptionID string, triggeredPrice float64)
@@ -230,6 +231,7 @@ func (s *AlertService) loadActiveSubscriptions() {
 			TargetPrice:        dbSub.TargetPrice.Float64,
 			Direction:          dbSub.Direction,
 			LastTriggeredPrice: dbSub.LastTriggeredPrice.Float64,
+			BoundaryPrecision:  dbSub.BoundaryPrecision.Float64,
 		}
 		s.priceAlerts[sub.InstID] = append(s.priceAlerts[sub.InstID], sub)
 	}
@@ -610,6 +612,7 @@ func mapModelToServiceSubscription(dbSub *entity.AlertSubscription) *PriceAlertS
 
 		// 状态字段
 		LastTriggeredPrice: dbSub.LastTriggeredPrice.Float64,
+		BoundaryPrecision:  dbSub.BoundaryPrecision.Float64,
 	}
 
 	return sub
