@@ -39,3 +39,8 @@ type DeleteSubscriptionRequest struct {
 	ID     string `json:"id"`
 	InstID string `json:"inst_id"`
 }
+
+type GetHistoriesRequest struct {
+	Offset int `json:"offset" binding:"required"`
+	Limit  int `json:"limit" binding:"required"`
+}

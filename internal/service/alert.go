@@ -427,19 +427,19 @@ func (g *AlertService) CreateSubscription(ctx context.Context, req model.CreateU
 }
 
 // GetSubscriptions 处理 GET /api/v1/alerts/subscriptions
-func (g *AlertService) GetSubscriptionsByUserID(ctx context.Context, userID string) []model.SubscriptionResponse {
+func (g *AlertService) GetSubscriptionsByUserID(ctx context.Context, userID string) ([]model.SubscriptionResponse, error) {
 
 	// 1. 调用 DAO 获取用户所有订阅
 	// 假设 AlertDAO 中新增 GetSubscriptionsByUserID 方法
 	dbSubs, err := g.dao.GetSubscriptionsByUserID(ctx, userID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	// 2. 构造响应列表 (需要将 model.AlertSubscription 转换为 SubscriptionResponse)
 	response := g.mapModelsToResponse(dbSubs)
 
-	return response
+	return response, nil
 }
 
 // UpdateSubscription 处理 PUT /api/v1/alerts/subscriptions/{id}
@@ -639,4 +639,9 @@ func mapModelToServiceSubscription(dbSub *entity.AlertSubscription) *PriceAlertS
 	}
 
 	return sub
+}
+
+func (s *AlertService) GetAllHistoriesByID(ctx context.Context, userId string, limit, offset int) ([]entity.AlertHistory, error) {
+	histories, err := s.dao.GetHistoryByUserID(ctx, userId, limit, offset)
+	return histories, err
 }

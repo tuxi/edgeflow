@@ -2,6 +2,7 @@ package alert
 
 import (
 	"context"
+	"edgeflow/internal/consts"
 	"edgeflow/internal/model"
 	"edgeflow/internal/service"
 	"edgeflow/pkg/errors"
@@ -224,6 +225,35 @@ func (g *AlertGateway) DeleteSubscription() gin.HandlerFunc {
 			response.JSON(ctx, errors.Wrap(err, ecode.Unknown, "接口调用失败"), nil)
 		} else {
 			response.JSON(ctx, nil, nil)
+		}
+	}
+}
+
+func (g *AlertGateway) GetSubscriptions() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		deviceId := ctx.GetString(consts.DeviceId)
+		subscriptions, err := g.service.GetSubscriptionsByUserID(ctx, deviceId)
+		if err != nil {
+			response.JSON(ctx, errors.Wrap(err, ecode.Unknown, "接口调用失败"), nil)
+		} else {
+			response.JSON(ctx, nil, subscriptions)
+		}
+	}
+}
+
+func (g *AlertGateway) GetHistories() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req model.GetHistoriesRequest
+		if err := ctx.ShouldBindQuery(&req); err != nil {
+			response.JSON(ctx, errors.WithCode(ecode.ValidateErr, err.Error()), nil)
+			return
+		}
+		deviceId := ctx.GetString(consts.DeviceId)
+		histories, err := g.service.GetAllHistoriesByID(ctx, deviceId, req.Limit, req.Offset)
+		if err != nil {
+			response.JSON(ctx, errors.Wrap(err, ecode.Unknown, "接口调用失败"), nil)
+		} else {
+			response.JSON(ctx, nil, histories)
 		}
 	}
 }
