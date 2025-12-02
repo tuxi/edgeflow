@@ -28,7 +28,7 @@ type AlertDAO interface {
 	// SaveAlertHistory 保存提醒消息历史
 	SaveAlertHistory(ctx context.Context, history *entity.AlertHistory) error
 	// GetHistoryByUserID 查询用户提醒历史 (用于 App API)
-	GetHistoryByUserID(ctx context.Context, userID string, limit int, offset int) ([]entity.AlertHistory, error)
+	GetHistoryByUserID(ctx context.Context, userID string, alertType int, limit int, offset int) ([]entity.AlertHistory, error)
 
 	// 查询用户所有订阅
 	GetSubscriptionsByUserID(ctx context.Context, userID string) ([]entity.AlertSubscription, error)

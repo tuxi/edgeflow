@@ -41,6 +41,7 @@ type DeleteSubscriptionRequest struct {
 }
 
 type GetHistoriesRequest struct {
-	Offset int `json:"offset" binding:"required"`
-	Limit  int `json:"limit" binding:"required"`
+	Offset    int `json:"offset" form:"offset" binding:"required"`
+	Limit     int `json:"limit" form:"limit" binding:"required"`
+	AlertType int `json:"alert_type" form:"alert_type" ` // 为空时获取全部类型
 }

@@ -35,17 +35,17 @@ func (AlertSubscription) TableName() string {
 
 // AlertHistory 提醒历史表结构 (对应已发送的 AlertMessage)
 type AlertHistory struct {
-	ID             string `gorm:"primaryKey;type:varchar(36)"`                 // 主键，提醒消息的唯一ID
-	UserID         string `gorm:"index:idx_user_ts;type:varchar(36);not null"` // 索引。接收者用户ID，客户端查询历史记录的依据
-	SubscriptionID string `gorm:"type:varchar(36)"`                            // 关联的订阅ID（可选），用于追踪是哪个规则触发的
-	Title          string `gorm:"type:varchar(100)"`                           // 标题
-	Content        string `gorm:"type:text"`                                   // 详细内容
-	Level          int    `gorm:"type:int"`                                    // 消息级别，对应 Protobuf AlertLevel
-	AlertType      int    `gorm:"type:int"`                                    // 消息类型，对应 Protobuf AlertType
-	Timestamp      int64  `gorm:"index:idx_user_ts;type:bigint;not null"`      // 消息时间戳（毫秒），用于排序和分页查询
-	ExtraJSON      string `gorm:"column:extra_json;type:json"`                 // Protobuf 中的 extra Map，存储触发价格、当前价格等详细信息
+	ID             string `gorm:"primaryKey;type:varchar(36)" json:"id"`                      // 主键，提醒消息的唯一ID
+	UserID         string `gorm:"index:idx_user_ts;type:varchar(36);not null" json:"user_id"` // 索引。接收者用户ID，客户端查询历史记录的依据
+	SubscriptionID string `gorm:"type:varchar(36)" json:"subscription_id"`                    // 关联的订阅ID（可选），用于追踪是哪个规则触发的
+	Title          string `gorm:"type:varchar(100)" json:"title"`                             // 标题
+	Content        string `gorm:"type:text" json:"content"`                                   // 详细内容
+	Level          int    `gorm:"type:int" json:"level"`                                      // 消息级别，对应 Protobuf AlertLevel
+	AlertType      int    `gorm:"type:int" json:"alert_type"`                                 // 消息类型，对应 Protobuf AlertType
+	Timestamp      int64  `gorm:"index:idx_user_ts;type:bigint;not null" json:"timestamp"`    // 消息时间戳（毫秒），用于排序和分页查询
+	ExtraJSON      string `gorm:"column:extra_json;type:json" json:"extra_json"`              // Protobuf 中的 extra Map，存储触发价格、当前价格等详细信息
 
-	CreatedAt time.Time `gorm:"autoCreateTime"` // 创建时间
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"` // 创建时间
 }
 
 func (AlertHistory) TableName() string {

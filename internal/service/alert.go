@@ -641,7 +641,22 @@ func mapModelToServiceSubscription(dbSub *entity.AlertSubscription) *PriceAlertS
 	return sub
 }
 
-func (s *AlertService) GetAllHistoriesByID(ctx context.Context, userId string, limit, offset int) ([]entity.AlertHistory, error) {
-	histories, err := s.dao.GetHistoryByUserID(ctx, userId, limit, offset)
-	return histories, err
+func (s *AlertService) GetAllHistoriesByID(ctx context.Context, userId string, alertType int, limit, offset int) ([]entity.AlertHistory, error) {
+	if limit == 0 {
+		limit = 100
+	}
+	// 先查找系统全局提醒
+	globalAlerts, err := s.dao.GetHistoryByUserID(ctx, "SYSTEM_GLOBAL_ALERT", alertType, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	// 再查找当前用户的提醒
+	histories, err := s.dao.GetHistoryByUserID(ctx, userId, alertType, limit, offset)
+	// 合并数据
+	if err != nil {
+		return nil, err
+	}
+	allAlerts := append(globalAlerts, histories...)
+	return allAlerts, nil
 }

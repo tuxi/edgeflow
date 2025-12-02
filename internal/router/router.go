@@ -115,6 +115,10 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		alerts.PUT("/subscriptions", api.alertGw.UpdateSubscription())
 		// 删除订阅
 		alerts.DELETE("/subscriptions", api.alertGw.DeleteSubscription())
+		// 获取所有订阅
+		alerts.GET("/subscriptions", api.alertGw.GetSubscriptions())
+		// 获取所有历史消息
+		alerts.GET("/histories", api.alertGw.GetHistories())
 	}
 
 	//base.POST("/webhook", middleware.RequestValidationMiddleware(), api.wh.HandlerWebhook())

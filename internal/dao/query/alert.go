@@ -80,10 +80,14 @@ func (d *AlertDAOImpl) SaveAlertHistory(ctx context.Context, history *entity.Ale
 }
 
 // GetHistoryByUserID 查询用户提醒历史 (用于 App API)
-func (d *AlertDAOImpl) GetHistoryByUserID(ctx context.Context, userID string, limit int, offset int) ([]entity.AlertHistory, error) {
+func (d *AlertDAOImpl) GetHistoryByUserID(ctx context.Context, userID string, alertTYpe int, limit int, offset int) ([]entity.AlertHistory, error) {
 	var history []entity.AlertHistory
 	// 按时间倒序排序
-	if err := d.db.WithContext(ctx).Where("user_id = ?", userID).Order("timestamp DESC").Limit(limit).Offset(offset).Find(&history).Error; err != nil {
+	q := d.db.WithContext(ctx).Where("user_id = ?", userID)
+	if alertTYpe > 0 {
+		q = q.Where("alert_type = ?", alertTYpe)
+	}
+	if err := q.Order("timestamp DESC").Limit(limit).Offset(offset).Find(&history).Error; err != nil {
 		return nil, fmt.Errorf("failed to get alert history for user %s: %w", userID, err)
 	}
 	return history, nil

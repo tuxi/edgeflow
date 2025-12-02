@@ -249,7 +249,7 @@ func (g *AlertGateway) GetHistories() gin.HandlerFunc {
 			return
 		}
 		deviceId := ctx.GetString(consts.DeviceId)
-		histories, err := g.service.GetAllHistoriesByID(ctx, deviceId, req.Limit, req.Offset)
+		histories, err := g.service.GetAllHistoriesByID(ctx, deviceId, req.AlertType, req.Limit, req.Offset)
 		if err != nil {
 			response.JSON(ctx, errors.Wrap(err, ecode.Unknown, "接口调用失败"), nil)
 		} else {
