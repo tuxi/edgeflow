@@ -262,6 +262,29 @@ func (s *AlertService) loadActiveSubscriptions() {
 
 // 写入全量推送 Topic
 func (s *AlertService) PublishBroadcast(msg *pb.AlertMessage) {
+	extra := msg.GetExtra()
+	extraBytes, err := json.Marshal(extra)
+	if err != nil {
+		return
+	}
+
+	// 保存历史记录 (同步或异步取决于业务对丢历史记录的容忍度)
+	history := &entity.AlertHistory{
+		ID:             msg.GetId(),
+		UserID:         msg.UserId,
+		SubscriptionID: msg.GetSubscriptionId(),
+		Title:          msg.GetTitle(),
+		Content:        msg.GetContent(),
+		Level:          int(msg.GetLevel()),
+		AlertType:      int(msg.GetAlertType()),
+		Timestamp:      msg.GetTimestamp(),
+		ExtraJSON:      string(extraBytes),
+	}
+	if err := s.dao.SaveAlertHistory(context.Background(), history); err != nil {
+		log.Printf("WARN: 保存提醒历史失败 ID=%s: %v", history.ID, err)
+		// 允许失败，继续推送 Kafka
+	}
+
 	protoMsg := kafka.Message{
 		Key: "ALERT_BROADCAST", // 固定KEY
 		Data: &pb.WebSocketMessage{
