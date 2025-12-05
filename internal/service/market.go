@@ -676,6 +676,9 @@ func (m *MarketDataService) GetDetailByID(ctx context.Context, req model.MarketD
 	return &detail, nil
 }
 
+// 设定冷却时间（例如：每 5 分钟最多提醒一次）
+const universalBoundaryCooldown = 5 * time.Minute
+
 // CheckAndTriggerAlerts 检查并触发给定币种的价格提醒
 // 必须在 m.mu.Lock() 保护下调用
 func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, lastPrice float64) {
@@ -755,6 +758,10 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 				}
 
 				if triggered {
+					if time.Since(sub.LastTriggeredTime) < universalBoundaryCooldown {
+						log.Printf("SKIP: 订阅 %s 在冷却期内 (上次触发: %v)", sub.SubscriptionID, sub.LastTriggeredTime)
+						continue // 跳过发送提醒
+					}
 					// 3. 🚀 构建 AlertMessage 并调用 PublishToDevice
 					alertMsg := &pb.AlertMessage{
 						UserId:         sub.UserID,
@@ -779,6 +786,9 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 
 					// 4. 异步发布消息 (不需要调用 MarkSubscriptionAsTriggered)
 					go m.alertService.PublishBroadcast(alertMsg)
+
+					//  更新 LastTriggeredTime
+					m.alertService.UpdateSubscriptionTriggerTime(sub.SubscriptionID)
 
 					log.Printf("ALERT: [%s] 触发通用价格关口提醒: %s", instID, alertTitle)
 				}

@@ -3,6 +3,7 @@ package dao
 import (
 	"context"
 	"edgeflow/internal/model/entity"
+	"time"
 )
 
 // AlertDAO 提醒数据访问对象接口
@@ -35,4 +36,6 @@ type AlertDAO interface {
 	// 更新整个订阅（用于客户端修改价格/百分比）
 	UpdateSubscription(ctx context.Context, sub *entity.AlertSubscription) error
 	GetSubscriptionByID(ctx context.Context, id string) (entity.AlertSubscription, error)
+
+	UpdateSubscriptionTriggerTime(ctx context.Context, subscriptionID string, time time.Time) error
 }

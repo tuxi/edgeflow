@@ -153,6 +153,7 @@ type AlertPublisher interface {
 	MarkSubscriptionAsTriggered(instID string, subscriptionID string, triggeredPrice float64)
 	// 标记为已重置，重新激活
 	MarkSubscriptionAsReset(instID string, subscriptionID string)
+	UpdateSubscriptionTriggerTime(subscriptionID string)
 }
 
 // 提醒订阅结构体（MDS 内部存储）
@@ -170,7 +171,8 @@ type PriceAlertSubscription struct {
 	TargetPrice float64 // 目标价格
 	Direction   string  // "UP", "DOWN" (现在也用于极速提醒的上升/下降)
 
-	LastTriggeredPrice float64 // 上次触发时的价格（用于判断是否重置）
+	LastTriggeredPrice float64   // 上次触发时的价格（用于判断是否重置）
+	LastTriggeredTime  time.Time // 记录上次触发提醒的时间
 
 	BoundaryStep      float64 // 0.01 表示以 0.01 为单位跨越
 	BoundaryMagnitude float64
@@ -252,6 +254,7 @@ func (s *AlertService) loadActiveSubscriptions() {
 			TargetPrice:        dbSub.TargetPrice.Float64,
 			Direction:          dbSub.Direction,
 			LastTriggeredPrice: dbSub.LastTriggeredPrice.Float64,
+			LastTriggeredTime:  dbSub.LastTriggeredTime,
 			BoundaryStep:       dbSub.BoundaryStep.Float64,
 			BoundaryMagnitude:  dbSub.BoundaryMagnitude.Float64,
 		}
@@ -657,6 +660,7 @@ func mapModelToServiceSubscription(dbSub *entity.AlertSubscription) *PriceAlertS
 
 		// 状态字段
 		LastTriggeredPrice: dbSub.LastTriggeredPrice.Float64,
+		LastTriggeredTime:  dbSub.LastTriggeredTime,
 		BoundaryStep:       dbSub.BoundaryStep.Float64,
 		BoundaryMagnitude:  dbSub.BoundaryMagnitude.Float64,
 	}
@@ -682,4 +686,28 @@ func (s *AlertService) GetAllHistoriesByID(ctx context.Context, userId string, a
 	}
 	allAlerts := append(globalAlerts, histories...)
 	return allAlerts, nil
+}
+
+// AlertService implementation
+func (s *AlertService) UpdateSubscriptionTriggerTime(subscriptionID string) {
+	now := time.Now()
+
+	// 1. 内存更新 (必须在锁保护下进行)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 遍历内存中的所有订阅，找到并更新时间
+	// (更高效的做法是根据 ID 映射快速定位，但这里展示通用逻辑)
+	for _, list := range s.priceAlerts {
+		for _, sub := range list {
+			if sub.SubscriptionID == subscriptionID {
+				sub.LastTriggeredTime = now // 更新内存
+				break
+			}
+		}
+	}
+
+	// 2. 数据库更新 (DAO层操作)
+	// 假设 AlertDAO 接口有 UpdateSubscriptionTriggerTime 方法
+	s.dao.UpdateSubscriptionTriggerTime(context.Background(), subscriptionID, now)
 }

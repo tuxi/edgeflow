@@ -142,3 +142,8 @@ func (d *AlertDAOImpl) GetSubscriptionByID(cxt context.Context, id string) (enti
 	}
 	return sub, nil
 }
+
+func (d *AlertDAOImpl) UpdateSubscriptionTriggerTime(ctx context.Context, subscriptionID string, time time.Time) error {
+
+	return d.db.WithContext(ctx).Model(&entity.AlertSubscription{}).Where("id = ?", subscriptionID).Update("last_triggered_price", time).Error
+}

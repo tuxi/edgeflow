@@ -17,6 +17,7 @@ type AlertSubscription struct {
 	WindowMinutes      sql.NullInt64   `gorm:"type:int"`                                      // 极速提醒的时间窗口（分钟），可空
 	IsActive           bool            `gorm:"not null"`                                      // 当前状态：是否活跃/待触发
 	LastTriggeredPrice sql.NullFloat64 `gorm:"type:decimal(20,8)"`                            // 上次触发时的价格，可空
+	LastTriggeredTime  time.Time       `gorm:"type:timestamp"`                                // 此订阅上一次触发的时间
 
 	// 用于通用关口的粒度 (例如 1.0, 0.01)
 	BoundaryStep sql.NullFloat64 `gorm:"column:boundary_step;type:decimal(10, 8)"`
