@@ -21,8 +21,8 @@ type AlertDAO interface {
 
 	// 状态更新 (供 AlertService 在收到 MDS 通知时调用)
 
-	// UpdateSubscriptionState 更新订阅状态 (IsActive, LastTriggeredPrice)
-	UpdateSubscriptionState(ctx context.Context, id string, isActive bool, lastPrice float64) error
+	// 触发后的统一更新
+	UpdateSubscriptionAfterTrigger(ctx context.Context, id string, isActive bool, lastPrice float64, lastTime time.Time) error
 
 	// 历史记录 (供 AlertService 写入和 App 查询 API 调用)
 
@@ -36,6 +36,4 @@ type AlertDAO interface {
 	// 更新整个订阅（用于客户端修改价格/百分比）
 	UpdateSubscription(ctx context.Context, sub *entity.AlertSubscription) error
 	GetSubscriptionByID(ctx context.Context, id string) (entity.AlertSubscription, error)
-
-	UpdateSubscriptionTriggerTime(ctx context.Context, subscriptionID string, time time.Time) error
 }

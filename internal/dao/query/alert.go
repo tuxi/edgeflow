@@ -48,15 +48,13 @@ func (d *AlertDAOImpl) DeleteSubscription(ctx context.Context, id string) error 
 
 // --- 状态更新实现 ---
 
-// UpdateSubscriptionState 更新订阅状态 (IsActive, LastTriggeredPrice)
-func (d *AlertDAOImpl) UpdateSubscriptionState(ctx context.Context, id string, isActive bool, lastPrice float64) error {
-
+// UpdateSubscriptionAfterTrigger 触发后的统一更新
+func (d *AlertDAOImpl) UpdateSubscriptionAfterTrigger(ctx context.Context, id string, isActive bool, lastPrice float64, lastTime time.Time) error {
 	// 结构体用于部分更新
 	updates := map[string]interface{}{
 		"is_active":  isActive,
 		"updated_at": time.Now(),
 	}
-
 	// 仅在价格 > 0 时更新 LastTriggeredPrice 字段，否则 Gorm 会更新为 NULL
 	if lastPrice > 0 {
 		updates["last_triggered_price"] = lastPrice
@@ -64,7 +62,15 @@ func (d *AlertDAOImpl) UpdateSubscriptionState(ctx context.Context, id string, i
 		// 如果重置，显式设置为 NULL (sql.NullFloat64 对应)
 		updates["last_triggered_price"] = sql.NullFloat64{Valid: false}
 	}
-
+	// 🚀 智能处理时间：
+	// 如果传入了有效时间（非零值），则更新时间（触发场景）。
+	// 如果是重置场景，我们通常希望保留“上次触发时间”作为历史参考，
+	// 所以这里我们可以选择：如果不传时间就不更新，或者总是更新。
+	// 既然方法名叫 AfterTrigger，通常意味着“最近一次相关变动的时间”。
+	// 针对您的需求，如果传入的时间是零值，我们可以不更新该字段。
+	if !lastTime.IsZero() {
+		updates["last_triggered_time"] = lastTime
+	}
 	return d.db.WithContext(ctx).Model(&entity.AlertSubscription{}).Where("id = ?", id).Updates(updates).Error
 }
 
@@ -141,9 +147,4 @@ func (d *AlertDAOImpl) GetSubscriptionByID(cxt context.Context, id string) (enti
 		return sub, fmt.Errorf("failed to get subscription by ID %s: %w", id, err)
 	}
 	return sub, nil
-}
-
-func (d *AlertDAOImpl) UpdateSubscriptionTriggerTime(ctx context.Context, subscriptionID string, time time.Time) error {
-
-	return d.db.WithContext(ctx).Model(&entity.AlertSubscription{}).Where("id = ?", subscriptionID).Update("last_triggered_price", time).Error
 }

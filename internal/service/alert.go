@@ -149,11 +149,10 @@ type AlertPublisher interface {
 	PublishToDevice(alert *pb.AlertMessage)
 	PublishBroadcast(msg *pb.AlertMessage)
 	GetSubscriptionsForInstID(instID string) []*PriceAlertSubscription
-	// 标记为已触发，并记录触发价格
-	MarkSubscriptionAsTriggered(instID string, subscriptionID string, triggeredPrice float64)
+	// 处理订阅触发：更新时间、价格，并根据标志决定是否停用
+	HandleAlertTrigger(instID string, subscriptionID string, triggeredPrice float64, shouldDeactivate bool)
 	// 标记为已重置，重新激活
 	MarkSubscriptionAsReset(instID string, subscriptionID string)
-	UpdateSubscriptionTriggerTime(subscriptionID string)
 }
 
 // 提醒订阅结构体（MDS 内部存储）
@@ -377,7 +376,7 @@ func (s *AlertService) AddPriceAlert(sub PriceAlertSubscription) {
 }
 
 // MarkSubscriptionAsTriggered 标记订阅为已触发，并记录价格
-func (s *AlertService) MarkSubscriptionAsTriggered(instID string, subscriptionID string, triggeredPrice float64) {
+func (s *AlertService) HandleAlertTrigger(instID string, subscriptionID string, triggeredPrice float64, shouldDeactivate bool) {
 	// 更新内存状态 (用于后续 Ticker 立即生效)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -388,17 +387,37 @@ func (s *AlertService) MarkSubscriptionAsTriggered(instID string, subscriptionID
 		return
 	}
 
+	now := time.Now()
+
 	for _, sub := range subs {
-		if sub.SubscriptionID == subscriptionID && sub.IsActive {
-			sub.IsActive = false
-			sub.LastTriggeredPrice = triggeredPrice // 记录触发价格
-			// 持久化到 DB (异步执行以减少锁内时间，但需要处理并发写问题)
-			go func() {
-				if err := s.dao.UpdateSubscriptionState(context.Background(), subscriptionID, false, triggeredPrice); err != nil {
-					log.Printf("ERROR: DAO 更新订阅状态 (触发) 失败 ID=%s: %v", subscriptionID, err)
+		if sub.SubscriptionID == subscriptionID {
+			// 1. 统一更新触发信息
+			sub.LastTriggeredPrice = triggeredPrice
+			sub.LastTriggeredTime = now // 🚀 总是更新时间
+
+			isActive := true
+
+			// 2. 根据参数决定是否停用
+			if shouldDeactivate {
+				sub.IsActive = false
+				isActive = false
+				log.Printf("INFO: 订阅 %s 触发并停用 (价格: %.2f)", subscriptionID, triggeredPrice)
+			} else {
+				// 对于通用关口，保持 IsActive = true
+				log.Printf("INFO: 订阅 %s 触发并更新时间 (价格: %.2f)", subscriptionID, triggeredPrice)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+			defer cancel()
+
+			// 异步持久化到 DB (传入所有必要参数)
+			go func(id string, active bool, price float64, t time.Time, ctx context.Context) {
+				// 传入当前时间 t，DAO 会更新 last_triggered_time
+				if err := s.dao.UpdateSubscriptionAfterTrigger(ctx, id, active, price, t); err != nil {
+					log.Printf("ERROR: DAO 触发订阅失败 ID=%s: %v", id, err)
 				}
-			}()
-			log.Printf("INFO: 订阅 %s 已标记为已触发 (价格: %.2f)。", subscriptionID, triggeredPrice)
+			}(sub.SubscriptionID, isActive, sub.LastTriggeredPrice, sub.LastTriggeredTime, ctx)
+
 			return
 		}
 	}
@@ -420,13 +439,26 @@ func (s *AlertService) MarkSubscriptionAsReset(instID string, subscriptionID str
 		// 只有 IsActive = false 的订阅才需要重置
 		if sub.SubscriptionID == subscriptionID && !sub.IsActive {
 			sub.IsActive = true
-			sub.LastTriggeredPrice = 0 // 清除上次触发价格
-			// 持久化到 DB (异步执行)
-			go func() {
-				if err := s.dao.UpdateSubscriptionState(context.Background(), subscriptionID, true, 0); err != nil {
-					log.Printf("ERROR: DAO 更新订阅状态 (重置) 失败 ID=%s: %v", subscriptionID, err)
+			sub.LastTriggeredPrice = 0 // 清除触发价格，准备下一次检测
+			// 注意：我们不清除 LastTriggeredTime，保留它作为“上一次（哪怕是已重置的）触发时间”供参考
+
+			log.Printf("INFO: 订阅 %s 已重置 (重新激活)。", subscriptionID)
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+			defer cancel()
+
+			// 复用 UpdateSubscriptionAfterTrigger 持久化到 DB
+			// 参数说明：
+			// isActive: true (激活)
+			// price: 0 (清除价格)
+			// time: time.Time{} (传零值，表示不更新触发时间，保留原有的历史时间)
+			go func(id string, ctx context.Context) {
+				// 传入零值时间，利用 DAO 层的判断逻辑跳过更新时间字段
+				if err := s.dao.UpdateSubscriptionAfterTrigger(ctx, id, true, 0, time.Time{}); err != nil {
+					log.Printf("ERROR: DAO 重置订阅失败 ID=%s: %v", id, err)
 				}
-			}()
+			}(sub.SubscriptionID, ctx)
+
 			log.Printf("INFO: 订阅 %s 已标记为已重置 (重新激活)。", subscriptionID)
 			return
 		}
@@ -686,28 +718,4 @@ func (s *AlertService) GetAllHistoriesByID(ctx context.Context, userId string, a
 	}
 	allAlerts := append(globalAlerts, histories...)
 	return allAlerts, nil
-}
-
-// AlertService implementation
-func (s *AlertService) UpdateSubscriptionTriggerTime(subscriptionID string) {
-	now := time.Now()
-
-	// 1. 内存更新 (必须在锁保护下进行)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// 遍历内存中的所有订阅，找到并更新时间
-	// (更高效的做法是根据 ID 映射快速定位，但这里展示通用逻辑)
-	for _, list := range s.priceAlerts {
-		for _, sub := range list {
-			if sub.SubscriptionID == subscriptionID {
-				sub.LastTriggeredTime = now // 更新内存
-				break
-			}
-		}
-	}
-
-	// 2. 数据库更新 (DAO层操作)
-	// 假设 AlertDAO 接口有 UpdateSubscriptionTriggerTime 方法
-	s.dao.UpdateSubscriptionTriggerTime(context.Background(), subscriptionID, now)
 }

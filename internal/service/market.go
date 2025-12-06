@@ -697,6 +697,11 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 
 	// 2. 遍历该币种的所有订阅
 	for _, sub := range subs {
+		if time.Since(sub.LastTriggeredTime) < universalBoundaryCooldown {
+			log.Printf("SKIP: 订阅 %s 在冷却期内 (上次触发: %v)", sub.SubscriptionID, sub.LastTriggeredTime)
+			continue // 跳过发送提醒
+		}
+
 		// 检查通用价格关口提醒 (BoundaryPrecision > 0.0)
 		if sub.BoundaryStep > 0.0 {
 
@@ -758,10 +763,6 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 				}
 
 				if triggered {
-					if time.Since(sub.LastTriggeredTime) < universalBoundaryCooldown {
-						log.Printf("SKIP: 订阅 %s 在冷却期内 (上次触发: %v)", sub.SubscriptionID, sub.LastTriggeredTime)
-						continue // 跳过发送提醒
-					}
 					// 3. 🚀 构建 AlertMessage 并调用 PublishToDevice
 					alertMsg := &pb.AlertMessage{
 						UserId:         sub.UserID,
@@ -787,8 +788,8 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 					// 4. 异步发布消息 (不需要调用 MarkSubscriptionAsTriggered)
 					go m.alertService.PublishBroadcast(alertMsg)
 
-					//  更新 LastTriggeredTime
-					m.alertService.UpdateSubscriptionTriggerTime(sub.SubscriptionID)
+					// 通用关口：只更新时间和价格，保持 IsActive = true (shouldDeactivate = false)
+					m.alertService.HandleAlertTrigger(sub.InstID, sub.SubscriptionID, boundary, false)
 
 					log.Printf("ALERT: [%s] 触发通用价格关口提醒: %s", instID, alertTitle)
 				}
@@ -838,9 +839,6 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 		// 突破检查
 		if sub.TargetPrice > 0 && (sub.Direction == "UP" && currentPrice >= sub.TargetPrice || // 向上突破
 			sub.Direction == "DOWN" && currentPrice <= sub.TargetPrice) { // 向下突破
-			// 3. 触发提醒
-			// 标记订阅为非活跃，防止重复触发
-			m.alertService.MarkSubscriptionAsTriggered(sub.InstID, sub.SubscriptionID, currentPrice)
 
 			// 4. 构建 Protobuf 提醒消息
 			alertMsg := &pb.AlertMessage{
@@ -864,6 +862,10 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 			// 避免在锁内执行耗时操作，但AlertService是同步写入Kafka，需要注意性能
 			// 最佳实践是AlertService内部将消息放入Channel并异步写入Kafka
 			go m.alertService.PublishBroadcast(alertMsg)
+
+			// 固定价格：更新时间和价格，并设置为非活跃 (shouldDeactivate = true)
+			// 等待价格回落后由 Reset 逻辑重新激活
+			m.alertService.HandleAlertTrigger(sub.InstID, sub.SubscriptionID, currentPrice, true)
 		}
 
 		// 检查极速上涨/下跌 (ChangePercent)
@@ -905,8 +907,6 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 			}
 
 			if triggered {
-				// 标记已经触发
-				m.alertService.MarkSubscriptionAsTriggered(sub.InstID, sub.SubscriptionID, currentPrice)
 
 				// 构建 Protobuf 提醒消息
 				alertMsg := &pb.AlertMessage{
@@ -927,6 +927,10 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 
 				// 异步发送
 				go m.alertService.PublishBroadcast(alertMsg)
+
+				// 固定价格：更新时间和价格，并设置为非活跃 (shouldDeactivate = true)
+				// 等待价格回落后由 Reset 逻辑重新激活
+				m.alertService.HandleAlertTrigger(sub.InstID, sub.SubscriptionID, currentPrice, true)
 			}
 		}
 	}
