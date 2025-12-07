@@ -786,7 +786,7 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 					}
 
 					// 4. 异步发布消息 (不需要调用 MarkSubscriptionAsTriggered)
-					go m.alertService.PublishBroadcast(alertMsg)
+					go m.alertService.Publish(alertMsg)
 
 					// 通用关口：只更新时间和价格，保持 IsActive = true (shouldDeactivate = false)
 					m.alertService.HandleAlertTrigger(sub.InstID, sub.SubscriptionID, boundary, false)
@@ -861,7 +861,7 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 			// 5. 🚀 调用 AlertService 异步发送 (写入 Kafka 定向 Topic)
 			// 避免在锁内执行耗时操作，但AlertService是同步写入Kafka，需要注意性能
 			// 最佳实践是AlertService内部将消息放入Channel并异步写入Kafka
-			go m.alertService.PublishBroadcast(alertMsg)
+			go m.alertService.Publish(alertMsg)
 
 			// 固定价格：更新时间和价格，并设置为非活跃 (shouldDeactivate = true)
 			// 等待价格回落后由 Reset 逻辑重新激活
@@ -926,7 +926,7 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 				}
 
 				// 异步发送
-				go m.alertService.PublishBroadcast(alertMsg)
+				go m.alertService.Publish(alertMsg)
 
 				// 固定价格：更新时间和价格，并设置为非活跃 (shouldDeactivate = true)
 				// 等待价格回落后由 Reset 逻辑重新激活

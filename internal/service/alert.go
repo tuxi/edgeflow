@@ -146,8 +146,7 @@ type AlertService struct {
 }
 
 type AlertPublisher interface {
-	PublishToDevice(alert *pb.AlertMessage)
-	PublishBroadcast(msg *pb.AlertMessage)
+	Publish(msg *pb.AlertMessage)
 	GetSubscriptionsForInstID(instID string) []*PriceAlertSubscription
 	// 处理订阅触发：更新时间、价格，并根据标志决定是否停用
 	HandleAlertTrigger(instID string, subscriptionID string, triggeredPrice float64, shouldDeactivate bool)
@@ -260,6 +259,17 @@ func (s *AlertService) loadActiveSubscriptions() {
 		s.priceAlerts[sub.InstID] = append(s.priceAlerts[sub.InstID], sub)
 	}
 	log.Printf("AlertService 成功加载 %d 个活跃订阅。", len(dbSubs))
+}
+
+func (s *AlertService) Publish(msg *pb.AlertMessage) {
+	if msg == nil {
+		return
+	}
+	if msg.UserId == "SYSTEM_GLOBAL_ALERT" {
+		s.PublishBroadcast(msg)
+	} else {
+		s.PublishToDevice(msg)
+	}
 }
 
 // 写入全量推送 Topic
