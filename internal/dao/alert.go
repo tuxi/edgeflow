@@ -81,14 +81,53 @@ func (r *AlertBoundaryRepository) GetBoundaryState(ctx context.Context, subID st
 	return state
 }
 
-// SetBoundaryState 将最新的关口状态写入 Redis
-func (r *AlertBoundaryRepository) SetBoundaryState(ctx context.Context, subID string, state model.BoundaryState) error {
+// 冷却时间设置为 5 分钟
+const boundaryCooldown = 5 * time.Minute
+
+// SetBoundaryState 写入状态并设置 TTL
+func (r *AlertBoundaryRepository) SetBoundaryState(ctx context.Context, subID string, state model.BoundaryState, isWhipsaw bool) error {
 	key := r.getKey(subID)
 
-	// 使用 HMSet 写入 Hash
-	return r.rdb.HMSet(ctx, key, map[string]interface{}{
+	pipe := r.rdb.Pipeline()
+
+	// 1. 设置 Hash 字段
+	pipe.HMSet(ctx, key, map[string]interface{}{
 		"last_boundary": state.LastBoundary,
 		"direction":     state.TriggerDirection,
-	}).Err()
-	// ⚠️ 可以在这里设置 TTL (例如 7天)，自动清除极老的、不再活跃的订阅状态
+	})
+
+	// 2. 根据是否为反向穿越 (Whipsaw) 设置冷却时间
+	if isWhipsaw {
+		// 如果是反向穿越，锁定 5 分钟，防止价格快速来回
+		pipe.Expire(ctx, key, boundaryCooldown)
+	} else {
+		// 如果是突破新关口或首次触发，状态应长期有效，不设 TTL
+		pipe.Persist(ctx, key) // 确保移除旧的 TTL
+	}
+
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+// IsKeyInCooldown 检查订阅状态 Key 是否处于冷却期。
+// 它通过检查 Key 的剩余生存时间 (TTL) 来判断。
+func (r *AlertBoundaryRepository) IsKeyInCooldown(ctx context.Context, subID string) bool {
+	key := r.getKey(subID)
+
+	// 使用 TTL 命令获取 Key 的剩余生存时间
+	duration, err := r.rdb.TTL(ctx, key).Result()
+	if err != nil {
+		// 记录错误，但为了系统健壮性，假设此时没有冷却 (返回 false)
+		// 实际生产环境中应记录日志
+		// log.Printf("Redis TTL error for %s: %v", key, err)
+		return false
+	}
+
+	// TTL 命令的返回值含义：
+	// 1. duration > 0：Key 存在且有剩余 TTL，处于冷却期。
+	// 2. duration == -1：Key 存在，但没有设置 TTL (永久存储)。
+	// 3. duration == -2：Key 不存在。
+
+	// 只有 duration > 0 时才认为 Key 正在冷却中
+	return duration > 0
 }

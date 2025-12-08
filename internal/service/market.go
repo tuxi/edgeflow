@@ -750,19 +750,32 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 					// ----------------------------------------------------
 
 					allowAlert := false
+					isWhipsaw := false // 新增标志，用于通知 Redis 是否设置 TTL
 
-					// 场景 A: 首次触发（Redis中无状态）
+					// 1. 场景 A: 首次触发
 					if lastBoundary == 0 {
-						allowAlert = true
-					} else if boundary == lastBoundary && alertDirection != triggerDirection {
-						// 场景 B: 反向突破 (在同一关口，方向改变：允许提醒)
 						allowAlert = true
 					} else if (alertDirection == "UP" && boundary > lastBoundary) ||
 						(alertDirection == "DOWN" && boundary < lastBoundary) {
-						// 场景 C: 突破新关口 (方向一致，但关口价格更远：允许提醒)
+						// 2. 场景 C: 突破新关口 (方向一致，关口更远)
 						allowAlert = true
+					} else if boundary == lastBoundary && alertDirection != triggerDirection {
+						// 3. 场景 B: 反向突破 (在同一关口，方向改变)
+						// ⚠️ 关键修正：在允许反向突破前，必须检查 Redis Key 是否处于 TTL 冷却期
+
+						// 🚀 检查 Key 是否有剩余 TTL：如果 Key 存在但有 TTL，说明正在冷却
+						// 假设 m.boundaryRepo.IsKeyInCooldown(sub.SubscriptionID) 方法已实现
+						if m.boundaryRepo.IsKeyInCooldown(ctx, sub.SubscriptionID) {
+							log.Printf("SKIP: [%s] 抑制快速反向穿越，关口: %.2f", instID, boundary)
+							// 处于冷却期，阻止提醒
+							boundary += step
+							continue
+						}
+
+						// 如果不在冷却期，允许提醒，并标记为 Whipsaw (需要设置 TTL)
+						allowAlert = true
+						isWhipsaw = true // 标记本次触发需要设置 5 分钟冷却
 					}
-					// 场景 D: 其他情况（例如在 90000 关口上方反复微涨/微跌）：抑制提醒
 
 					if allowAlert {
 						// 3. 构建并异步发送提醒消息
@@ -789,12 +802,13 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 
 						go m.alertService.Publish(alertMsg)
 
-						// 4. 🚀 更新 Redis 状态 (新的关口价格和方向)
+						// 4. 更新 Redis 状态并设置 TTL
 						newState := model.BoundaryState{
 							LastBoundary:     boundary,
 							TriggerDirection: alertDirection,
 						}
-						m.boundaryRepo.SetBoundaryState(ctx, sub.SubscriptionID, newState)
+						// 传递 isWhipsaw 标志，通知 Redis 写入时是否设置 TTL
+						m.boundaryRepo.SetBoundaryState(ctx, sub.SubscriptionID, newState, isWhipsaw)
 
 						//  更新 DB 记录 (只更新 LastTriggeredTime / LastTriggeredPrice)
 						// 调用 HandleAlertTrigger:
@@ -804,9 +818,8 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 
 						log.Printf("ALERT: [%s] 触发通用价格关口提醒: %s", instID, alertTitle)
 
-						log.Printf("ALERT: [%s] 触发通用价格关口提醒: %s", instID, alertTitle)
-
 					} else {
+						// 场景 D: 震荡抑制 (同一方向，同一关口或向回震荡)
 						log.Printf("SKIP: [%s] 抑制同向震荡，关口: %.2f, 方向: %s", instID, boundary, alertDirection)
 					}
 
