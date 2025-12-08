@@ -2,8 +2,14 @@ package dao
 
 import (
 	"context"
+	"edgeflow/internal/model"
 	"edgeflow/internal/model/entity"
+	"edgeflow/pkg/cache"
+	"fmt"
+	"strconv"
 	"time"
+
+	"github.com/go-redis/redis/v8"
 )
 
 // AlertDAO 提醒数据访问对象接口
@@ -36,4 +42,53 @@ type AlertDAO interface {
 	// 更新整个订阅（用于客户端修改价格/百分比）
 	UpdateSubscription(ctx context.Context, sub *entity.AlertSubscription) error
 	GetSubscriptionByID(ctx context.Context, id string) (entity.AlertSubscription, error)
+}
+
+type AlertBoundaryRepository struct {
+	rdb *redis.Client
+}
+
+func NewAlertBoundaryRepository() *AlertBoundaryRepository {
+	return &AlertBoundaryRepository{rdb: cache.GetRedisClient()}
+}
+
+// getKey 生成 Redis Key: alert:boundary:SUB_ID
+func (r *AlertBoundaryRepository) getKey(subscriptionID string) string {
+	return fmt.Sprintf("alert:boundary:%s", subscriptionID)
+}
+
+// GetBoundaryState 从 Redis 获取上次的关口状态
+func (r *AlertBoundaryRepository) GetBoundaryState(ctx context.Context, subID string) model.BoundaryState {
+	key := r.getKey(subID)
+
+	// 使用 HGetAll 获取所有字段
+	data, err := r.rdb.HGetAll(ctx, key).Result()
+	if err != nil || len(data) == 0 {
+		// 返回默认/零值状态
+		return model.BoundaryState{}
+	}
+
+	state := model.BoundaryState{}
+
+	// 映射字段 (需要手动解析 float64)
+	if lbStr, ok := data["last_boundary"]; ok {
+		state.LastBoundary, _ = strconv.ParseFloat(lbStr, 64)
+	}
+	if direction, ok := data["direction"]; ok {
+		state.TriggerDirection = direction
+	}
+
+	return state
+}
+
+// SetBoundaryState 将最新的关口状态写入 Redis
+func (r *AlertBoundaryRepository) SetBoundaryState(ctx context.Context, subID string, state model.BoundaryState) error {
+	key := r.getKey(subID)
+
+	// 使用 HMSet 写入 Hash
+	return r.rdb.HMSet(ctx, key, map[string]interface{}{
+		"last_boundary": state.LastBoundary,
+		"direction":     state.TriggerDirection,
+	}).Err()
+	// ⚠️ 可以在这里设置 TTL (例如 7天)，自动清除极老的、不再活跃的订阅状态
 }

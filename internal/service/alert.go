@@ -95,7 +95,7 @@ var DefaultSubscriptionRules = []entity.AlertSubscription{
 		Direction:    "UP",
 		BoundaryStep: sql.NullFloat64{Float64: 0.1, Valid: true}, // 小数点后一位精度修正
 		// 🚀 关口步长 (Magnitude): 5.0
-		BoundaryMagnitude: sql.NullFloat64{Float64: 5.0, Valid: true},
+		BoundaryMagnitude: sql.NullFloat64{Float64: 1.0, Valid: true},
 		IsActive:          true,
 		ID:                "SYS_BOUND_SOL_UP_5",
 	},

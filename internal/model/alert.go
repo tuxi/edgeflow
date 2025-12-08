@@ -45,3 +45,8 @@ type GetHistoriesRequest struct {
 	Limit     int `json:"limit" form:"limit" binding:"required"`
 	AlertType int `json:"alert_type" form:"alert_type" ` // 为空时获取全部类型
 }
+
+type BoundaryState struct {
+	LastBoundary     float64 `redis:"last_boundary"`
+	TriggerDirection string  `redis:"direction"` // "UP" 或 "DOWN"
+}

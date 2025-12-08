@@ -94,13 +94,13 @@ type MarketDataService struct {
 
 	// AlertService 接口
 	alertService AlertPublisher
-
+	boundaryRepo dao.AlertBoundaryRepository
 	// 历史价格队列 (InstID -> []PricePoint)
 	// 这是一个临界资源，必须在 mu 锁保护下访问
 	priceHistory map[string][]PricePoint
 }
 
-func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher, ex exchange.Exchange, SignalRepo dao.SignalDao, producer kafka.ProducerService, alertService AlertPublisher) *MarketDataService {
+func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher InstrumentFetcher, ex exchange.Exchange, SignalRepo dao.SignalDao, producer kafka.ProducerService, alertService AlertPublisher, boundaryRepo *dao.AlertBoundaryRepository) *MarketDataService {
 	m := &MarketDataService{
 		baseCoins:         make(map[string]entity.CryptoInstrument),
 		tradingItems:      make(map[string]TradingItem),
@@ -114,6 +114,7 @@ func NewMarketDataService(ticker *OKXTickerService, instrumentFetcher Instrument
 		producer:          producer,
 		alertService:      alertService,
 		priceHistory:      make(map[string][]PricePoint),
+		boundaryRepo:      *boundaryRepo,
 	}
 	// 启动 MarketService 的核心 Worker
 	go m.startDataWorkers()
@@ -676,9 +677,6 @@ func (m *MarketDataService) GetDetailByID(ctx context.Context, req model.MarketD
 	return &detail, nil
 }
 
-// 设定冷却时间（例如：每 5 分钟最多提醒一次）
-const universalBoundaryCooldown = 5 * time.Minute
-
 // CheckAndTriggerAlerts 检查并触发给定币种的价格提醒
 // 必须在 m.mu.Lock() 保护下调用
 func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, lastPrice float64) {
@@ -689,6 +687,7 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 		return // 没有订阅
 	}
 
+	ctx := context.Background()
 	history := m.priceHistory[instID]
 
 	// 价格重置缓冲区：价格必须远离目标价格 0.5% 才能重置
@@ -697,101 +696,120 @@ func (m *MarketDataService) CheckAndTriggerAlerts(instID string, currentPrice, l
 
 	// 2. 遍历该币种的所有订阅
 	for _, sub := range subs {
-		if time.Since(sub.LastTriggeredTime) < universalBoundaryCooldown {
-			log.Printf("SKIP: 订阅 %s 在冷却期内 (上次触发: %v)", sub.SubscriptionID, sub.LastTriggeredTime)
-			continue // 跳过发送提醒
-		}
 
 		// 检查通用价格关口提醒 (BoundaryPrecision > 0.0)
-		if sub.BoundaryStep > 0.0 {
+		if sub.BoundaryMagnitude > 0.0 { // 更改为检查 BoundaryMagnitude
 
-			// 检查是否设置了 MajorBoundary，如果没有，则退化为 BoundaryStep
+			// 1. 🚀 从 Redis/内存中获取上次触发状态 (低延迟)
+			currentState := m.boundaryRepo.GetBoundaryState(ctx, sub.SubscriptionID)
+			lastBoundary := currentState.LastBoundary
+			triggerDirection := currentState.TriggerDirection
+
+			// 核心逻辑参数不变
 			magnitude := sub.BoundaryMagnitude
-			if magnitude <= 0 {
-				magnitude = 1.0 // 默认至少是 $1.0 的整数关口
-			}
+			step := magnitude
 
 			if lastPrice <= 0 {
 				continue
 			} // 价格无效，跳过
 
-			// 核心参数
-			// 关口步长现在由 Magnitude 决定
-			step := magnitude
-
-			// 确保从低到高遍历
 			low := math.Min(currentPrice, lastPrice)
 			high := math.Max(currentPrice, lastPrice)
 
-			// 1. 计算起始关口和结束关口 (使用 step 作为除数)
-
-			// startBoundary: 找到 low 之后的第一个 step 的倍数
-			// 示例：low=86679.5, step=10000.0。
-			// math.Floor(86679.5/10000) * 10000 + 10000 = 80000 + 10000 = 90000.0
 			startBoundary := math.Floor(low/step)*step + step
-
-			// endBoundary: 找到 high 之前的最后一个 step 的倍数
-			// 示例：high=90001.0, step=10000.0。
-			// math.Floor(90001.0/10000) * 10000 = 90000.0
 			endBoundary := math.Floor(high/step) * step
-
-			// 2. 遍历所有跨越的关口
 			boundary := startBoundary
 
 			// 2. 遍历所有跨越的关口
 			for boundary <= endBoundary {
 
-				// 🚨 重要：修正浮点数误差，确保 boundary 是 step 的准确倍数
-				// 如果 step=10000, 可以跳过这一步，但如果 step=1000/3，则需要精度修正
-				// 由于我们设置的是整数数量级，可以假设误差较小，或使用精确的 Decimal 库。
-				// 为了安全，我们基于 sub.BoundaryStep 的精度进行修正（如果存在）。
+				// 浮点数修正逻辑不变
 				if sub.BoundaryStep > 0 {
 					boundary = math.Round(boundary/sub.BoundaryStep) * sub.BoundaryStep
 				}
 
 				triggered := false
+				alertDirection := ""
 				alertTitle := ""
 
-				// UP 订阅：上次价格 < 关口 AND 当前价格 >= 关口
-				if sub.Direction == "UP" && lastPrice < boundary && currentPrice >= boundary {
+				// UP 突破：上次价格 < 关口 AND 当前价格 >= 关口
+				if lastPrice < boundary && currentPrice >= boundary {
 					triggered = true
+					alertDirection = "UP"
 					alertTitle = fmt.Sprintf("%s 向上突破价格关口 $%.*f", instID, m.GetPrecisionDecimals(step), boundary)
-				} else if sub.Direction == "DOWN" && lastPrice > boundary && currentPrice <= boundary {
-					// DOWN 订阅：上次价格 > 关口 AND 当前价格 <= 关口
+				} else if lastPrice > boundary && currentPrice <= boundary {
+					// DOWN 突破：上次价格 > 关口 AND 当前价格 <= 关口
 					triggered = true
+					alertDirection = "DOWN"
 					alertTitle = fmt.Sprintf("%s 向下突破价格关口 $%.*f", instID, m.GetPrecisionDecimals(step), boundary)
 				}
 
 				if triggered {
-					// 3. 🚀 构建 AlertMessage 并调用 PublishToDevice
-					alertMsg := &pb.AlertMessage{
-						UserId:         sub.UserID,
-						SubscriptionId: sub.SubscriptionID,
-						Id:             uuid.NewString(), // 唯一消息 ID
-						Title:          alertTitle,
-						Content: fmt.Sprintf("当前价格已达到 $%.*f，成功突破了 $%.*f 的关口。",
-							m.GetPrecisionDecimals(step),
-							currentPrice,
-							m.GetPrecisionDecimals(step),
-							boundary),
-						Symbol:    instID,
-						Level:     pb.AlertLevel_ALERT_LEVEL_INFO, // 通用关口设为 INFO 级别
-						AlertType: pb.AlertType_ALERT_TYPE_PRICE,
-						Timestamp: time.Now().UnixMilli(),
-						Extra: map[string]string{
-							"trigger_price":   fmt.Sprintf("%.*f", m.GetPrecisionDecimals(step), boundary),
-							"current_price":   fmt.Sprintf("%.8f", currentPrice), // 记录原始全精度价格
-							"precision_level": fmt.Sprintf("%.8f", step),
-						},
+					// ----------------------------------------------------
+					// 🎯 核心防震荡/方向锁判断
+					// ----------------------------------------------------
+
+					allowAlert := false
+
+					// 场景 A: 首次触发（Redis中无状态）
+					if lastBoundary == 0 {
+						allowAlert = true
+					} else if boundary == lastBoundary && alertDirection != triggerDirection {
+						// 场景 B: 反向突破 (在同一关口，方向改变：允许提醒)
+						allowAlert = true
+					} else if (alertDirection == "UP" && boundary > lastBoundary) ||
+						(alertDirection == "DOWN" && boundary < lastBoundary) {
+						// 场景 C: 突破新关口 (方向一致，但关口价格更远：允许提醒)
+						allowAlert = true
+					}
+					// 场景 D: 其他情况（例如在 90000 关口上方反复微涨/微跌）：抑制提醒
+
+					if allowAlert {
+						// 3. 构建并异步发送提醒消息
+						alertMsg := &pb.AlertMessage{
+							UserId:         sub.UserID,
+							SubscriptionId: sub.SubscriptionID,
+							Id:             uuid.NewString(),
+							Title:          alertTitle,
+							Content: fmt.Sprintf("当前价格已达到 $%.*f，成功突破了 $%.*f 的关口。",
+								m.GetPrecisionDecimals(step),
+								currentPrice,
+								m.GetPrecisionDecimals(step),
+								boundary), // 保持原有内容构建
+							Symbol:    instID,
+							Level:     pb.AlertLevel_ALERT_LEVEL_INFO,
+							AlertType: pb.AlertType_ALERT_TYPE_PRICE,
+							Timestamp: time.Now().UnixMilli(),
+							Extra: map[string]string{
+								"trigger_price":   fmt.Sprintf("%.*f", m.GetPrecisionDecimals(step), boundary),
+								"current_price":   fmt.Sprintf("%.8f", currentPrice),
+								"precision_level": fmt.Sprintf("%.8f", step),
+							},
+						}
+
+						go m.alertService.Publish(alertMsg)
+
+						// 4. 🚀 更新 Redis 状态 (新的关口价格和方向)
+						newState := model.BoundaryState{
+							LastBoundary:     boundary,
+							TriggerDirection: alertDirection,
+						}
+						m.boundaryRepo.SetBoundaryState(ctx, sub.SubscriptionID, newState)
+
+						//  更新 DB 记录 (只更新 LastTriggeredTime / LastTriggeredPrice)
+						// 调用 HandleAlertTrigger:
+						//   - shouldDeactivate=false (保持订阅 IsActive=true)
+						//   - triggeredPrice=boundary (记录触发的关口价格到 LastTriggeredPrice)
+						m.alertService.HandleAlertTrigger(sub.InstID, sub.SubscriptionID, boundary, false)
+
+						log.Printf("ALERT: [%s] 触发通用价格关口提醒: %s", instID, alertTitle)
+
+						log.Printf("ALERT: [%s] 触发通用价格关口提醒: %s", instID, alertTitle)
+
+					} else {
+						log.Printf("SKIP: [%s] 抑制同向震荡，关口: %.2f, 方向: %s", instID, boundary, alertDirection)
 					}
 
-					// 4. 异步发布消息 (不需要调用 MarkSubscriptionAsTriggered)
-					go m.alertService.Publish(alertMsg)
-
-					// 通用关口：只更新时间和价格，保持 IsActive = true (shouldDeactivate = false)
-					m.alertService.HandleAlertTrigger(sub.InstID, sub.SubscriptionID, boundary, false)
-
-					log.Printf("ALERT: [%s] 触发通用价格关口提醒: %s", instID, alertTitle)
 				}
 
 				// 移动到下一个关口

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"edgeflow/conf"
+	"edgeflow/internal/dao"
 	"edgeflow/internal/dao/query"
 	"edgeflow/internal/handler/alert"
 	"edgeflow/internal/handler/hyperliquid"
@@ -74,7 +75,8 @@ func InitRouter(db *gorm.DB) Router {
 	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "AAVE", "AVAX", "ADA", "LINK", "TRX"}
 	tickerService := service.NewOKXTickerService(defaultsCoins)
 	alertServcice := service.NewAlertService(kafProducer, alertDao)
-	marketService := service.NewMarketDataService(tickerService, instrumentDao, okxEx, signalDao, kafProducer, alertServcice)
+	boundaryRepo := dao.NewAlertBoundaryRepository()
+	marketService := service.NewMarketDataService(tickerService, instrumentDao, okxEx, signalDao, kafProducer, alertServcice, boundaryRepo)
 	err := marketService.InitializeBaseInstruments(context.Background(), 1)
 	if err != nil {
 		panic(err)
