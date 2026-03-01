@@ -20,8 +20,8 @@ services:
     build: .
     image: edgeflow:latest
     container_name: edgeflow
-    # ports:
-    #   - "12180:12180" # 屏蔽外部直接访问，只通过 Nginx 访问
+    ports:
+      - "12180:12180" # 屏蔽外部直接访问，只通过 Nginx 访问
     volumes:
       - ./conf:/app/edgeflow/conf
     restart: always
