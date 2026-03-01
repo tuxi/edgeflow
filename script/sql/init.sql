@@ -486,7 +486,7 @@ CREATE TABLE `alert_subscription` (
                                       `is_active` BOOLEAN NOT NULL COMMENT '是否活跃 (1=待触发, 0=已触发)',
                                       `last_triggered_price` DECIMAL(20, 8) NULL COMMENT '上次触发时的价格，用于重置判断',
                                       `last_triggered_time` DATETIME NULL COMMENT '上次触发时的时间，用于防治一定时间内重复提醒',
-                                      `boundary_step` DATETIME COMMENT '记录上次触发时间',
+                                      `boundary_step` float COMMENT '记录上次触发时间',
                                       `boundary_magnitude` DECIMAL(18, 8) NULL COMMENT '关口量级（只有当 BoundaryStep > 0 时使用）',
 
     -- Gorm 约定时间戳
