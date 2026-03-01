@@ -6,8 +6,11 @@ import (
 	"edgeflow/pkg/cache"
 	"edgeflow/pkg/logger"
 	"edgeflow/utils/security"
-	"github.com/go-redis/redis/v8"
+	"errors"
+
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/redis/go-redis/v9"
+
 	"strconv"
 	"strings"
 	"time"
@@ -97,7 +100,7 @@ func IsInBlackList(ctx context.Context, token string) bool {
 	rc := cache.GetRedisClient()
 	joinUnixStr, err := rc.Get(ctx, getBlackListKey(token)).Result()
 	if err != nil {
-		if err != redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			logger.Errorf("Redis连接异常:%v", err.Error())
 		}
 		return false

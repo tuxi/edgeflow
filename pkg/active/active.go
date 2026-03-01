@@ -6,9 +6,11 @@ import (
 	"edgeflow/pkg/logger"
 	"edgeflow/utils/security"
 	"edgeflow/utils/uuid"
-	"github.com/go-redis/redis/v8"
+	"errors"
 	"strconv"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func getActiveCodeKey(code string) string {
@@ -26,7 +28,7 @@ func ActiveCodeCompare(ctx context.Context, code string, userId int64) bool {
 	rc := cache.GetRedisClient()
 	idstr, err := rc.Get(ctx, getActiveCodeKey(code)).Result()
 	if err != nil {
-		if err != redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			logger.Errorf("Redis连接异常:%v", err.Error())
 		}
 		logger.Debugf("用户：%d,激活代码%s不存在", userId, code)

@@ -8,12 +8,13 @@ import (
 	"edgeflow/pkg/logger"
 	"edgeflow/utils/security"
 	"encoding/base64"
-	"github.com/go-redis/redis/v8"
+	"errors"
 	"image/color"
 	"image/png"
 	"time"
 
 	afcap "github.com/afocus/captcha"
+	"github.com/redis/go-redis/v9"
 )
 
 func getCaptchaCodeKey(code string) string {
@@ -57,7 +58,7 @@ func VerifyCaptcha(ctx context.Context, code string) bool {
 	rc := cache.GetRedisClient()
 	code_re, err := rc.Get(ctx, getCaptchaCodeKey(code)).Result()
 	if err != nil {
-		if err != redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			logger.Errorf("Redis连接异常:%v", err.Error())
 		}
 		return false

@@ -20,18 +20,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
-	"github.com/go-redis/redis/v8"
-	uuid2 "github.com/google/uuid"
-	"gorm.io/datatypes"
-	"gorm.io/gorm"
 	"log"
 	"math/rand"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	uuid2 "github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 type UserService interface {

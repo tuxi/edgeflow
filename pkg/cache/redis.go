@@ -3,8 +3,8 @@ package cache
 import (
 	"context"
 	"edgeflow/conf"
-	"github.com/go-redis/redis/v8"
-	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 var redisClient *redis.Client
@@ -17,7 +17,6 @@ func InitRedis(redisCfg conf.RedisConfig) {
 		Password:     redisCfg.Password,
 		PoolSize:     redisCfg.PoolSize,
 		MinIdleConns: redisCfg.MinIdleConns,
-		IdleTimeout:  time.Duration(redisCfg.IdleTimeout) * time.Second,
 	})
 	_, err := redisClient.Ping(context.TODO()).Result()
 	if err != nil {

@@ -11,8 +11,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-redis/redis/v8"
+
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+
 	"log"
 	"math"
 	"strconv"
@@ -704,11 +706,11 @@ func (h *HyperLiquidService) updatePositionsToRedis(ctx context.Context, snapsho
 
 	// 1. 准备数据结构
 	allValueZSet := "whale:pos:all:value"
-	var allValueMembers []*redis.Z
+	var allValueMembers []redis.Z
 
 	// 用于收集所有独立索引 ZSET 成员的 Map： key -> []*redis.Z
 	// Key 格式例如: "idx:coin:ETH", "idx:side:long", "idx:pnl:profit", ...
-	indexZSets := make(map[string][]*redis.Z)
+	indexZSets := make(map[string][]redis.Z)
 
 	// 存储所有要删除的 Key (包括 Hash 详情和所有 ZSET)
 	var keysToDelete []string
@@ -724,7 +726,7 @@ func (h *HyperLiquidService) updatePositionsToRedis(ctx context.Context, snapsho
 		posID := fmt.Sprintf("%s|%s|%s|%s", pos.Address, pos.Coin, pos.LeverageType, pos.LeverageValue)
 		// 2) 准备 ZSET 成员
 		val, _ := strconv.ParseFloat(pos.PositionValue, 64)
-		z := &redis.Z{Score: val, Member: posID}
+		z := redis.Z{Score: val, Member: posID}
 
 		// 3) 写入主排名 ZSET
 		allValueMembers = append(allValueMembers, z)
@@ -856,7 +858,7 @@ func (s *HyperLiquidService) GetTopWhalePositionsFromRedis(ctx context.Context, 
 	}
 
 	// 批量将 HGetAll 命令加入 Pipeline
-	cmds := make([]*redis.StringStringMapCmd, len(detailKeys))
+	cmds := make([]*redis.MapStringStringCmd, len(detailKeys))
 	for i, key := range detailKeys {
 		cmds[i] = pipe.HGetAll(ctx, key)
 	}
