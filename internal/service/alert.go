@@ -169,8 +169,8 @@ type PriceAlertSubscription struct {
 	TargetPrice float64 // 目标价格
 	Direction   string  // "UP", "DOWN" (现在也用于极速提醒的上升/下降)
 
-	LastTriggeredPrice float64   // 上次触发时的价格（用于判断是否重置）
-	LastTriggeredTime  time.Time // 记录上次触发提醒的时间
+	LastTriggeredPrice float64    // 上次触发时的价格（用于判断是否重置）
+	LastTriggeredTime  *time.Time // 记录上次触发提醒的时间
 
 	BoundaryStep      float64 // 0.01 表示以 0.01 为单位跨越
 	BoundaryMagnitude float64
@@ -403,7 +403,7 @@ func (s *AlertService) HandleAlertTrigger(instID string, subscriptionID string, 
 		if sub.SubscriptionID == subscriptionID {
 			// 1. 统一更新触发信息
 			sub.LastTriggeredPrice = triggeredPrice
-			sub.LastTriggeredTime = now // 🚀 总是更新时间
+			sub.LastTriggeredTime = &now // 🚀 总是更新时间
 
 			isActive := true
 
@@ -421,9 +421,12 @@ func (s *AlertService) HandleAlertTrigger(instID string, subscriptionID string, 
 			defer cancel()
 
 			// 异步持久化到 DB (传入所有必要参数)
-			go func(id string, active bool, price float64, t time.Time, ctx context.Context) {
+			go func(id string, active bool, price float64, t *time.Time, ctx context.Context) {
+				if t == nil {
+					t = &now
+				}
 				// 传入当前时间 t，DAO 会更新 last_triggered_time
-				if err := s.dao.UpdateSubscriptionAfterTrigger(ctx, id, active, price, t); err != nil {
+				if err := s.dao.UpdateSubscriptionAfterTrigger(ctx, id, active, price, *t); err != nil {
 					log.Printf("ERROR: DAO 触发订阅失败 ID=%s: %v", id, err)
 				}
 			}(sub.SubscriptionID, isActive, sub.LastTriggeredPrice, sub.LastTriggeredTime, ctx)
