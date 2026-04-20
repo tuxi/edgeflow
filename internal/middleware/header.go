@@ -93,6 +93,12 @@ func ApiBaseHeader() gin.HandlerFunc {
 		deviceId := c.Request.Header.Get(consts.DeviceId)
 		c.Set(consts.DeviceId, deviceId)
 
+		languageID := c.Request.Header.Get(consts.LanguageId)
+		if languageID == "" {
+			languageID = "en"
+		}
+		c.Set(consts.LanguageId, languageID)
+
 		c.Next()
 	}
 }

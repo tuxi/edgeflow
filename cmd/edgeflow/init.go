@@ -7,6 +7,7 @@ import (
 	"edgeflow/internal/dao/query"
 	"edgeflow/internal/handler/alert"
 	"edgeflow/internal/handler/hyperliquid"
+	"edgeflow/internal/handler/insight"
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
 	signal3 "edgeflow/internal/handler/signal"
@@ -69,7 +70,9 @@ func InitRouter(db *gorm.DB) Router {
 	kafConsumer := kafka.NewKafkaConsumer(kafBroker)
 
 	signalDao := query.NewSignalDao(db)
+	insightDao := query.NewInsightDao(db)
 	signalService := service.NewSignalProcessorService(signalDao, okxEx)
+	insightService := service.NewInsightService(insightDao)
 	hyperDao := query.NewHyperLiquidDao(db)
 	alertDao := query.NewAlertDAO(db)
 	defaultsCoins := []string{"BTC", "ETH", "SOL", "DOGE", "XPL", "OKB", "XRP", "LTC", "BNB", "AAVE", "AVAX", "ADA", "LINK", "TRX"}
@@ -97,6 +100,7 @@ func InitRouter(db *gorm.DB) Router {
 	userService := service.NewUserService(userDao, deviceDao, deviceService)
 
 	userHandler := user.NewUserHandler(userService, deviceService)
+	insightHandler := insight.NewHandler(insightService)
 
 	signalHandler := signal3.NewSignalHandler(signalService, okxEx)
 
@@ -105,7 +109,7 @@ func InitRouter(db *gorm.DB) Router {
 
 	alertHandler := alert.NewAlertGateway(alertServcice, kafConsumer)
 
-	apiRouter := router.NewApiRouter(coinH, marketHandler, hyperHandler, userHandler, signalHandler, tickerGw, subscriptionGw, alertHandler)
+	apiRouter := router.NewApiRouter(coinH, marketHandler, hyperHandler, insightHandler, userHandler, signalHandler, tickerGw, subscriptionGw, alertHandler)
 
 	return apiRouter
 }

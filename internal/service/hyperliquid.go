@@ -128,7 +128,7 @@ func (h *HyperLiquidService) GetWhalePortfolioInfoGetAddress(ctx context.Context
 	result.TotalAccumulatedProfits = res.TotalAccumulatedProfits
 	result.TotalAccumulatedPnL = res.TotalAccumulatedPnL
 
-	fmt.Printf("Day PnL: %.2f\n")
+	fmt.Printf("Day PnL: %.2f\n", result.PnLDay)
 
 	return &result, nil
 }

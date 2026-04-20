@@ -3,6 +3,7 @@ package router
 import (
 	"edgeflow/internal/handler/alert"
 	"edgeflow/internal/handler/hyperliquid"
+	"edgeflow/internal/handler/insight"
 	"edgeflow/internal/handler/instrument"
 	"edgeflow/internal/handler/market"
 	"edgeflow/internal/handler/signal"
@@ -16,6 +17,7 @@ import (
 type ApiRouter struct {
 	coinHandler    *instrument.Handler
 	hyperHandler   *hyperliquid.Handler
+	insightHandler *insight.Handler
 	marketHandler  *market.MarketHandler
 	userHandler    *user.UserHandler
 	signalHandler  *signal.SignalHandler
@@ -24,8 +26,8 @@ type ApiRouter struct {
 	alertGw        *alert.AlertGateway
 }
 
-func NewApiRouter(ch *instrument.Handler, marketHandler *market.MarketHandler, hyperHandler *hyperliquid.Handler, userHandler *user.UserHandler, SignalHandler *signal.SignalHandler, tickerGw *ticker.TickerGateway, subscriptionGw *market.SubscriptionGateway, alertGw *alert.AlertGateway) *ApiRouter {
-	return &ApiRouter{coinHandler: ch, marketHandler: marketHandler, hyperHandler: hyperHandler, userHandler: userHandler, signalHandler: SignalHandler, tickerGw: tickerGw, subscriptionGw: subscriptionGw, alertGw: alertGw}
+func NewApiRouter(ch *instrument.Handler, marketHandler *market.MarketHandler, hyperHandler *hyperliquid.Handler, insightHandler *insight.Handler, userHandler *user.UserHandler, signalHandler *signal.SignalHandler, tickerGw *ticker.TickerGateway, subscriptionGw *market.SubscriptionGateway, alertGw *alert.AlertGateway) *ApiRouter {
+	return &ApiRouter{coinHandler: ch, marketHandler: marketHandler, hyperHandler: hyperHandler, insightHandler: insightHandler, userHandler: userHandler, signalHandler: signalHandler, tickerGw: tickerGw, subscriptionGw: subscriptionGw, alertGw: alertGw}
 }
 
 func (api *ApiRouter) Load(g *gin.Engine) {
@@ -67,6 +69,15 @@ func (api *ApiRouter) Load(g *gin.Engine) {
 		h.GET("/whales/positions-analyze", api.hyperHandler.TopWhalePositionsAnalyze())
 		// 鲸鱼排行：此排行是我们自主研发的排行指标，非hyper官方的排行规则
 		h.GET("/whales/whale-alpha-rank", api.hyperHandler.GetCustomWinRateLeaderboardHandler())
+	}
+
+	ig := base.Group("/insight", middleware.RequestValidationMiddleware())
+	{
+		ig.GET("/market/overview", api.insightHandler.MarketOverviewGet())
+		ig.GET("/market/watchlist", api.insightHandler.MarketWatchlistGet())
+		ig.GET("/assets/:instrument_id/summary", api.insightHandler.AssetSummaryGet())
+		ig.GET("/assets/:instrument_id/timeline", api.insightHandler.AssetTimelineGet())
+		ig.GET("/assets/:instrument_id/digest", api.insightHandler.AssetDigestGet())
 	}
 
 	sg := base.Group("/signal", middleware.RequestValidationMiddleware())

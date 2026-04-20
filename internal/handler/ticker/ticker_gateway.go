@@ -5,14 +5,15 @@ import (
 	"edgeflow/internal/service"
 	"edgeflow/pkg/kafka"
 	pb "edgeflow/pkg/protobuf"
-	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
-	"google.golang.org/protobuf/proto"
 	"log"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"google.golang.org/protobuf/proto"
 )
 
 /*
@@ -165,7 +166,6 @@ func (h *TickerGateway) ServeWS(c *gin.Context) {
 	// 连接成功后，立即发送当前的 SortedInstIDs 状态，客户端不需要获取就主动推送一次
 	// 连接成功后，立即发送当前的 SortedInstIDs 状态
 	go h.sendInitialSystemState(newClient)
-
 	defer func() {
 
 		// 清理当前新连接（在连接断开时）

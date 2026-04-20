@@ -1,8 +1,11 @@
 package db
 
 import (
+	"bufio"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,4 +82,40 @@ func Init(cfg Config) *gorm.DB {
 		sqlDB.SetConnMaxLifetime(time.Hour)
 	})
 	return DB
+}
+
+func RunSQLFile(db *gorm.DB, path string) error {
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var builder strings.Builder
+	scanner := bufio.NewScanner(strings.NewReader(string(bytes)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "--") || strings.HasPrefix(line, "#") {
+			continue
+		}
+		builder.WriteString(line)
+		builder.WriteByte('\n')
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	statements := strings.Split(builder.String(), ";")
+	for _, stmt := range statements {
+		query := strings.TrimSpace(stmt)
+		if query == "" {
+			continue
+		}
+		if err := db.Exec(query).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
