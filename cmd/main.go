@@ -54,6 +54,9 @@ func main() {
 	if err := db.RunSQLFile(datasource, "script/sql/insight_phase1.sql"); err != nil {
 		log.Fatalf("Failed to run insight phase1 migration: %v", err)
 	}
+	if err := db.RunSQLFile(datasource, "script/sql/signal_refactor_cut1.sql"); err != nil {
+		log.Fatalf("Failed to run signal refactor cut1 migration: %v", err)
+	}
 
 	redisHost := os.Getenv("REDIS_HOST")
 	redisPort := os.Getenv("REDIS_PORT")
