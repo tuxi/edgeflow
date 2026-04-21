@@ -551,6 +551,10 @@
   把 `sentiment_score`、`attention_score` 的 Phase 1 规则口径文档化，避免前后端和产品解释不一致
 - `BASE-12`
   扩展并固定事件类型枚举，补齐 `trend_shift`、`attention_spike`、`price_breakout`
+  `risk_warning` 已从单一高分歧触发扩展到真实多来源：
+  `defensive_signal`、`attention_divergence`、`elevated_risk`
+  当前已验证 API 可返回三类风险事件，前端可以按三种风险卡片同步开发
+  `timeline` 已补 `marker_style` 元信息，前端可以直接按 `action | warning | flow | info` 映射 K 线 marker 风格
 - `BASE-16`
   收紧 `narrative_tags` 的 Phase 1 策略，减少当前占位标签过粗的问题
 - `BASE-10`

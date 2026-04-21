@@ -57,10 +57,26 @@
 - `impact_level`
 - `sentiment_direction`
 - `marker_price`
+- `marker_style`
 - `related_narrative`
 - `related_source_type`
 
 这些字段已经对前端开放，建议前端继续按这个模型接，不要再做另一套事件结构。
+
+其中 `marker_style` 是给前端直接消费的展示元信息，当前稳定值为：
+
+- `action`
+- `warning`
+- `flow`
+- `info`
+
+当前映射规则：
+
+- `signal_created` -> `action`
+- `risk_warning` -> `warning`
+- `whale_activity` -> `flow`
+- `trend_shift / price_breakout` -> `action`
+- `attention_spike` -> `info`
 
 ## 3. Phase 1 建议统一的事件类型枚举
 
@@ -101,6 +117,7 @@
 - `source_ref_type = signal`
 - `source_ref_id = signal_id`
 - `marker_price = signal.MarkPrice`
+- `marker_style = action`
 
 当前语义：
 
@@ -138,6 +155,7 @@
 - `source_ref_type = whale`
 - `source_ref_id = whale.Address`
 - `marker_price = null`
+- `marker_style = flow`
 
 当前语义：
 
@@ -168,10 +186,13 @@
 当前来源：
 
 - `asset_insight_snapshots`
+- `signal cluster` 的防守型结果
 
 当前触发逻辑：
 
-- `risk_level == elevated`
+- `defensive_signal`
+  同一资产在最新窗口出现偏空/防守型 signal cluster
+- 或 `risk_level == elevated`
 - 或 `divergence_score >= 18`
 
 满足任一条件时，会生成一条 `risk_warning`
@@ -180,21 +201,49 @@
 
 - `related_source_type = system`
 - `source_ref_type = snapshot`
-- `source_ref_id = snapshot.ID`
-- `marker_price = null`
+- `source_ref_id = snapshot.ID:reason`
+- `marker_price`
+  `defensive_signal` 优先使用 signal cluster 的 `marker_price`
+  `attention_divergence / elevated_risk` 优先使用当前市场价
+- `marker_style = warning`
 
 当前语义：
 
 - 系统认为当前资产的风险、波动或背离程度上升
+- 当前真实会细分为：
+  `defensive_signal`、`attention_divergence`、`elevated_risk`
 
 当前标题/摘要：
 
-- 中文：`风险等级抬升`
-- 英文：`Risk level moved higher`
+- `defensive_signal`
+  中文：`防守信号开始堆积`
+  英文：`Defensive signal cluster appeared`
+- `attention_divergence`
+  中文：`热度跑在确认前面`
+  英文：`Attention is outrunning conviction`
+- `elevated_risk`
+  中文：`风险等级抬升`
+  英文：`Risk level moved higher`
+
+当前已验证覆盖：
+
+- `attention_divergence`
+  资产示例：`AAVE`, `XPL`
+- `elevated_risk`
+  资产示例：`ETH`, `AAVE`, `XPL`
+- `defensive_signal`
+  资产示例：`BTC`, `SOL`, `XPL`
 
 当前 `sentiment_direction`：
 
-- 固定为 `neutral`
+- `defensive_signal` 下为 `negative`
+- 其他情况默认 `neutral`
+
+当前 K 线挂点建议：
+
+- `marker_price != null` 时允许直接挂到 K 线
+- `risk_warning` 的 marker 更适合作为“风险提示点”，不是交易开仓点
+- `marker_style` 建议作为前端唯一的 marker 风格来源，不要再自己按 `event_type` 推一套颜色逻辑
 
 ## 5. Phase 1 已定义但尚未产出的事件
 

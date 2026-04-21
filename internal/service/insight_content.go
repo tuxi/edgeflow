@@ -192,10 +192,25 @@ func timelineTitle(locale string, item model.AssetTimelineItem) string {
 			return "Whale activity remains elevated"
 		}
 	case "risk_warning":
+		riskKind := riskWarningKind(item)
 		if locale == zhHansLocale {
-			return "风险等级抬升"
+			switch riskKind {
+			case "defensive_signal":
+				return "防守信号开始堆积"
+			case "attention_divergence":
+				return "热度跑在确认前面"
+			default:
+				return "风险等级抬升"
+			}
 		}
-		return "Risk level moved higher"
+		switch riskKind {
+		case "defensive_signal":
+			return "Defensive signal cluster appeared"
+		case "attention_divergence":
+			return "Attention is outrunning conviction"
+		default:
+			return "Risk level moved higher"
+		}
 	default:
 		if item.Title != "" {
 			return item.Title
@@ -275,6 +290,18 @@ func timelineSummary(locale string, item model.AssetTimelineItem) string {
 			return "Large-account participation remains visible, which keeps this asset firmly on the smart-money radar."
 		}
 	case "risk_warning":
+		switch riskWarningKind(item) {
+		case "defensive_signal":
+			if locale == zhHansLocale {
+				return "这轮偏空或防守型信号开始累积，说明短线资金还没有回到主动进攻。"
+			}
+			return "Defensive signal flow is starting to stack up, which suggests short-term traders are not ready to re-risk yet."
+		case "attention_divergence":
+			if locale == zhHansLocale {
+				return "关注度已经跑在方向确认前面，短线更容易出现冲高回落或来回扫动。"
+			}
+			return "Attention is running ahead of directional confirmation, which raises the chance of fades and whipsaw price action."
+		}
 		if locale == zhHansLocale {
 			return "热度、分歧或风险指标抬升，短线更适合先等确认，而不是在噪音里追价。"
 		}
@@ -529,4 +556,16 @@ func timelineVariant(ts time.Time) int {
 		return 0
 	}
 	return int(ts.Unix()/3600) % 3
+}
+
+func riskWarningKind(item model.AssetTimelineItem) string {
+	lower := strings.ToLower(item.EventID + " " + item.Title + " " + item.Summary)
+	switch {
+	case strings.Contains(lower, "defensive signal"):
+		return "defensive_signal"
+	case strings.Contains(lower, "attention_divergence"), strings.Contains(lower, "outrunning conviction"):
+		return "attention_divergence"
+	default:
+		return "elevated_risk"
+	}
 }

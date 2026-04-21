@@ -76,6 +76,7 @@ type AssetTimelineItem struct {
 	ImpactLevel        string    `json:"impact_level"`
 	SentimentDirection string    `json:"sentiment_direction"`
 	MarkerPrice        *float64  `json:"marker_price"`
+	MarkerStyle        string    `json:"marker_style"`
 	RelatedNarrative   string    `json:"related_narrative"`
 	RelatedSourceType  string    `json:"related_source_type"`
 }

@@ -155,6 +155,7 @@ func (s *InsightService) GetAssetTimeline(ctx context.Context, instrumentID stri
 			ImpactLevel:        event.ImpactLevel,
 			SentimentDirection: event.SentimentDirection,
 			MarkerPrice:        event.MarkerPrice,
+			MarkerStyle:        markerStyleForEventType(event.EventType),
 			RelatedNarrative:   event.RelatedNarrative,
 			RelatedSourceType:  event.RelatedSourceType,
 		}))
@@ -300,5 +301,20 @@ func digestPriority(item model.AssetDigestItem) int {
 		return 2
 	default:
 		return 3
+	}
+}
+
+func markerStyleForEventType(eventType string) string {
+	switch eventType {
+	case "signal_created", "trend_shift", "price_breakout":
+		return "action"
+	case "risk_warning":
+		return "warning"
+	case "whale_activity":
+		return "flow"
+	case "attention_spike":
+		return "info"
+	default:
+		return "info"
 	}
 }

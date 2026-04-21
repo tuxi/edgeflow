@@ -159,6 +159,7 @@
 - `impact_level`
 - `sentiment_direction`
 - `marker_price`
+- `marker_style`
 - `related_narrative`
 - `related_source_type`
 
@@ -169,6 +170,24 @@
 - `signal_created` 事件也会按资产、方向和小时窗口压缩
 - 同一小时内连续出现的同方向 signal，前端通常只会看到一条合并后的 signal 更新
 - `timeline` 会按“小时窗口 + 重要度”排序；同一窗口里通常 `signal`、`risk_warning` 会排在 `whale_activity` 前面
+- `risk_warning` 现在已经有真实产出，当前常见来源包括：
+  `defensive_signal`、`attention_divergence`、`elevated_risk`
+- 已验证示例：
+  `AAVE`、`XPL` 可返回 `attention_divergence`
+  `ETH`、`AAVE`、`XPL` 可返回 `elevated_risk`
+  `BTC`、`SOL`、`XPL` 可返回 `defensive_signal`
+- `risk_warning` 现在也会尽量返回 `marker_price`
+  `defensive_signal` 优先挂 signal 价格
+  `attention_divergence / elevated_risk` 优先挂当前市场价
+- `timeline` 现在会直接返回 `marker_style`，前端不需要再按 `event_type` 自己猜 K 线 marker 风格
+- 当前稳定值：
+  `action`、`warning`、`flow`、`info`
+- 当前映射：
+  `signal_created -> action`
+  `risk_warning -> warning`
+  `whale_activity -> flow`
+  未来 `trend_shift / price_breakout` 也会走 `action`
+  未来 `attention_spike` 会走 `info`
 
 ### 3.5 详情页 Digest
 
@@ -195,6 +214,7 @@
 - `digest` 中的 `signal` 项也会按小时窗口做去重
 - 同方向、同一小时的 signal 不会在 digest 里重复刷多条
 - `digest` 也会按“小时窗口 + 重要度”排序；同一窗口里 `signal` 一般会比 `whale` 更靠前
+- `digest` 里的 `system` 项现在会承接 `risk_warning`，前端可以按高优先级风险卡片处理
 
 ## 4. 接口说明
 
@@ -358,6 +378,7 @@ GET /api/v1/insight/assets/BTC-USDT/timeline?locale=zh-CN
       "impact_level": "medium",
       "sentiment_direction": "positive",
       "marker_price": null,
+      "marker_style": "flow",
       "related_narrative": "core_asset",
       "related_source_type": "whale"
     },
@@ -370,6 +391,7 @@ GET /api/v1/insight/assets/BTC-USDT/timeline?locale=zh-CN
       "impact_level": "medium",
       "sentiment_direction": "negative",
       "marker_price": 75793.1,
+      "marker_style": "action",
       "related_narrative": "core_asset",
       "related_source_type": "signal"
     }
@@ -383,6 +405,13 @@ GET /api/v1/insight/assets/BTC-USDT/timeline?locale=zh-CN
 - `event_type`: 事件类型枚举
 - `title` / `summary`: 已按 locale 生成，可直接展示
 - `marker_price`: 可选；若前端要和 K 线 marker 联动，可复用
+- `marker_style`: K 线 marker 展示风格枚举，建议前端直接按这个字段映射样式
+- 对 `risk_warning` 来说，若 `marker_price != null`，建议直接作为 K 线风险标记锚点
+- 当前建议：
+  `action` = 交易/突破类高亮样式
+  `warning` = 风险提醒样式
+  `flow` = 资金流观察样式
+  `info` = 中性信息样式
 - `related_source_type`: 当前常见值为 `signal | whale | system`
 - `period`: 当前只有 `24h` 和 `7d` 两档；传非法值会返回校验错误
 
